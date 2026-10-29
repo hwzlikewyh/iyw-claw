@@ -89,6 +89,18 @@ function isExpectedConnectError(error: unknown): boolean {
   return (error as { alerted?: unknown }).alerted === true
 }
 
+const AUTO_RECONNECT_BASE_DELAY_MS = 1_000
+const AUTO_RECONNECT_MAX_DELAY_MS = 30_000
+const AUTO_RECONNECT_MAX_EXPONENT = 5
+
+function autoReconnectDelay(attempt: number): number {
+  const exponent = Math.min(attempt - 1, AUTO_RECONNECT_MAX_EXPONENT)
+  return Math.min(
+    AUTO_RECONNECT_BASE_DELAY_MS * 2 ** exponent,
+    AUTO_RECONNECT_MAX_DELAY_MS
+  )
+}
+
 export function useConnectionLifecycle({
   contextKey,
   agentType,
@@ -155,6 +167,30 @@ export function useConnectionLifecycle({
   useEffect(() => {
     statusRef.current = status
   }, [status])
+  const isActiveRef = useRef(isActive)
+  useEffect(() => {
+    isActiveRef.current = isActive
+  }, [isActive])
+  const workingDirRef = useRef(workingDir)
+  useEffect(() => {
+    workingDirRef.current = workingDir
+  }, [workingDir])
+  const agentTypeRef = useRef(agentType)
+  useEffect(() => {
+    agentTypeRef.current = agentType
+  }, [agentType])
+  const attachOnlyRef = useRef(attachOnlyOnActivate)
+  useEffect(() => {
+    attachOnlyRef.current = attachOnlyOnActivate
+  }, [attachOnlyOnActivate])
+  const loadErrorRef = useRef(conn.loadError)
+  useEffect(() => {
+    loadErrorRef.current = conn.loadError
+  }, [conn.loadError])
+  const connectionIdRef = useRef(conn.connectionId)
+  useEffect(() => {
+    connectionIdRef.current = conn.connectionId
+  }, [conn.connectionId])
   const isViewerRef = useRef(conn.isViewer)
   useEffect(() => {
     isViewerRef.current = conn.isViewer
@@ -187,6 +223,13 @@ export function useConnectionLifecycle({
   useEffect(() => {
     conversationIdRef.current = conversationId
   }, [conversationId])
+  const hadConnectionRef = useRef(false)
+  const reconnectAttemptRef = useRef(0)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectGenerationRef = useRef(0)
+  useEffect(() => {
+    if (conn.connectionId) hadConnectionRef.current = true
+  }, [conn.connectionId])
   const modeIdRef = useRef<string | null>(modes?.current_mode_id ?? null)
   useEffect(() => {
     modeIdRef.current = modes?.current_mode_id ?? null
@@ -198,6 +241,106 @@ export function useConnectionLifecycle({
       touchActivity(contextKey)
     }
   }, [isActive, contextKey, setActiveKey, touchActivity])
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    reconnectGenerationRef.current += 1
+  }, [])
+  const scheduleReconnectRef = useRef<() => void>(() => {})
+
+  const scheduleReconnect = useCallback(() => {
+    if (
+      !isActiveRef.current ||
+      !workingDirRef.current?.trim() ||
+      loadErrorRef.current ||
+      statusRef.current === "connecting" ||
+      reconnectTimerRef.current !== null
+    ) {
+      return
+    }
+    const attempt = reconnectAttemptRef.current + 1
+    reconnectAttemptRef.current = attempt
+    const generation = ++reconnectGenerationRef.current
+    const delay = autoReconnectDelay(attempt)
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null
+      if (
+        generation !== reconnectGenerationRef.current ||
+        !isActiveRef.current ||
+        !workingDirRef.current?.trim() ||
+        loadErrorRef.current ||
+        statusRef.current === "connecting" ||
+        statusRef.current === "connected" ||
+        statusRef.current === "prompting"
+      ) {
+        return
+      }
+      const reconnect = connConnectRef.current
+      if (!reconnect) {
+        scheduleReconnectRef.current()
+        return
+      }
+      reconnect(
+        agentTypeRef.current,
+        workingDirRef.current,
+        sessionIdRef.current,
+        conversationIdRef.current,
+        {
+          attachOnly: attachOnlyRef.current || isViewerRef.current,
+          silent: true,
+          preferredConfigValues: preferredConfigValuesRef.current,
+        }
+      )
+        .then(() => {
+          if (
+            connectionIdRef.current ||
+            statusRef.current === "connecting" ||
+            statusRef.current === "connected" ||
+            statusRef.current === "prompting"
+          ) {
+            reconnectAttemptRef.current = 0
+            clearReconnectTimer()
+          } else {
+            scheduleReconnectRef.current()
+          }
+        })
+        .catch((error: unknown) => {
+          if (!isExpectedConnectError(error)) scheduleReconnectRef.current()
+        })
+    }, delay)
+  }, [clearReconnectTimer])
+
+  useEffect(() => {
+    scheduleReconnectRef.current = scheduleReconnect
+  }, [scheduleReconnect])
+
+  useEffect(() => {
+    if (!isActive || !workingDir?.trim() || conn.loadError) {
+      clearReconnectTimer()
+      return
+    }
+    if (!hadConnectionRef.current) return
+    if (status === "connected" || status === "prompting") {
+      reconnectAttemptRef.current = 0
+      clearReconnectTimer()
+      return
+    }
+    if (status === "connecting") return
+    scheduleReconnect()
+  }, [
+    clearReconnectTimer,
+    conn.connectionId,
+    conn.loadError,
+    isActive,
+    scheduleReconnect,
+    status,
+    workingDir,
+  ])
+
+  useEffect(() => clearReconnectTimer, [clearReconnectTimer])
 
   // Auto-connect when tab becomes active and workingDir is available.
   // Depends on isActive + workingDir + agentType so that connections wait
@@ -225,6 +368,8 @@ export function useConnectionLifecycle({
       .then(() => {
         if (!cancelled) {
           setLastAutoConnectError(null)
+          reconnectAttemptRef.current = 0
+          clearReconnectTimer()
         }
       })
       .catch((e: unknown) => {
@@ -234,6 +379,7 @@ export function useConnectionLifecycle({
             agentType,
             message: normalizeErrorMessage(e),
           })
+          if (!isExpectedConnectError(e)) scheduleReconnect()
         }
         if (!isExpectedConnectError(e)) {
           console.error("[ConnLifecycle] auto-connect:", e)
@@ -242,7 +388,14 @@ export function useConnectionLifecycle({
     return () => {
       cancelled = true
     }
-  }, [isActive, workingDir, agentType, attachOnlyOnActivate])
+  }, [
+    agentType,
+    attachOnlyOnActivate,
+    clearReconnectTimer,
+    isActive,
+    scheduleReconnect,
+    workingDir,
+  ])
 
   // Manage task status for connection progress
   const taskIdRef = useRef<string | null>(null)
@@ -395,6 +548,7 @@ export function useConnectionLifecycle({
     ) {
       setLastAutoConnectError(null)
       await connConnect(agentType, workingDir, sessionId, conversationId, {
+        attachOnly: isViewerRef.current || attachOnlyOnActivate,
         preferredConfigValues: preferredConfigValuesRef.current,
       })
     }
@@ -410,6 +564,7 @@ export function useConnectionLifecycle({
     conn.connectedWorkingDir,
     connConnect,
     contextKey,
+    attachOnlyOnActivate,
     touchActivity,
   ])
 

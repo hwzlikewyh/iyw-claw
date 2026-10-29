@@ -1306,8 +1306,13 @@ impl ConnectionManager {
         disconnected
     }
 
-    /// 仅记录 LLM 长时间未输出，不取消回合或断开连接。
-    /// 工具超时由工具层返回给 Agent；保留方法名以兼容现有扫尾入口。
+    /// Recover a silent LLM wait once, without replaying the prompt.
+    ///
+    /// Tool calls, permissions, questions and background work are filtered out
+    /// before this method is reached. A generation check prevents a late sweep
+    /// from cancelling a newer turn. If the Agent does not acknowledge the
+    /// cancellation, the connection is closed so the next prompt cannot reuse a
+    /// wedged session.
     pub async fn recover_stalled_prompts(&self, stall_timeout: Duration) -> usize {
         let observations = self
             .collect_stalled_prompt_observations(stall_timeout)
@@ -1344,13 +1349,19 @@ impl ConnectionManager {
         agent_pid: Option<u32>,
         assessment: PromptStallAssessment,
     ) {
-        let state = {
+        let connection = {
             let connections = self.connections.lock().await;
-            connections
-                .get(&id)
-                .map(|connection| connection.state.clone())
+            connections.get(&id).map(|connection| {
+                (
+                    connection.state.clone(),
+                    connection.emitter.clone(),
+                    connection.cmd_tx.clone(),
+                    connection.disconnect_command_ready.clone(),
+                    connection.cancellation.clone(),
+                )
+            })
         };
-        let Some(state) = state else {
+        let Some((state, emitter, cmd_tx, disconnect_ready, cancellation)) = connection else {
             return;
         };
         let snapshot = state.read().await;
@@ -1369,6 +1380,8 @@ impl ConnectionManager {
         {
             return;
         }
+        let agent_type = snapshot.agent_type.to_string();
+        drop(snapshot);
         tracing::warn!(
             connection_id = %id,
             turn_generation,
@@ -1376,9 +1389,115 @@ impl ConnectionManager {
             effective_timeout_secs = assessment.effective_timeout.as_secs(),
             active_foreground_tools = assessment.active_tool_count,
             silent_for_secs = assessment.silent_for.as_secs(),
-            action = "observe_only",
-            "[ACP] LLM output is silent; preserving active turn and connection"
+            action = "safe_cancel",
+            grace_secs = STALLED_PROMPT_CANCEL_GRACE.as_secs(),
+            "[ACP] LLM output is silent; requesting one safe cancellation"
         );
+        emit_with_state(
+            &state,
+            &emitter,
+            AcpEvent::Error {
+                message: "Agent response timed out while waiting for runtime output".into(),
+                agent_type,
+                code: Some("prompt_stall_timeout".into()),
+                details: Some(format!(
+                    "turn_generation={turn_generation}; silent_for_secs={}",
+                    assessment.silent_for.as_secs()
+                )),
+                terminal: false,
+            },
+        )
+        .await;
+        if cmd_tx
+            .send(ConnectionCommand::SafeCancel {
+                expected_turn_generation: turn_generation,
+            })
+            .await
+            .is_err()
+        {
+            self.stalled_prompt_observations
+                .lock()
+                .await
+                .remove(&(id.clone(), turn_generation));
+            return;
+        }
+        self.schedule_stalled_prompt_disconnect(
+            id,
+            turn_generation,
+            disconnect_ready,
+            cancellation,
+        );
+    }
+
+    fn schedule_stalled_prompt_disconnect(
+        &self,
+        id: String,
+        turn_generation: i64,
+        disconnect_ready: Arc<AtomicBool>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) {
+        let manager = self.clone_ref();
+        tokio::spawn(async move {
+            tokio::time::sleep(STALLED_PROMPT_CANCEL_GRACE).await;
+            manager
+                .disconnect_unacknowledged_stalled_prompt(
+                    &id,
+                    turn_generation,
+                    disconnect_ready,
+                    cancellation,
+                )
+                .await;
+        });
+    }
+
+    async fn disconnect_unacknowledged_stalled_prompt(
+        &self,
+        id: &str,
+        turn_generation: i64,
+        disconnect_ready: Arc<AtomicBool>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) {
+        let connection = {
+            let connections = self.connections.lock().await;
+            connections.get(id).map(|connection| {
+                (connection.state.clone(), connection.emitter.clone(), connection.cmd_tx.clone())
+            })
+        };
+        let Some((state, emitter, cmd_tx)) = connection else {
+            return;
+        };
+        let still_active = {
+            let snapshot = state.read().await;
+            snapshot.turn_generation == turn_generation && snapshot.turn_in_flight
+        };
+        if !still_active {
+            return;
+        }
+        let agent_type = state.read().await.agent_type.to_string();
+        tracing::error!(
+            connection_id = %id,
+            turn_generation,
+            "[ACP] stalled prompt did not acknowledge cancellation; disconnecting"
+        );
+        emit_with_state(
+            &state,
+            &emitter,
+            AcpEvent::Error {
+                message:
+                    "The agent connection was closed because cancellation was not acknowledged"
+                        .into(),
+                agent_type,
+                code: Some("prompt_stall_disconnect".into()),
+                details: Some(format!("turn_generation={turn_generation}")),
+                terminal: true,
+            },
+        )
+        .await;
+        if cmd_tx.try_send(ConnectionCommand::Disconnect).is_err()
+            || !disconnect_ready.load(Ordering::Acquire)
+        {
+            cancellation.cancel();
+        }
     }
 
     async fn collect_stalled_prompt_observations(

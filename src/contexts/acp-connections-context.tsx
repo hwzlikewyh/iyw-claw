@@ -348,6 +348,8 @@ type ConnectRequest = {
   continuationFromSessionId?: string
   continuationContext?: string
   attachOnly?: boolean
+  /** Suppress user-facing alerts for an automatic reconnect attempt. */
+  silent?: boolean
   forceHostRestart?: boolean
 }
 
@@ -377,6 +379,7 @@ function sameConnectRequest(a: ConnectRequest, b: ConnectRequest) {
     JSON.stringify(a.preferredConfigValues ?? null) ===
       JSON.stringify(b.preferredConfigValues ?? null) &&
     Boolean(a.attachOnly) === Boolean(b.attachOnly) &&
+    Boolean(a.silent) === Boolean(b.silent) &&
     Boolean(a.forceHostRestart) === Boolean(b.forceHostRestart) &&
     (a.continuationFromSessionId ?? null) ===
       (b.continuationFromSessionId ?? null) &&
@@ -2748,6 +2751,8 @@ export interface AcpActionsValue {
     conversationId?: number,
     options?: {
       attachOnly?: boolean
+      /** Suppress user-facing alerts for an automatic reconnect attempt. */
+      silent?: boolean
       forceHostRestart?: boolean
       preferredConfigValues?: Record<string, string> | null
       continuationFromSessionId?: string
@@ -3297,6 +3302,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             latest.request.conversationId,
             {
               attachOnly: latest.request.attachOnly,
+              silent: latest.request.silent,
               forceHostRestart: latest.request.forceHostRestart,
               preferredConfigValues: latest.request.preferredConfigValues,
               continuationFromSessionId:
@@ -5142,6 +5148,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       conversationId?: number,
       options?: {
         attachOnly?: boolean
+        silent?: boolean
         forceHostRestart?: boolean
         preferredConfigValues?: Record<string, string> | null
         continuationFromSessionId?: string
@@ -5155,6 +5162,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         sessionId,
         conversationId,
         attachOnly: options?.attachOnly,
+        silent: options?.silent,
         forceHostRestart: options?.forceHostRestart,
         preferredConfigValues: options?.preferredConfigValues,
         continuationFromSessionId: options?.continuationFromSessionId,
@@ -5222,12 +5230,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             const failedTitle = t("connectFailedTitle", {
               agent: getAgentDisplayName(agentType),
             })
-            pushAlertRef.current(
-              "error",
-              failedTitle,
-              `${reason}\n${t("agentsSetupHint")}`,
-              [buildOpenAgentsSettingsAction(agentType)]
-            )
+            if (!request.silent) {
+              pushAlertRef.current(
+                "error",
+                failedTitle,
+                `${reason}\n${t("agentsSetupHint")}`,
+                [buildOpenAgentsSettingsAction(agentType)]
+              )
+            }
             throw createAlertedError(reason)
           }
 
@@ -5243,12 +5253,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                     hint: t("agentsSetupHint"),
                   })
                 : `${blocked.reason}\n${t("agentsSetupHint")}`
-            pushAlertRef.current(
-              "error",
-              blocked.kind === "sdk_missing" ? blocked.reason : failedTitle,
-              detail,
-              [buildOpenAgentsSettingsAction(agentType)]
-            )
+            if (!request.silent) {
+              pushAlertRef.current(
+                "error",
+                blocked.kind === "sdk_missing" ? blocked.reason : failedTitle,
+                detail,
+                [buildOpenAgentsSettingsAction(agentType)]
+              )
+            }
             throw createAlertedError(blocked.reason)
           }
         }
@@ -5585,7 +5597,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         ) {
           setReplacementState(contextKey, false)
         }
-        if (!superseded && !isAlertedError(err)) {
+        if (!superseded && !request.silent && !isAlertedError(err)) {
           const message = normalizeErrorMessage(err)
           const agentLabel = getAgentDisplayName(agentType)
           // Backend safety net: if the agent turned out to be not
@@ -5643,6 +5655,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                   pendingRequest.conversationId,
                   {
                     attachOnly: pendingRequest.attachOnly,
+                    silent: pendingRequest.silent,
                     forceHostRestart: pendingRequest.forceHostRestart,
                     preferredConfigValues:
                       pendingRequest.preferredConfigValues,

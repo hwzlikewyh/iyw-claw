@@ -100,6 +100,7 @@ export interface UseConnectionReturn {
     conversationId?: number,
     options?: {
       attachOnly?: boolean
+      silent?: boolean
       forceHostRestart?: boolean
       preferredConfigValues?: Record<string, string> | null
     }
