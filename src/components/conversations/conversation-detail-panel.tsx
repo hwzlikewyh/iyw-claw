@@ -581,6 +581,7 @@ const ConversationTabView = memo(function ConversationTabView({
     target: string
     sourceConnectionId: string
     replacementConnectionId: string | null
+    startedAt: number
   } | null>(null)
   const [requestedModel, setRequestedModel] = useState<string | null>(null)
   const requestedModelRef = useRef<string | null>(null)
@@ -866,7 +867,9 @@ const ConversationTabView = memo(function ConversationTabView({
       () => isReparentUnmount(useTabStore.getState(), tabId, groupId),
       [groupId, tabId]
     ),
-    silentReconnect: modelReapplyAttempt !== null,
+    // 模型切换仍需阻止发送，但连接/选择器初始化必须可见，避免重连
+    // 期间界面像是没有响应。
+    silentReconnect: false,
     preferredConfigValues: draftConfigValues.model
       ? draftConfigValues
       : undefined,
@@ -1576,6 +1579,7 @@ const ConversationTabView = memo(function ConversationTabView({
       target,
       sourceConnectionId,
       replacementConnectionId: null,
+      startedAt: Date.now(),
     })
     void acpActions
       .reapplyConfig(tabId, true, dbConvIdRef.current ?? undefined, {
@@ -1624,19 +1628,23 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [conn.connectionId, modelReapplyAttempt])
 
   const modelReapplyTarget = modelReapplyAttempt?.target
-  const modelReapplyConnectionId = modelReapplyAttempt?.replacementConnectionId
   useEffect(() => {
-    if (!modelReapplyTarget || !modelReapplyConnectionId) {
+    if (!modelReapplyAttempt || !modelReapplyTarget) {
       return
     }
     const target = modelReapplyTarget
+    const remaining = Math.max(
+      0,
+      modelReapplyTimeoutMs(selectedAgent) -
+        (Date.now() - modelReapplyAttempt.startedAt)
+    )
     const timer = setTimeout(() => {
       handleModelSwitchFailure(target)
-    }, modelReapplyTimeoutMs(selectedAgent))
+    }, remaining)
     return () => clearTimeout(timer)
   }, [
     handleModelSwitchFailure,
-    modelReapplyConnectionId,
+    modelReapplyAttempt,
     modelReapplyTarget,
     selectedAgent,
   ])
