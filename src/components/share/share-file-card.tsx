@@ -82,15 +82,7 @@ export function ShareFileCard(props: FileProps) {
 
 function FilePreview({ file, url }: { file: ShareFileSpec; url: string }) {
   if (/^image\/(?!svg)/.test(file.contentType)) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={url}
-        alt={file.fileName}
-        referrerPolicy="no-referrer"
-        className="max-h-[75dvh] w-full object-contain"
-      />
-    )
+    return <SharedImagePreview file={file} url={url} />
   }
   if (file.contentType.startsWith("video/"))
     return <video src={url} controls className="max-h-[75dvh] w-full" />
@@ -112,6 +104,32 @@ function FilePreview({ file, url }: { file: ShareFileSpec; url: string }) {
         </a>
       </Button>
     </div>
+  )
+}
+
+function SharedImagePreview({
+  file,
+  url,
+}: {
+  file: ShareFileSpec
+  url: string
+}) {
+  const [failed, setFailed] = useState(false)
+  if (failed)
+    return (
+      <p role="alert" className="text-sm">
+        图片预览加载失败，分享可能已失效。请关闭预览后重试。
+      </p>
+    )
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt={file.fileName}
+      onError={() => setFailed(true)}
+      referrerPolicy="no-referrer"
+      className="max-h-[75dvh] w-full object-contain"
+    />
   )
 }
 

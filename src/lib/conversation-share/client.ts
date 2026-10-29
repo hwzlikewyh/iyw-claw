@@ -57,13 +57,23 @@ export async function readShare(
     `${validateShareBase(location.apiBase)}/conversation-shares/read`
   )
   url.searchParams.set("token", location.token)
-  const response = await fetch(url, {
-    signal,
-    cache: "no-store",
-    referrerPolicy: "no-referrer",
-  })
-  if (!response.ok) throw new Error("分享暂时无法访问，请重试")
-  const envelope = await response.json()
-  if (envelope.code !== 1) throw new Error(envelope.message || "分享已失效")
-  return envelope.data as ShareRecord
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (signal?.aborted) abort()
+  signal?.addEventListener("abort", abort, { once: true })
+  const timeout = setTimeout(abort, 15_000)
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+    })
+    if (!response.ok) throw new Error("分享暂时无法访问，请重试")
+    const envelope = await response.json()
+    if (envelope.code !== 1) throw new Error(envelope.message || "分享已失效")
+    return envelope.data as ShareRecord
+  } finally {
+    clearTimeout(timeout)
+    signal?.removeEventListener("abort", abort)
+  }
 }

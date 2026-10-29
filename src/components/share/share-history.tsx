@@ -17,7 +17,10 @@ export function ShareHistory({ conversationId }: { conversationId: number }) {
       sourceConversationId: String(conversationId),
     })
       .then((value) => {
-        if (current) setItems(value.items)
+        if (current) {
+          setItems(value.items)
+          setError("")
+        }
       })
       .catch((err) => {
         if (current) setError(toErrorMessage(err))

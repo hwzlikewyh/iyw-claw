@@ -23,6 +23,7 @@ export async function loadShareSource(
   agentType: AgentType
 ) {
   let detail = await getFolderConversation(conversationId)
+  const inFlightID = detail.in_flight_user_turn_id
   const turns = [...detail.turns]
   while (detail.history_start > 0) {
     const before = detail.history_start
@@ -32,7 +33,12 @@ export async function loadShareSource(
     turns.unshift(...detail.turns)
   }
   const seen = new Set<string>()
-  const uniqueTurns = turns.filter((turn) => {
+  const inFlightIndex = inFlightID
+    ? turns.findIndex((turn) => turn.id === inFlightID)
+    : -1
+  const settledTurns =
+    inFlightIndex >= 0 ? turns.slice(0, inFlightIndex) : turns
+  const uniqueTurns = settledTurns.filter((turn) => {
     if (seen.has(turn.id)) return false
     seen.add(turn.id)
     return true
@@ -140,6 +146,8 @@ export function cleanShareText(text: string) {
 }
 
 export async function prepareShareFiles(candidates: ShareCandidate[]) {
+  if (candidates.length > 100)
+    throw new Error("单次分享最多包含 100 个成果文件")
   const specs: ShareFileSpec[] = []
   const blobs = new Map<string, Blob>()
   let total = 0

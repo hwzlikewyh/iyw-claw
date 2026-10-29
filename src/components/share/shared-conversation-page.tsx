@@ -17,6 +17,15 @@ export function SharedConversationPage() {
   const [error, setError] = useState("")
   const [revision, setRevision] = useState(0)
   useEffect(() => {
+    const changed = () => {
+      setShare(null)
+      setError("")
+      setRevision((value) => value + 1)
+    }
+    window.addEventListener("hashchange", changed)
+    return () => window.removeEventListener("hashchange", changed)
+  }, [])
+  useEffect(() => {
     const controller = new AbortController()
     void (async () => {
       try {
@@ -25,7 +34,9 @@ export function SharedConversationPage() {
         if (controller.signal.aborted) return
         setLocation(target)
         readShare(target, controller.signal)
-          .then(setShare)
+          .then((value) => {
+            if (!controller.signal.aborted) setShare(value)
+          })
           .catch((err) => {
             if (!controller.signal.aborted) setError(err.message)
           })
@@ -41,7 +52,7 @@ export function SharedConversationPage() {
     setError("分享已过期或被撤销")
   })
   return (
-    <main className="min-h-dvh bg-background text-foreground">
+    <main className="h-dvh overflow-y-auto overscroll-contain bg-background text-foreground">
       <header className="sticky top-0 z-10 border-b bg-background px-4 py-3">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
