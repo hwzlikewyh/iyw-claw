@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import type { UpdateDetails } from "@/components/layout/title-bar-update-model"
 import type { AppUpdateState } from "@/lib/updater"
+import { useSilentAutoUpdate } from "@/hooks/use-silent-auto-update"
 
 const notifiedUpdateVersions = new Set<string>()
 let openCurrentUpdateDialog: (() => void) | null = null
@@ -24,6 +25,7 @@ export function useUpdateOfferToast({
   setOpen,
 }: UpdateOfferToastOptions) {
   const t = useTranslations("SystemSettings")
+  const silent = useSilentAutoUpdate()
   const downloaded = state.status === "ready_to_install"
   const version =
     state.status === "available" || downloaded
@@ -41,7 +43,7 @@ export function useUpdateOfferToast({
   }, [setOpen])
 
   useEffect(() => {
-    if (!version) return
+    if (!version || (silent && !checkedUpdateAvailable)) return
     const notificationKey = `${version}:${downloaded ? "ready" : "available"}`
     if (notifiedUpdateVersions.has(notificationKey)) return
     notifiedUpdateVersions.add(notificationKey)
@@ -56,5 +58,5 @@ export function useUpdateOfferToast({
         },
       }
     )
-  }, [downloaded, setOpen, t, version])
+  }, [checkedUpdateAvailable, downloaded, setOpen, silent, t, version])
 }

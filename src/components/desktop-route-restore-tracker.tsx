@@ -4,11 +4,13 @@ import { useEffect, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { getCurrentWindow, isLocalDesktop } from "@/lib/platform"
 import { rememberRouteForInstaller } from "@/lib/update-restore"
+import { useSilentUpdateSafety } from "@/lib/silent-update-safety"
 
 const ROUTE_HEARTBEAT_MS = 5 * 60_000
 
 export function DesktopRouteRestoreTracker() {
   const pathname = usePathname()
+  useSilentUpdateSafety(pathname)
   const searchParams = useSearchParams()
   const [isMainWindow, setIsMainWindow] = useState(false)
   const search = searchParams.toString()

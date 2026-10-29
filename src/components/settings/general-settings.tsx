@@ -24,6 +24,7 @@ import { usePlatform } from "@/hooks/use-platform"
 import { relaunchApp } from "@/lib/updater"
 import { toErrorMessage } from "@/lib/app-error"
 import { AutostartSettingsSection } from "@/components/settings/autostart-settings-section"
+import { SilentAutoUpdateSettings } from "@/components/settings/silent-auto-update-settings"
 import { BrowserSettingsSection } from "@/components/settings/browser-settings-section"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
 import {
@@ -229,6 +230,7 @@ export function GeneralSettings() {
       )}
 
       {localDesktop && <AutostartSettingsSection />}
+      {localDesktop && <SilentAutoUpdateSettings />}
       {localDesktop && <BrowserSettingsSection />}
 
       {renderingSectionVisible && (

@@ -29,6 +29,7 @@ impl UpdateChannel {
 #[serde(default, rename_all = "camelCase")]
 pub struct UpdatePreferences {
     pub auto_check: bool,
+    pub silent_auto_update: bool,
     pub channel: UpdateChannel,
     pub installation_id: String,
     pub last_checked_at: Option<String>,
@@ -44,6 +45,7 @@ impl Default for UpdatePreferences {
     fn default() -> Self {
         Self {
             auto_check: true,
+            silent_auto_update: true,
             channel: UpdateChannel::Stable,
             installation_id: String::new(),
             last_checked_at: None,
@@ -61,6 +63,7 @@ impl Default for UpdatePreferences {
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePreferencesPatch {
     pub auto_check: Option<bool>,
+    pub silent_auto_update: Option<bool>,
     pub channel: Option<UpdateChannel>,
 }
 
@@ -212,6 +215,10 @@ pub async fn patch(
     update_preferences(conn, move |preferences| {
         if let Some(value) = update.auto_check {
             preferences.auto_check = value;
+        }
+        if let Some(value) = update.silent_auto_update {
+            preferences.silent_auto_update = value;
+            tracing::info!(enabled = value, "[app-update] silent auto-update preference saved");
         }
         if let Some(value) = update.channel {
             if preferences.channel != value {

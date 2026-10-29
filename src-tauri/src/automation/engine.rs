@@ -343,6 +343,12 @@ impl AutomationEngine {
         automation_id: i32,
         launch: crate::db::service::automation_run_service::RunLaunch,
     ) -> Result<i32, String> {
+        // 空闲更新领取重启互斥后，不再开始 Git 准备或创建新的运行记录。
+        let _operation_guard = self
+            .manager
+            .acquire_operation_read()
+            .await
+            .map_err(|error| error.to_string())?;
         // Serialize every fire of this automation: the overlap check + run-row
         // insert below is otherwise a check-then-act race that a manual run-now
         // racing a scheduled fire (or a double-click) defeats, starting two runs.

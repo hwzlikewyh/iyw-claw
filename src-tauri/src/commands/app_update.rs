@@ -80,7 +80,11 @@ pub(crate) async fn check_desktop_update_core(
         update_state::set_error(state, &emitter, error.to_string());
     }
     if let Some(checked) = update.filter(|_| result.as_ref().is_ok_and(|r| r.update.is_some())) {
-        desktop::prefetch(desktop::Task::new(app, conn, state), checked);
+        desktop::prefetch(
+            desktop::Task::new(app, conn, state),
+            checked,
+            preferences.silent_auto_update,
+        );
     }
     result
 }
@@ -164,11 +168,27 @@ pub async fn get_app_update_preferences(
 }
 
 #[tauri::command]
+pub fn report_app_update_safety(
+    window: tauri::WebviewWindow,
+    generation: Option<u64>,
+    blocked: bool,
+) -> u64 {
+    crate::update::silent_safety::report(window.label(), generation, blocked)
+}
+
+#[tauri::command]
 pub async fn update_app_update_preferences(
     patch: UpdatePreferencesPatch,
     db: tauri::State<'_, AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<UpdatePreferences, AppCommandError> {
-    preferences::patch(&db.conn, patch).await
+    let preferences = preferences::patch(&db.conn, patch).await?;
+    crate::web::event_bridge::emit_event(
+        &EventEmitter::Tauri(app),
+        "app_update_preferences",
+        &preferences,
+    );
+    Ok(preferences)
 }
 
 #[tauri::command]

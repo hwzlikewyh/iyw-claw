@@ -1,4 +1,4 @@
-//! 桌面更新先预下载并缓存，仅在用户操作后安装。
+//! 桌面更新先预下载并缓存，由用户操作或受保护的后台空闲流程安装。
 
 use std::sync::Mutex;
 
@@ -15,12 +15,12 @@ use super::release::{self, AppUpdateInfo, CheckReason, DesktopUpdateRequest};
 use super::state::{self, AppUpdateState, AppUpdateStateHandle};
 
 // 只保存 SDK 的安装上下文，完整更新包留在磁盘，不常驻内存。
-static PREPARED_UPDATE: Mutex<Option<(Identity, Update)>> = Mutex::new(None);
+static PREPARED_UPDATE: Mutex<Option<(Identity, Update, bool)>> = Mutex::new(None);
 
 pub struct Task {
-    app: tauri::AppHandle,
-    conn: DatabaseConnection,
-    handle: AppUpdateStateHandle,
+    pub(super) app: tauri::AppHandle,
+    pub(super) conn: DatabaseConnection,
+    pub(super) handle: AppUpdateStateHandle,
 }
 
 impl Task {
@@ -36,17 +36,100 @@ impl Task {
         }
     }
 
-    fn emitter(&self) -> EventEmitter {
+    pub(super) fn emitter(&self) -> EventEmitter {
         EventEmitter::Tauri(self.app.clone())
     }
 
-    fn fail(&self, error: String) {
+    pub(super) fn fail(&self, error: String) {
         tracing::error!(%error, "[app-update] desktop update failed");
         state::set_error(&self.handle, &self.emitter(), error);
     }
 }
 
-pub fn prefetch(task: Task, checked: (AppUpdateInfo, Update)) {
+pub(super) async fn install_silently(task: &Task, identity: &Identity) -> Result<bool, String> {
+    let update = checked_silent_update(task, identity).await?;
+    let Some(bytes) = desktop_cache::load(&task.app, &update).await? else {
+        return Err("Prepared update is missing or invalid; check for updates again".to_string());
+    };
+    let data_dir = crate::system_skills::data_dir_from_env();
+    if let Err(error) = super::digest::record_before_update(&data_dir).await {
+        tracing::warn!(%error, "[app-update] failed to record pre-update managed-root digest");
+    }
+    let Some(_guards) = super::silent::claim(task, identity).await? else {
+        return Ok(false);
+    };
+    if !offer::try_begin_prepared(&task.handle, &task.emitter(), identity) {
+        return Ok(false);
+    }
+    tracing::info!(version = %identity.version, "[app-update] silent installation started");
+    if let Err(error) = update
+        .install(bytes)
+        .map_err(|error| error.to_string())
+        .and_then(|_| finish_install(task, update.version))
+    {
+        task.fail(error);
+        return Ok(true);
+    }
+    restart_after_silent_install(task).await?;
+    Ok(true)
+}
+
+async fn restart_after_silent_install(task: &Task) -> Result<(), String> {
+    // Windows 由 NSIS /R 重启；其他平台安装后重新检查，恢复使用就延后。
+    #[cfg(not(target_os = "windows"))]
+    {
+        let preferences = preferences::load(&task.conn)
+            .await
+            .map_err(|error| error.to_string())?;
+        if preferences.silent_auto_update
+            && super::silent_safety::blocker(&task.app).is_none()
+            && super::silent_safety::task_blocker(&task.app)
+                .await?
+                .is_none()
+            && state::try_claim_restart(&task.handle, &task.emitter())
+        {
+            tracing::info!("[app-update] restarting after silent installation");
+            task.app.restart();
+        }
+    }
+    #[cfg(target_os = "windows")]
+    let _ = task;
+    Ok(())
+}
+
+async fn checked_silent_update(task: &Task, identity: &Identity) -> Result<Update, String> {
+    let prepared = PREPARED_UPDATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        .filter(|(expected, _, silent)| expected == identity && *silent)
+        .map(|(_, update, _)| update.clone());
+    if let Some(update) = prepared {
+        return Ok(update);
+    }
+    let mut preferences = preferences::load(&task.conn)
+        .await
+        .map_err(|error| error.to_string())?;
+    preferences.silent_auto_update = true;
+    let request = DesktopUpdateRequest {
+        app: &task.app,
+        preferences: &preferences,
+        access_token: None,
+    };
+    let (_, update) = release::check_desktop_update(&request, CheckReason::Automatic)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or("Prepared release is no longer available; check for updates again")?;
+    let extensions = release::extensions(&update).map_err(|error| error.to_string())?;
+    offer::validate_checked_update(&update, &extensions, identity)?;
+    *PREPARED_UPDATE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) =
+        Some((identity.clone(), update.clone(), true));
+    Ok(update)
+}
+
+pub fn prefetch(task: Task, checked: (AppUpdateInfo, Update), silent: bool) {
     let (info, mut update) = checked;
     let identity = Identity {
         version: info.version,
@@ -62,7 +145,7 @@ pub fn prefetch(task: Task, checked: (AppUpdateInfo, Update)) {
             Ok(_) => {
                 *PREPARED_UPDATE
                     .lock()
-                    .unwrap_or_else(|error| error.into_inner()) = Some((identity, update));
+                    .unwrap_or_else(|error| error.into_inner()) = Some((identity, update, silent));
                 offer::set_downloaded(&task.handle, &task.emitter());
                 tracing::info!("[app-update] download ready; waiting for user to install");
             }
@@ -118,8 +201,8 @@ async fn checked_update(
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .as_ref()
-        .filter(|(expected, _)| expected == identity)
-        .map(|(_, update)| update.clone());
+        .filter(|(expected, _, _)| expected == identity)
+        .map(|(_, update, _)| update.clone());
     if let Some(update) = prepared {
         return Ok(update);
     }

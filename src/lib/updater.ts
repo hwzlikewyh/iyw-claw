@@ -28,6 +28,7 @@ export type AppUpdateChannel = "stable" | "beta"
 
 export interface AppUpdatePreferences {
   autoCheck: boolean
+  silentAutoUpdate: boolean
   channel: AppUpdateChannel
   installationId: string
   lastCheckedAt?: string
@@ -217,6 +218,7 @@ export function getAppUpdatePreferences(): Promise<AppUpdatePreferences> {
 
 export function updateAppUpdatePreferences(patch: {
   autoCheck?: boolean
+  silentAutoUpdate?: boolean
   channel?: AppUpdateChannel
 }): Promise<AppUpdatePreferences> {
   return getTransport().call<AppUpdatePreferences>(

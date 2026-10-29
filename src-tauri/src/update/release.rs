@@ -148,6 +148,11 @@ pub fn desktop_updater(
             .header("token", access_token)
             .map_err(updater_error)?;
     }
+    // /S 放在 /D= 前；/R 和安装目录恢复继续由现有 SDK 与集成负责。
+    #[cfg(target_os = "windows")]
+    if request.preferences.silent_auto_update {
+        builder = builder.installer_arg("/S");
+    }
     #[cfg(target_os = "windows")]
     let builder = windows::retain_install_root(builder)?;
     builder

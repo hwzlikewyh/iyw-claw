@@ -58,6 +58,55 @@ pub fn is_current_optional(handle: &AppUpdateStateHandle, version: &str) -> bool
         && state.version.as_deref() == Some(version)
 }
 
+/// 空闲安装只领取刚验证过的完整缓存，不从错误状态隐式重试。
+#[cfg(feature = "tauri-runtime")]
+pub fn try_begin_prepared(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    expected: &Identity,
+) -> bool {
+    let snapshot = {
+        let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
+        if state.status != AppUpdateLifecycle::ReadyToInstall
+            || state.version.as_deref() != Some(expected.version.as_str())
+            || state.channel.as_deref() != Some(expected.channel.as_str())
+            || state.release_id != expected.release_id
+        {
+            return false;
+        }
+        state.seq += 1;
+        state.status = AppUpdateLifecycle::Installing;
+        state.error = None;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snapshot);
+    true
+}
+
+#[cfg(feature = "tauri-runtime")]
+pub fn fail_prepared(task: &super::desktop::Task, expected_seq: u64, error: String) {
+    tracing::warn!(%error, "[app-update] silent update preparation failed");
+    let snapshot = {
+        let mut state = task
+            .handle
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.seq != expected_seq
+            || !matches!(
+                state.status,
+                AppUpdateLifecycle::ReadyToInstall | AppUpdateLifecycle::ReadyToRestart
+            )
+        {
+            return;
+        }
+        state.seq += 1;
+        state.status = AppUpdateLifecycle::Error;
+        state.error = Some(error);
+        state.clone()
+    };
+    emit_event(&task.emitter(), APP_UPDATE_STATE_CHANNEL, &snapshot);
+}
+
 /// 自动下载只能领取刚检查到的同一个发布，避免覆盖其他窗口的操作。
 pub fn try_prefetch(
     handle: &AppUpdateStateHandle,

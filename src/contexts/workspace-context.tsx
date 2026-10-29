@@ -56,6 +56,7 @@ import {
 } from "@/hooks/use-open-file-tabs-watch"
 import { useOfficeAutoPreview } from "@/lib/office-preview-prefs"
 import { binaryPreviewKind } from "@/lib/binary-preview"
+import { useWorkspaceUpdateBlocker } from "@/lib/silent-update-safety"
 
 export type WorkspaceMode = "conversation" | "fusion"
 export type WorkspacePane = "conversation" | "files"
@@ -354,6 +355,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const [activePane, setActivePaneState] =
     useState<WorkspacePane>("conversation")
   const [fileTabs, setFileTabs] = useState<FileWorkspaceTab[]>([])
+  useWorkspaceUpdateBlocker(
+    fileTabs.some((tab) => tab.isDirty || tab.saveState === "saving")
+  )
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null)
   const [pendingFileReveal, setPendingFileReveal] = useState<{
     requestId: number

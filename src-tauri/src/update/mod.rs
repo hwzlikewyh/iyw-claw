@@ -22,6 +22,10 @@ pub mod preferences;
 pub mod release;
 pub mod runtime;
 pub mod scheduler;
+#[cfg(feature = "tauri-runtime")]
+pub mod silent;
+#[cfg(feature = "tauri-runtime")]
+pub mod silent_safety;
 pub mod state;
 pub mod verify;
 pub mod version;

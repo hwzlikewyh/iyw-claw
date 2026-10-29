@@ -1319,6 +1319,7 @@ mod tauri_app {
             })
             .on_window_event(|window, event| {
                 let label = window.label().to_string();
+                crate::update::silent_safety::note_window_event(&label, event);
 
                 if label == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
                     crate::update::scheduler::wake_for_focus(window.app_handle());
@@ -1429,6 +1430,11 @@ mod tauri_app {
                             state.cancel_window(&label).await;
                         });
                     }
+                }
+            })
+            .on_page_load(|webview, payload| {
+                if payload.event() == tauri::webview::PageLoadEvent::Started {
+                    crate::update::silent_safety::reset_window(webview.label());
                 }
             })
             .invoke_handler(tauri::generate_handler![
@@ -1607,6 +1613,7 @@ mod tauri_app {
                 windows::set_tray_locale,
                 windows::refresh_tray_menu_command,
                 app_update_commands::app_update_state,
+                app_update_commands::report_app_update_safety,
                 app_update_commands::check_app_update,
                 app_update_commands::get_app_update_preferences,
                 app_update_commands::update_app_update_preferences,
