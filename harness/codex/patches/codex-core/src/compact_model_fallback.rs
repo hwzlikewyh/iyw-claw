@@ -12,6 +12,36 @@ pub(crate) fn should_retry_with_current_model(
     previous: &TurnContext,
     current: &TurnContext,
 ) -> bool {
+    may_use_current_model(error, previous, current)
+        && current.provider.info().is_openai()
+        && current
+            .auth_manager
+            .as_deref()
+            .and_then(codex_login::AuthManager::auth_cached)
+            .is_some_and(|auth| auth.uses_codex_backend() || auth.is_api_key_auth())
+}
+
+/// 本地摘要沿用当前提供方，不引入其它模型或绕过配额、取消和参数错误。
+pub(crate) fn should_retry_responses_with_current_model(
+    error: &CodexErr,
+    previous: &TurnContext,
+    current: &TurnContext,
+) -> bool {
+    may_use_current_model(error, previous, current)
+        && !matches!(
+            error.details(),
+            CodexErrorDetails::RateLimitExceeded(_) | CodexErrorDetails::ContentFilter
+        )
+        && !matches!(error.details(), CodexErrorDetails::UnexpectedStatus(response)
+            if response.status == http::StatusCode::TOO_MANY_REQUESTS)
+        && (crate::responses_retry::is_retryable_response_error(error)
+            || matches!(
+                error.details(),
+                CodexErrorDetails::ModelNotFound { .. } | CodexErrorDetails::ContextWindowExceeded
+            ))
+}
+
+fn may_use_current_model(error: &CodexErr, previous: &TurnContext, current: &TurnContext) -> bool {
     if matches!(error.details(), CodexErrorDetails::UnexpectedStatus(response)
         if matches!(response.status, http::StatusCode::UNAUTHORIZED
             | http::StatusCode::PAYMENT_REQUIRED | http::StatusCode::FORBIDDEN))
@@ -30,12 +60,7 @@ pub(crate) fn should_retry_with_current_model(
         return false;
     }
 
-    current.provider.info().is_openai()
-        && current
-            .auth_manager
-            .as_deref()
-            .and_then(codex_login::AuthManager::auth_cached)
-            .is_some_and(|auth| auth.uses_codex_backend() || auth.is_api_key_auth())
+    true
 }
 
 pub(crate) fn record_model_fallback(

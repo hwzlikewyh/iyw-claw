@@ -137,9 +137,11 @@ async fn build_and_install_compaction(
             Ok(attempt) => (attempt, turn_context),
             Err(error) => {
                 let fallback_turn_context = &replacement_step_context.turn;
-                if request_budget.is_exhausted() || !should_retry_with_current_model(&error, turn_context, fallback_turn_context) {
+                if !should_retry_with_current_model(&error, turn_context, fallback_turn_context) {
                     return Err(error);
                 }
+                // 新模型是不同的恢复请求，不继承旧模型已经耗尽的请求预算。
+                let fallback_budget = RequestBudget::new();
                 sess.set_last_known_step_context(replacement_step_context)
                     .await;
                 let fallback_compaction_trace =
@@ -149,7 +151,7 @@ async fn build_and_install_compaction(
                         fallback_turn_context.model_info().slug.as_str(),
                         fallback_turn_context.provider.info().name.as_str(),
                     );
-                let fallback_result = request_budget.run(run_remote_compact_v2_attempt(
+                let fallback_result = fallback_budget.run(run_remote_compact_v2_attempt(
                     sess,
                     replacement_step_context,
                     &fallback_compaction_trace,
@@ -168,7 +170,7 @@ async fn build_and_install_compaction(
                 );
                 match fallback_result {
                     Ok(attempt) => (attempt, fallback_turn_context),
-                    Err(fallback_error) if request_budget.is_exhausted() => return Err(fallback_error),
+                    Err(fallback_error) if fallback_budget.is_exhausted() => return Err(fallback_error),
                     Err(_) => return Err(error),
                 }
             }

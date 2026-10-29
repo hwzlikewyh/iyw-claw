@@ -61,7 +61,11 @@ impl PreparedUiContext {
         blocks: &[PromptInputBlock],
     ) -> RenderedUiContext {
         if self.enabled != Some(true) {
-            state.ui_guide_delivery.invalidate();
+            state.ui_guide_delivery.invalidate(if self.enabled == Some(false) {
+                "ui_disabled"
+            } else {
+                "ui_unavailable"
+            });
             let (notice, mode) = if self.enabled == Some(false) {
                 (DISABLED, "disabled")
             } else {
