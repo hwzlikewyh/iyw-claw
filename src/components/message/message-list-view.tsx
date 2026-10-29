@@ -729,6 +729,7 @@ export function MessageListView({
   }, [conversationId])
   const animationEnabled = animationScope === conversationId && isActive
   const liveMessage = session?.liveMessage ?? null
+  const hasEarlierHistory = (session?.detail?.history_start ?? 0) > 0
   const { loadEarlierHistory } = useConversationRuntimeActions()
   const timelineTurns = useConversationRuntimeStore((s) =>
     selectTimelineTurns(s, conversationId)
@@ -914,7 +915,7 @@ export function MessageListView({
       })
     }
 
-    if ((session?.detail?.history_start ?? 0) > 0) {
+    if (hasEarlierHistory || (detailError && items.length > 0)) {
       items.unshift({ key: "load-earlier-history", kind: "history" })
     }
     return { threadItems: items }
@@ -925,7 +926,8 @@ export function MessageListView({
     timelineTurns,
     turnAdapter,
     groupCache,
-    session?.detail?.history_start,
+    hasEarlierHistory,
+    detailError,
     persistedSessionId,
   ])
 
@@ -1017,20 +1019,31 @@ export function MessageListView({
           )
         case "history":
           return (
-            <div className="flex justify-center">
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={detailLoading}
-                onClick={() => loadEarlierHistory(conversationId)}
-              >
-                {detailLoading ? (
-                  <Loader2 className="me-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <ChevronDown className="me-1.5 h-4 w-4 rotate-180" />
-                )}
-                {t("loadEarlier")}
-              </Button>
+            <div className="flex flex-col items-center gap-2">
+              {hasEarlierHistory && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={detailLoading}
+                  aria-busy={detailLoading}
+                  onClick={() => loadEarlierHistory(conversationId)}
+                >
+                  {detailLoading ? (
+                    <Loader2 className="me-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ChevronDown className="me-1.5 h-4 w-4 rotate-180" />
+                  )}
+                  {t("loadEarlier")}
+                </Button>
+              )}
+              {detailError && (
+                <p
+                  role="alert"
+                  className="text-sm text-destructive break-words"
+                >
+                  {detailError}
+                </p>
+              )}
             </div>
           )
         default:
@@ -1047,6 +1060,8 @@ export function MessageListView({
       conversationId,
       resolvedArtifactConversationId,
       detailLoading,
+      detailError,
+      hasEarlierHistory,
       enableUserMemoryActions,
       conversationDisplayMode,
       collapseCompletedTurn,

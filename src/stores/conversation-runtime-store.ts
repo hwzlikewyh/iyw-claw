@@ -9,6 +9,10 @@ import type {
   ToolCallInfo,
 } from "@/contexts/acp-connections-context"
 import { getFolderConversation } from "@/lib/api"
+import {
+  mergeEarlierConversationHistory,
+  mergeRefreshedConversationHistory,
+} from "@/lib/conversation-history-merge"
 import { getTransport } from "@/lib/transport"
 import {
   metadataRefreshDelay,
@@ -1302,7 +1306,10 @@ function reducer(
 
       const nextSession: ConversationRuntimeSession = {
         ...current,
-        detail: action.detail,
+        detail: mergeRefreshedConversationHistory(
+          current.detail,
+          action.detail
+        ),
         detailLoading: false,
         detailError: null,
         externalId: nextExternalId ?? current.externalId,
@@ -1343,18 +1350,12 @@ function reducer(
     case "PREPEND_HISTORY_SUCCESS":
       return updateSessionInState(state, action.conversationId, (current) => {
         if (!current.detail) return current
-        const known = new Set(current.detail.turns.map((turn) => turn.id))
-        const older = action.detail.turns.filter((turn) => !known.has(turn.id))
         return {
           ...current,
-          detail: {
-            ...current.detail,
-            turns: [...older, ...current.detail.turns],
-            history_start: action.detail.history_start,
-            history_total_turns: action.detail.history_total_turns,
-            history_assistant_turns_before:
-              action.detail.history_assistant_turns_before,
-          },
+          detail: mergeEarlierConversationHistory(
+            current.detail,
+            action.detail
+          ),
           detailLoading: false,
           detailError: null,
         }
@@ -2359,6 +2360,11 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
       })
       .catch((error: unknown) => {
         if (!isLatestGeneration(conversationId, generation)) return
+        console.warn("[conversation-history] earlier page failed", {
+          conversationId: fetchId,
+          before,
+          error: toErrorMessage(error),
+        })
         dispatch({
           type: "FETCH_DETAIL_ERROR",
           conversationId,

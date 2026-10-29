@@ -1055,6 +1055,7 @@ pub async fn get_folder_conversation_page_core(
     let mut detail = if let Some((cached, fresh)) = cached {
         tracing::info!(
             conversation_id,
+            before,
             fresh,
             elapsed_ms = started_at.elapsed().as_millis(),
             "[conversation-history] cache hit"
@@ -1063,7 +1064,8 @@ pub async fn get_folder_conversation_page_core(
         // 后端消费按当前登录身份核对，历史缓存不跨登录复用确认结果。
         cached.backend_consumption = None;
         super::conversation_points::enrich_cached(conn, &mut cached).await;
-        let points_missing = super::conversation_points::missing(&cached);
+        // 更早正文不因缺少账单而失效，尾页继续负责当前身份的消费核对。
+        let points_missing = before.is_none() && super::conversation_points::missing(&cached);
         cached.history_stale = !fresh || points_missing;
         cached
     } else {
@@ -1082,12 +1084,15 @@ pub async fn get_folder_conversation_page_core(
         }
         tracing::info!(
             conversation_id,
+            before,
             turns = parsed.turns.len(),
             elapsed_ms = started_at.elapsed().as_millis(),
             "[conversation-history] transcript parsed"
         );
         let mut page = crate::commands::conversation_history_cache::page(&parsed, before);
-        page.history_stale = !force_refresh && super::conversation_points::missing(&parsed);
+        page.history_stale = !force_refresh
+            && before.is_none()
+            && super::conversation_points::missing(&parsed);
         crate::commands::conversation_history_cache::schedule(
             conversation_id,
             cache_revision,
