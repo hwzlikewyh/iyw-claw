@@ -334,6 +334,8 @@ export const MessageBranchPage = ({
 }
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
+  /** 分享只复用排版，不启用本机文件导航或可执行 UI。 */
+  readOnly?: boolean
   /**
    * Render single newlines as hard line breaks (GitHub-comment flavor). Used
    * for user-authored messages so their literal line breaks survive Markdown
@@ -474,6 +476,7 @@ function MessageResponseImpl({
   className,
   children,
   softBreaks = false,
+  readOnly = false,
   ...props
 }: MessageResponseProps) {
   const normalized = useMemo(
@@ -500,10 +503,11 @@ function MessageResponseImpl({
       // Merge after spreading props so a caller can still override other
       // elements, but the link icon + safety routing on `a` always wins.
       components={{
-        ...props.components,
+        ...(!readOnly ? props.components : {}),
         ...localPathCodeBlockComponents,
         ...intelligentUiComponents,
         ...markdownLinkComponents,
+        ...(readOnly ? props.components : {}),
       }}
     >
       {normalized}
@@ -515,7 +519,9 @@ export const MessageResponse = memo(
   MessageResponseImpl,
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
-    prevProps.softBreaks === nextProps.softBreaks
+    prevProps.softBreaks === nextProps.softBreaks &&
+    prevProps.readOnly === nextProps.readOnly &&
+    prevProps.components === nextProps.components
 )
 
 MessageResponse.displayName = "MessageResponse"

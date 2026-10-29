@@ -31,13 +31,13 @@ pub(super) fn search_score(
         .iter()
         .filter(|term| query.contains(&normalize(term)))
         .count();
-    if token_score == 0 && !phrase && !alias_exact {
-        return None;
-    }
     let intent_score = intent_terms
         .iter()
         .filter(|term| query.contains(&normalize(term)))
         .count();
+    if token_score == 0 && !phrase && !alias_exact && intent_score == 0 {
+        return None;
+    }
     Some(
         usize::from(normalize(id) == query) * 1000
             + usize::from(alias_exact) * 100

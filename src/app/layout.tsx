@@ -20,6 +20,7 @@ import { DevtoolsShortcut } from "@/components/devtools-shortcut"
 import { TauriContextMenuPolicy } from "@/components/tauri-context-menu-policy"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { DesktopRouteRestoreTracker } from "@/components/desktop-route-restore-tracker"
+import { PublicShareBoundary } from "@/components/share/public-share-boundary"
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -65,36 +66,38 @@ export default async function RootLayout({
           locale={initialLocale}
           messages={initialMessages}
         >
-          <AppI18nProvider
-            initialLocale={initialLocale}
-            initialMessages={initialMessages}
-          >
-            <ThemeProvider
-              attribute="class"
-              defaultTheme="system"
-              enableSystem
-              disableTransitionOnChange
+          <PublicShareBoundary content={children}>
+            <AppI18nProvider
+              initialLocale={initialLocale}
+              initialMessages={initialMessages}
             >
-              <AppearanceProvider>
-                <ConversationDisplayProvider>
-                  <OverlayScrollbarsInit />
-                  <ClipboardFallbackInit />
-                  <WebConnectionGuard />
-                  <WindowResizeGrips />
-                  <DevtoolsShortcut />
-                  <TauriContextMenuPolicy />
-                  <MainCloseDialog />
-                  <Suspense fallback={null}>
-                    <DesktopRouteRestoreTracker />
-                  </Suspense>
-                  {/* Global tooltip context: ui/tooltip's Tooltip is a bare Radix Root,
+              <ThemeProvider
+                attribute="class"
+                defaultTheme="system"
+                enableSystem
+                disableTransitionOnChange
+              >
+                <AppearanceProvider>
+                  <ConversationDisplayProvider>
+                    <OverlayScrollbarsInit />
+                    <ClipboardFallbackInit />
+                    <WebConnectionGuard />
+                    <WindowResizeGrips />
+                    <DevtoolsShortcut />
+                    <TauriContextMenuPolicy />
+                    <MainCloseDialog />
+                    <Suspense fallback={null}>
+                      <DesktopRouteRestoreTracker />
+                    </Suspense>
+                    {/* Global tooltip context: ui/tooltip's Tooltip is a bare Radix Root,
                       so every usage needs a Provider ancestor. Nested providers in
                       subtrees still override delayDuration locally. */}
-                  <TooltipProvider>{children}</TooltipProvider>
-                </ConversationDisplayProvider>
-              </AppearanceProvider>
-            </ThemeProvider>
-          </AppI18nProvider>
+                    <TooltipProvider>{children}</TooltipProvider>
+                  </ConversationDisplayProvider>
+                </AppearanceProvider>
+              </ThemeProvider>
+            </AppI18nProvider>
+          </PublicShareBoundary>
         </NextIntlClientProvider>
       </body>
     </html>

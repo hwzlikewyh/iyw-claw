@@ -32,6 +32,7 @@ mod chat_channel_delete;
 mod chat_channel_token;
 pub mod chat_image;
 mod chat_image_upload;
+pub mod conversation_share;
 pub(crate) mod retired_computer_use;
 pub mod computer;
 pub mod computer_tools;

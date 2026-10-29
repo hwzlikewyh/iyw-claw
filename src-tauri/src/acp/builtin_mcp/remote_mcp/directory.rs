@@ -149,6 +149,7 @@ impl RemoteGateway {
         for key in ["query", "mode", "group_id", "cursor", "capability_family"] {
             if let Some(value) = arguments.get(key).filter(|value| !value.is_null()) { query[key] = value.clone(); }
         }
+        let intent = arguments.get("query").and_then(Value::as_str).unwrap_or_default();
         match self.search(query, context).await {
             Ok(mut remote) => {
                 if let Some(version) = remote["directory_version"].as_str() {
@@ -161,7 +162,7 @@ impl RemoteGateway {
                     payload["capabilities"].as_array_mut(),
                     remote["capabilities"].as_array(),
                 ) {
-                    values.extend(items.iter().cloned());
+                    *values = merge_candidates(values, items, intent);
                 }
                 remote
                     .as_object_mut()
@@ -177,4 +178,53 @@ impl RemoteGateway {
         }
         CallToolResult::structured(payload)
     }
+}
+
+fn merge_candidates(local: &[Value], remote: &[Value], query: &str) -> Vec<Value> {
+    let mut candidates = [local, remote]
+        .into_iter()
+        .enumerate()
+        .flat_map(|(source, items)| {
+            items
+                .iter()
+                .enumerate()
+                .map(move |(rank, item)| (item, rank, source))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|(item, rank, source)| (!exact_candidate(item, query), *rank, *source));
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|(item, _, _)| {
+            item.get("capability_id")
+                .and_then(Value::as_str)
+                .is_none_or(|id| seen.insert(id))
+        })
+        .map(|(item, _, _)| item.clone())
+        .collect()
+}
+
+fn exact_candidate(item: &Value, query: &str) -> bool {
+    let query = query.trim();
+    if query.is_empty() {
+        return false;
+    }
+    if item
+        .get("match_reason")
+        .and_then(Value::as_str)
+        .is_some_and(|reason| matches!(reason, "exact" | "exact_alias" | "exact_platform"))
+    {
+        return true;
+    }
+    ["capability_id", "name", "display_name"]
+        .into_iter()
+        .filter_map(|field| item.get(field).and_then(Value::as_str))
+        .chain(
+            item.get("aliases")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str),
+        )
+        .any(|value| value.eq_ignore_ascii_case(query))
 }

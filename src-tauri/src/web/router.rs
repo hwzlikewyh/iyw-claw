@@ -34,6 +34,7 @@ pub fn build_router(
     let token_for_ws = token.clone();
 
     let api = Router::new()
+        .route("/conversation_share_action", post(handlers::conversation_share::action).layer(DefaultBodyLimit::max(9 * 1024 * 1024)))
         .route("/knowledge_folders", post(handlers::knowledge::folders))
         .route("/knowledge_files", post(handlers::knowledge::files))
         .route("/knowledge_selection_get", post(handlers::knowledge::get_selection))

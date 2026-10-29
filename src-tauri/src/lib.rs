@@ -54,6 +54,8 @@ mod server_channel_target_crypto;
 #[cfg(not(feature = "tauri-runtime"))]
 mod server_secret_store;
 pub mod shared_runtime;
+#[cfg(feature = "tauri-runtime")]
+mod share_deep_link;
 pub mod supervise;
 pub mod system_skills;
 mod terminal;
@@ -301,6 +303,7 @@ mod tauri_app {
             }
         }));
 
+        let builder = builder.plugin(tauri_plugin_deep_link::init());
         let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
         let builder = builder.plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -377,6 +380,7 @@ mod tauri_app {
             // same download progress; lets the upgrade UI survive navigation.
             .manage(crate::update::new_update_state_handle())
             .setup(move |app| {
+                crate::share_deep_link::setup(app.handle())?;
                 let setup_stage = crate::logging::emergency::StartupStage::new("tauri-setup");
                 let app_data_dir =
                     crate::logging::emergency::run_stage("resolve-app-data-dir", || {
@@ -1231,6 +1235,7 @@ mod tauri_app {
                 })?;
                 if !desktop_commands::should_hide_on_autostart() {
                     windows::consume_pending_main_window_show(app.handle());
+                    crate::share_deep_link::navigate_pending(app.handle());
                 }
 
                 crate::logging::emergency::write_event(
@@ -1459,6 +1464,7 @@ mod tauri_app {
                 conversations::save_opened_tabs,
                 conversations::import_local_conversations,
                 conversations::get_folder_conversation,
+                crate::commands::conversation_share::conversation_share_action,
                 conversations::get_conversation_context_primer,
                 conversations::get_conversation_continuation_primer,
                 conversations::list_folders,
