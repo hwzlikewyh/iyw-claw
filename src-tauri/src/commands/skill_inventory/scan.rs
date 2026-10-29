@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::acp::error::AcpError;
 use crate::acp::skill_tree_hash::{hash_skill_path, hash_skill_path_before_description_repair};
-use crate::acp::types::{AgentSkillItem, AgentSkillLayout, AgentSkillScope};
+use crate::acp::types::{AgentSkillItem, AgentSkillScope};
 use crate::commands::acp::{
     build_skill_item, disabled_skills_dir, read_market_skill_marker, scoped_skill_dirs,
     set_shared_skill_read_only, set_skill_read_only, shared_skills_dir, skill_storage_spec,
@@ -14,6 +14,9 @@ use crate::models::agent::AgentType;
 
 use super::types::{SkillInventoryOwnership, SkillObservation, SkillObservedLocation};
 
+mod location;
+use location::{identify_skill, raw_location};
+
 #[derive(Default)]
 struct RootSpec {
     scope: Option<AgentSkillScope>,
@@ -21,6 +24,7 @@ struct RootSpec {
     scan_directory_source: bool,
 }
 
+#[derive(Clone)]
 struct RawLocation {
     item: AgentSkillItem,
     root: PathBuf,
@@ -115,24 +119,25 @@ fn scan_root(
         }
         let path = entry.path();
         let scope = spec.scope.unwrap_or(AgentSkillScope::Global);
-        let mut matched = false;
+        let mut base_location = None;
         for (agent_type, kind) in &spec.agent_kinds {
             let Some((id, layout)) = identify_skill(&path, *kind) else {
                 continue;
             };
-            matched = true;
-            let mut item = build_skill_item(id, scope, layout, path.clone(), enabled);
-            set_skill_read_only(*agent_type, &mut item);
-            output.push(RawLocation {
-                item,
-                root: scan_dir.to_path_buf(),
-                canonical_path: fs::canonicalize(&path).unwrap_or_else(|_| path.clone()),
-                agent_types: vec![*agent_type],
-                enabled,
-                projection_source: managed_copy_source(&path),
+            // 同一路径被多个 Agent 共用时，只解析一次；只读规则仍逐 Agent 计算。
+            let base = base_location.get_or_insert_with(|| {
+                raw_location(
+                    scan_dir,
+                    &path,
+                    build_skill_item(id, scope, layout, path.clone(), enabled),
+                )
             });
+            let mut location = base.clone();
+            set_skill_read_only(*agent_type, &mut location.item);
+            location.agent_types.push(*agent_type);
+            output.push(location);
         }
-        if !matched && spec.scan_directory_source {
+        if base_location.is_none() && spec.scan_directory_source {
             push_source_location(scan_dir, path, scope, enabled, output);
         }
     }
@@ -151,39 +156,7 @@ fn push_source_location(
     };
     let mut item = build_skill_item(id, scope, layout, path.clone(), enabled);
     set_shared_skill_read_only(&mut item);
-    output.push(RawLocation {
-        item,
-        root: scan_dir.to_path_buf(),
-        canonical_path: fs::canonicalize(&path).unwrap_or(path.clone()),
-        agent_types: Vec::new(),
-        enabled,
-        projection_source: managed_copy_source(&path),
-    });
-}
-
-fn identify_skill(path: &Path, kind: SkillStorageKind) -> Option<(String, AgentSkillLayout)> {
-    if path.is_dir() && path.join("SKILL.md").is_file() {
-        return path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(|id| (id.to_string(), AgentSkillLayout::SkillDirectory));
-    }
-    if matches!(kind, SkillStorageKind::SkillDirectoryOrMarkdownFile)
-        && path.is_file()
-        && path.extension()?.eq_ignore_ascii_case("md")
-    {
-        return path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .map(|id| (id.to_string(), AgentSkillLayout::MarkdownFile));
-    }
-    None
-}
-
-fn managed_copy_source(path: &Path) -> Option<String> {
-    let raw = fs::read_to_string(path.join(".iyw-claw-managed-copy.json")).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    value.get("source_path")?.as_str().map(ToOwned::to_owned)
+    output.push(raw_location(scan_dir, &path, item));
 }
 
 fn merge_aliases(raw: Vec<RawLocation>) -> Vec<SkillObservation> {
