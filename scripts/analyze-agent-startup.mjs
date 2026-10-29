@@ -6,6 +6,10 @@ const PERCENTILE_MEDIAN = 0.5
 const PERCENTILE_P95 = 0.95
 const STAGE_MESSAGE = "[ACP][startup] stage"
 const TRANSIENT_OUTCOMES = new Set(["started", "aborted"])
+const UI_GUIDE_EVENTS = new Map([
+  ["[IntelligentUI] full guide delivery confirmed", "confirmed"],
+  ["[IntelligentUI] guide delivery invalidated", "invalidated"],
+])
 
 function parseLine(line) {
   try {
@@ -118,6 +122,22 @@ function collectPromptPreparation(state, fields) {
   }
 }
 
+function collectUiGuideDelivery(state, fields) {
+  const event = UI_GUIDE_EVENTS.get(fields?.message)
+  if (!event) return
+  const labels = {
+    version: state.version,
+    event,
+    reason: fields.reason,
+    hadConfirmed: fields.had_confirmed,
+    hadPending: fields.had_pending,
+  }
+  const key = JSON.stringify(labels)
+  const group = state.uiGuideDelivery.get(key) ?? { ...labels, count: 0 }
+  group.count += 1
+  state.uiGuideDelivery.set(key, group)
+}
+
 async function readLog(path, state) {
   state.version = "unknown"
   let lines = 0
@@ -143,6 +163,7 @@ async function readLog(path, state) {
       collectStage(state, fields)
     }
     collectDiagnosticStage(state, fields)
+    collectUiGuideDelivery(state, fields)
   }
   return { file: basename(path), lines, invalidLines }
 }
@@ -198,6 +219,7 @@ async function main(paths) {
     turnLatency: new Map(),
     promptPreparation: new Map(),
     promptContext: new Map(),
+    uiGuideDelivery: new Map(),
   }
   const files = []
   for (const path of paths) {
@@ -216,6 +238,7 @@ async function main(paths) {
         turnLatency: summarize(state.turnLatency),
         promptPreparation: summarize(state.promptPreparation),
         promptContext: summarizeBytes(state.promptContext),
+        uiGuideDelivery: [...state.uiGuideDelivery.values()],
         stages: summarize(state.stages),
       },
       null,

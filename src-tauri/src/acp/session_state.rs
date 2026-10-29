@@ -962,7 +962,7 @@ impl SessionState {
                 compaction_pending,
             } => {
                 if self.usage.as_ref().is_some_and(|previous| *used < previous.used) {
-                    self.ui_guide_delivery.invalidate();
+                    self.ui_guide_delivery.invalidate("context_usage_decreased");
                 }
                 self.usage = Some(UsageInfo {
                     used: *used,
