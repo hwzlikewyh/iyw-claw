@@ -54,6 +54,7 @@ fn may_use_current_model(error: &CodexErr, previous: &TurnContext, current: &Tur
             | CodexErrorDetails::Interrupted
             | CodexErrorDetails::SessionBudgetExceeded
             | CodexErrorDetails::ResponseIncomplete(_)
+            | CodexErrorDetails::RefreshTokenFailed(_)
     ) || (previous.model_info().slug == current.model_info().slug
         && previous.cyber_access_program == current.cyber_access_program)
     {

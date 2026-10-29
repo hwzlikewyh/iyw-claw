@@ -4399,7 +4399,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           const conversationId = resolveDatabaseConversationId(
             runtimeConversationIdsRef.current.get(contextKey)
           )
-          const expectedExternalId = failedConnection?.sessionId ?? null
+          // 恢复在 SessionStarted 前失败时，连接状态还没有旧 ID；以失败事件为准。
+          const expectedExternalId =
+            e.session_id.trim() || failedConnection?.sessionId || null
           const canCreateSuccessor =
             e.code === "resource_not_found" || e.code === "session_unavailable"
           if (
@@ -4414,6 +4416,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             })
             const reconnect = connectRef.current
             if (reconnect && failedConnection) {
+              const preferredConfigValues =
+                pendingConnectRequestsRef.current.get(contextKey)
+                  ?.preferredConfigValues ??
+                activeConnectRequestsRef.current.get(contextKey)
+                  ?.preferredConfigValues ??
+                Object.fromEntries(
+                  (failedConnection.configOptions ?? []).map((option) => [
+                    option.id,
+                    option.kind.current_value,
+                  ])
+                )
+              console.info("[acp-context] recovering unavailable session", {
+                conversationId,
+                sessionId: expectedExternalId,
+                model: preferredConfigValues.model,
+                code: e.code,
+              })
               void (async () => {
                 let continuationContext: string
                 try {
@@ -4437,6 +4456,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                     conversationId,
                     {
                       forceHostRestart: true,
+                      preferredConfigValues,
                       continuationFromSessionId: expectedExternalId,
                       continuationContext,
                     }
@@ -4444,8 +4464,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 } finally {
                   pendingContinuationRef.current.delete(contextKey)
                 }
-              })().catch(() => {
+              })().catch((error: unknown) => {
                 pendingContinuationRef.current.delete(contextKey)
+                console.error("[acp-context] session continuation failed", {
+                  conversationId,
+                  sessionId: expectedExternalId,
+                  error,
+                })
               })
             }
           }
@@ -5435,7 +5460,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
 
         if (request.attachOnly) return
-        if (conversationId != null && conversationId > 0 && !sessionId) {
+        if (
+          conversationId != null &&
+          conversationId > 0 &&
+          !sessionId &&
+          (!request.continuationFromSessionId ||
+            !request.continuationContext?.trim())
+        ) {
           const message = t("backendErrors.sessionLoadUnavailable", {
             agent: getAgentDisplayName(agentType),
           })

@@ -63,22 +63,28 @@ impl Runtime {
         }
         let key: [u8; 32] =
             Sha256::digest(format!("{token}\0{model}\0{endpoint}").as_bytes()).into();
-        if let Some(allowed) = self.transport.get(&key) {
+        let cached = self.transport.get(&key);
+        if let Some(allowed) = cached {
             if !allowed || ids.is_empty() {
                 return allowed;
             }
         }
         let Ok(_permit) = self.images.try_acquire() else {
-            return false;
+            return cached.unwrap_or(false);
         };
         // 冷启动将策略与缺失 ID 合为一次请求；热命中完全在本机完成。
-        let result = self.image_resources(token, (model, endpoint), ids).await;
-        if result.is_none() {
-            tracing::debug!(target: "model_gateway", resource_count=ids.len(),
-                "optional image transport unavailable; preserving managed references");
-        }
-        let allowed = result.unwrap_or(false);
+        let Some(allowed) = self.image_resources(token, (model, endpoint), ids).await else {
+            // 批量解析暂时失败不等于渠道不支持 URL；复用未过期策略和已解析的本地资源。
+            let retained = self.transport.get(&key);
+            tracing::debug!(target: "model_gateway", model, endpoint, resource_count=ids.len(),
+                cached_url_transport=retained, "optional image resolution unavailable; retaining valid local policy");
+            return retained.unwrap_or(false);
+        };
         self.transport.insert(key, allowed);
+        if cached != Some(allowed) {
+            tracing::info!(target: "model_gateway", model, endpoint, url_transport=allowed,
+                resource_count=ids.len(), "local image transport policy confirmed");
+        }
         allowed
     }
 
@@ -110,8 +116,6 @@ impl Runtime {
         for asset in result.assets {
             self.cache.insert_reference(token, asset);
         }
-        tracing::debug!(target: "model_gateway", url_transport=result.url_transport,
-            resource_count=ids.len(), "local image transport decision received");
         Some(result.url_transport)
     }
 

@@ -4,7 +4,9 @@ use std::sync::Arc;
 use codex_core::config::Config;
 use codex_login::{
     AuthManager, CodexAuth, ExternalAuth, ExternalAuthFuture, ExternalAuthRefreshContext,
+    RefreshTokenError,
 };
+use codex_protocol::auth::{RefreshTokenFailedError, RefreshTokenFailedReason};
 
 pub(super) async fn attach(
     manager: Arc<AuthManager>,
@@ -46,5 +48,13 @@ impl ExternalAuth for HostApiKey {
                 "host credentials expired; reconnect with refreshed credentials",
             ))
         })
+    }
+
+    fn classify_error(&self, error: io::Error) -> RefreshTokenError {
+        // 实例持有启动凭证，重复请求无法刷新；交由宿主重新登录并恢复连接。
+        RefreshTokenError::Permanent(RefreshTokenFailedError::new(
+            RefreshTokenFailedReason::Other,
+            error.to_string(),
+        ))
     }
 }

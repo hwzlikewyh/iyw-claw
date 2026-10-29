@@ -69,11 +69,14 @@ async fn prepare_images(
 ) -> Result<Output, GatewayError> {
     let mut replacements = Vec::new();
     let mut body = body;
+    let (original_bytes, image_count) = (body.len(), scan.images.len());
+    let mut prepared_images = 0;
     for slot in scan.images {
         if let Some(id) = &slot.managed_id {
             if urls {
                 if let Some(asset) = runtime.cache.get_reference(token, id) {
                     push_replacement(&mut replacements, &slot, (&asset, true))?;
+                    prepared_images += 1;
                 }
             }
             continue;
@@ -85,11 +88,15 @@ async fn prepare_images(
             return Ok(Output::Prepared(asset));
         }
         push_replacement(&mut replacements, &slot, (&asset, urls))?;
+        prepared_images += 1;
     }
     if replacements.is_empty() {
         return Ok(Output::Request(body));
     }
     let rewritten = super::work::blocking(runtime, move || apply(body, replacements)).await?;
+    tracing::debug!(target: "model_gateway", model=scan.model, image_count, prepared_images,
+        deferred_images=image_count-prepared_images, url_transport=urls,
+        original_bytes, final_bytes=rewritten.len(), "local image request preparation complete");
     Ok(Output::Request(rewritten))
 }
 
