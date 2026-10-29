@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { loadShareSource } from "@/lib/conversation-share/prepare"
 import type { AgentType } from "@/lib/types"
 import type {
@@ -9,12 +9,22 @@ import { toErrorMessage } from "@/lib/app-error"
 
 export type ShareSource = Awaited<ReturnType<typeof loadShareSource>>
 
-export function useShareSource(conversationId: number, agentType: AgentType) {
+export function useShareSource(
+  conversationId: number,
+  agentType: AgentType,
+  enabled: boolean
+) {
   const [source, setSource] = useState<ShareSource | null>(null)
   const [ids, setIDs] = useState(new Set<string>())
   const [error, setError] = useState("")
   const [revision, setRevision] = useState(0)
+  const reset = useCallback(() => {
+    setSource(null)
+    setIDs(new Set())
+    setError("")
+  }, [])
   useEffect(() => {
+    if (!enabled) return
     let current = true
     loadShareSource(conversationId, agentType)
       .then((loaded) => {
@@ -28,13 +38,14 @@ export function useShareSource(conversationId: number, agentType: AgentType) {
     return () => {
       current = false
     }
-  }, [conversationId, agentType, revision])
+  }, [conversationId, agentType, revision, enabled])
   return {
     source,
     setSource,
     ids,
     setIDs,
     loadError: error,
+    reset,
     retry: () => {
       setError("")
       setRevision((value) => value + 1)

@@ -14,7 +14,7 @@ export function FileSelection({ state }: { state: Composer }) {
     state.fileIDs.has(file.reference)
   ).length
   return (
-    <details className="mx-auto w-full max-w-4xl px-4 py-2" open>
+    <details className="mx-auto w-full max-w-4xl py-2">
       <summary className="cursor-pointer text-sm font-medium">
         成果文件（已选 {count}/{state.candidates.length}）
       </summary>
@@ -98,15 +98,25 @@ function SelectionActions({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox
-          checked={state.all ? true : state.ids.size ? "indeterminate" : false}
-          onCheckedChange={state.toggleAll}
-          disabled={!state.source || !!state.preview || !!state.status}
-        />
-        全选对话
-        <span className="text-muted-foreground">已选 {state.ids.size} 条</span>
-      </label>
+      {state.preview ? (
+        <span className="text-sm text-muted-foreground">
+          已选 {state.ids.size} 条
+        </span>
+      ) : (
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={
+              state.all ? true : state.ids.size ? "indeterminate" : false
+            }
+            onCheckedChange={state.toggleAll}
+            disabled={!state.source || !!state.status}
+          />
+          全选对话
+          <span className="text-muted-foreground">
+            已选 {state.ids.size} 条
+          </span>
+        </label>
+      )}
       <PublishActions state={state} close={close} />
     </div>
   )

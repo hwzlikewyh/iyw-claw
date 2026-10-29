@@ -1,4 +1,5 @@
-import { shareAction, sharePageURL } from "./client"
+import { isDesktop } from "@/lib/transport"
+import { shareAction, sharePageURL, validateShareBase } from "./client"
 import type {
   ShareCreated,
   ShareFileSpec,
@@ -14,21 +15,37 @@ interface PublishInput {
   files: ShareFileSpec[]
 }
 
-export async function publishShare(
-  input: PublishInput,
-  blobs: Map<string, Blob>,
-  progress: (text: string) => void
-) {
+async function shareConfiguration() {
   const config = await shareAction<{ apiBase: string; webBase: string | null }>(
     "configuration",
     {}
   )
   const webBase =
-    config.webBase ||
-    (/^https?:$/.test(window.location.protocol) ? window.location.origin : null)
+    config.webBase?.trim() ||
+    (!isDesktop() &&
+    !["tauri.localhost", "ipc.localhost"].includes(window.location.hostname) &&
+    /^https?:$/.test(window.location.protocol)
+      ? window.location.origin
+      : null)
   if (!webBase)
-    throw new Error("请先配置云端分享网页地址 IYW_CLAW_SHARE_WEB_BASE_URL")
-  sharePageURL({ token: "0".repeat(64), apiBase: config.apiBase }, webBase)
+    throw new Error(
+      "尚未配置公开分享网页，请先将分享页部署到 TOS 或网站，并配置访问地址。"
+    )
+  const apiBase = validateShareBase(config.apiBase)
+  try {
+    sharePageURL({ token: "0".repeat(64), apiBase }, webBase)
+  } catch {
+    throw new Error("分享网页地址无效，请配置已部署分享页的 HTTPS 地址。")
+  }
+  return { apiBase, webBase }
+}
+
+export async function publishShare(
+  input: PublishInput,
+  blobs: Map<string, Blob>,
+  progress: (text: string) => void
+) {
+  const { apiBase, webBase } = await shareConfiguration()
   progress("正在创建分享…")
   const created = await shareAction<ShareCreated>("create", input)
   for (const [index, upload] of created.uploads.entries()) {
@@ -50,9 +67,6 @@ export async function publishShare(
   })
   return {
     record,
-    url: sharePageURL(
-      { token: created.token, apiBase: config.apiBase },
-      webBase
-    ),
+    url: sharePageURL({ token: created.token, apiBase }, webBase),
   }
 }

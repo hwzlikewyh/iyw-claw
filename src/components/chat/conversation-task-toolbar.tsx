@@ -2,6 +2,12 @@ import type { ReactNode } from "react"
 import { MessageCircleQuestionMark } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import { ConversationShareButton } from "@/components/share/conversation-share-button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const MAX_TITLE_LENGTH = 12
 
@@ -31,7 +37,10 @@ export function ConversationTaskToolbar({
         </h1>
       )}
       <div className="conversation-task-toolbar-slot">{task}</div>
-      {onSideQuestion && <SideQuestionButton onAsk={onSideQuestion} />}
+      <div className="conversation-toolbar-actions flex shrink-0 items-center gap-1">
+        {onSideQuestion && <SideQuestionButton onAsk={onSideQuestion} />}
+        <ConversationShareButton />
+      </div>
     </div>
   )
 }
@@ -43,14 +52,19 @@ function SideQuestionButton({
 }) {
   const t = useTranslations("SideQuestion")
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="conversation-side-question"
-      onClick={() => onAsk("")}
-    >
-      <MessageCircleQuestionMark className="size-4" />
-      {t("title")}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="conversation-side-question"
+          aria-label={t("title")}
+          onClick={() => onAsk("")}
+        >
+          <MessageCircleQuestionMark className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{t("title")}</TooltipContent>
+    </Tooltip>
   )
 }

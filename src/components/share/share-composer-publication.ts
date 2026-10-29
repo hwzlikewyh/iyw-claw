@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { prepareShareFiles } from "@/lib/conversation-share/prepare"
 import { publishShare } from "@/lib/conversation-share/publish"
 import { toErrorMessage } from "@/lib/app-error"
@@ -26,22 +26,43 @@ export function useSharePublication(input: PublicationInput) {
     ReturnType<typeof publishShare>
   > | null>(null)
   const pending = useRef(false)
+  const revision = useRef(0)
+  const reset = useCallback(() => {
+    revision.current += 1
+    pending.current = false
+    setTitle(null)
+    setDays(7)
+    setError("")
+    setStatus("")
+    setPreview(null)
+    setResult(null)
+  }, [])
+  useEffect(
+    () => () => {
+      revision.current += 1
+    },
+    []
+  )
   useEffect(
     () => () => preview?.urls.forEach((url) => URL.revokeObjectURL(url)),
     [preview]
   )
-  const run = async (work: () => Promise<void>) => {
+  const run = async (work: (current: () => boolean) => Promise<void>) => {
     if (pending.current || result) return
     pending.current = true
+    const version = revision.current
+    const current = () => version === revision.current
     setStatus("正在准备成果…")
     setError("")
     try {
-      await work()
+      await work(current)
     } catch (err) {
-      setError(toErrorMessage(err))
+      if (current()) setError(toErrorMessage(err))
     } finally {
-      pending.current = false
-      setStatus("")
+      if (current()) {
+        pending.current = false
+        setStatus("")
+      }
     }
   }
   return {
@@ -54,6 +75,7 @@ export function useSharePublication(input: PublicationInput) {
     preview,
     result,
     previewFiles: preview?.urls ?? new Map<string, string>(),
+    reset,
     back: () => {
       if (!pending.current && !result) {
         setPreview(null)
@@ -61,8 +83,9 @@ export function useSharePublication(input: PublicationInput) {
       }
     },
     prepare: () =>
-      run(async () => {
+      run(async (current) => {
         const prepared = await prepareShareFiles(input.files)
+        if (!current()) return
         const urls = new Map(
           Array.from(prepared.blobs, ([key, blob]) => [
             key,
@@ -72,21 +95,22 @@ export function useSharePublication(input: PublicationInput) {
         setPreview({ ...prepared, urls })
       }),
     publish: (fallbackTitle: string) =>
-      run(async () => {
+      run(async (current) => {
         if (!preview || !input.snapshot?.messages.length) return
-        setResult(
-          await publishShare(
-            {
-              title: title ?? fallbackTitle,
-              sourceConversationId: String(input.conversationId),
-              expirationDays: days,
-              snapshot: input.snapshot,
-              files: preview.specs,
-            },
-            preview.blobs,
-            setStatus
-          )
+        const published = await publishShare(
+          {
+            title: title ?? fallbackTitle,
+            sourceConversationId: String(input.conversationId),
+            expirationDays: days,
+            snapshot: input.snapshot,
+            files: preview.specs,
+          },
+          preview.blobs,
+          (value) => {
+            if (current()) setStatus(value)
+          }
         )
+        if (current()) setResult(published)
       }),
   }
 }

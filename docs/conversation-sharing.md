@@ -1,6 +1,8 @@
 # 会话分享
 
-在当前会话点击“分享会话”，选择消息和成果，预览后生成只读链接。
+当前会话右上角的“顺便问”和“分享会话”并排显示为图标，悬停显示名称。
+点击分享图标，直接在原对话消息旁勾选，在底部选择成果和有效期，再预览并生成只读链接。
+消息选择不打开弹窗；分享预览和分享记录保留弹窗。“返回选择”回到原对话。
 “全选对话”覆盖尚未滚动加载的历史，支持逐条取消；成果文件仍需单独确认。
 有效期提供 1、7、15、30 天和长期；分享记录中可以撤销访问。
 
@@ -10,12 +12,46 @@ WebSocket 或本机文件操作；文件由 Fusion 校验分享权限后读取�
 ## 发布配置
 
 - 客户端沿用现有 `IYW_CLAW_FUSION_API_BASE_URL` 和账户认证访问分享后端。
-- 桌面端需要配置 `IYW_CLAW_SHARE_WEB_BASE_URL`，指向已部署同一静态前端的公开根地址。
+- 桌面端需要配置 `IYW_CLAW_SHARE_WEB_BASE_URL`，指向已部署同一静态前端的公开根地址，
+  或 TOS 上的完整 `https://<域名>/share.html` 地址。
   未配置时不生成只在本机可打开的链接。
+- 桌面端不回退到 `tauri.localhost`；缺少网页地址会在创建分享和上传成果之前提示。
+- 浏览器模式可沿用当前网站地址；桌面内部协议和内部主机名不能作为网页地址。
 - 分享页为固定路由 `/share`，符合 Next.js 静态导出，不新增 `[param]` 动态路由。
 - 分享凭据保存在 URL fragment 中，不出现在网页服务器的请求路径或 Referer 中。
 - Fusion 需要先接入分享接口并执行 `085_create_conversation_shares.sql`。
   不要把工作台访问 token 或发布人账户凭据放进分享链接。
+
+## 部署到 TOS
+
+分享网页可由 TOS 托管，无需另外运行网页服务器。通用网页和静态资源公开读取；
+会话正文继续由 Fusion 返回，成果继续使用私有 TOS 对象及分享文件接口。
+公开网页不包含任何用户会话数据，分享有效期和撤销仍由 Fusion 校验。
+
+```powershell
+pnpm build
+node scripts/prepare-share-site.mjs
+```
+
+准备结果位于 `artifacts/release-share-site/`，也可在脚本参数中指定输出目录。
+将其中的 `share.html` 和整个 `_next/static/` 按原路径上传到 TOS 根目录，
+只对这些网页资源配置公共读。不要将存放分享成果的整个桶改为公共读。
+更新时先上传静态资源，再更新 `share.html`；保留旧版本的带摘要资源以支持已打开的页面。
+
+使用绑定了 HTTPS 证书的 TOS 自定义域名，然后设置客户端启动环境：
+
+```powershell
+$env:IYW_CLAW_SHARE_WEB_BASE_URL = "https://<TOS自定义域名>/share.html"
+```
+
+从设置了该环境变量的终端重新启动客户端，先确认上述网页可打开，再生成分享链接。
+使用完整 `share.html` 对象地址，无需目录索引或 SPA 路由回退。
+Fusion 的跨域策略需允许该网页域名访问分享读取及文件接口。
+
+火山引擎说明，默认桶域名访问 HTML 会强制下载，直接浏览需要绑定自定义域名：
+[设置静态网站](https://www.volcengine.com/docs/torch-object-storage/hosting-astatic-web-site?lang=zh)、
+[设置自定义域名](https://www.volcengine.com/docs/torch-object-storage/setting-up-a-custom-domain?lang=zh)。
+本地打包不等于已上传，也不更改桶权限、DNS 或证书配置。
 
 ## 打开原助理
 

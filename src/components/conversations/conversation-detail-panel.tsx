@@ -1,7 +1,6 @@
 "use client"
 
 import { PersistentTaskStrip } from "@/components/chat/persistent-task-strip"
-import { ConversationShareButton } from "@/components/share/conversation-share-button"
 import type { RuntimeTask } from "@/lib/runtime-tasks"
 import { RuntimeTaskPanel } from "@/components/chat/runtime-task-panel"
 
@@ -3312,6 +3311,7 @@ const ConversationTabView = memo(function ConversationTabView({
       conversationTitle={isWelcomeMode ? undefined : ownTab?.title}
       runtimeConnectionId={conn.connectionId}
       conversationId={effectiveConversationId}
+      shareConversationId={dbConversationId}
       onReconnect={ensureConnected}
       onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
       sideInject={sideInject}
@@ -3333,10 +3333,6 @@ const ConversationTabView = memo(function ConversationTabView({
       topBanner={
         <>
           <BackgroundTasksChip contextKey={tabId} />
-          <ConversationShareButton
-            conversationId={dbConversationId}
-            agentType={selectedAgent}
-          />
           {!isSilentModelSwitch && (
             <SessionConfigStaleBanner contextKey={tabId} />
           )}

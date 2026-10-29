@@ -38,6 +38,8 @@ import { ConversationActivityVisibility } from "@/components/message/conversatio
 import { ConversationConnectionAlert } from "./conversation-connection-alert"
 import { RuntimeTaskDetailHost } from "./runtime-task-detail-host"
 import { ConversationTaskToolbar } from "./conversation-task-toolbar"
+import { ConversationShareProvider } from "@/components/share/conversation-share-context"
+import { ConversationSharePanel } from "@/components/share/conversation-share-panel"
 import "./conversation-presentation.css"
 import "./conversation-execution.css"
 import "./conversation-timeline.css"
@@ -47,6 +49,7 @@ interface ConversationShellProps {
   conversationTitle?: string
   runtimeConnectionId?: string | null
   conversationId?: number | null
+  shareConversationId?: number | null
   onReconnect?: () => Promise<void>
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
@@ -177,7 +180,12 @@ export function ConversationShell(props: ConversationShellProps) {
         <ConversationActivityVisibility
           key={props.activityContextKey ?? props.conversationId}
         >
-          <ConversationShellContent {...props} />
+          <ConversationShareProvider
+            conversationId={props.shareConversationId}
+            agentType={props.agentType}
+          >
+            <ConversationShellContent {...props} />
+          </ConversationShareProvider>
           <RuntimeTaskDetailHost active={props.isActive !== false} />
         </ConversationActivityVisibility>
       </ConversationPresentationProvider>
@@ -270,6 +278,7 @@ function ConversationShellContent({
         )}
         <AccountRequestsBanner />
         <div className="min-h-24 flex-1 overflow-auto">{children}</div>
+        <ConversationSharePanel />
 
         {/* 待处理卡片共享高度上限，为状态栏和输入框留出空间；输入框菜单可向上展开。 */}
         <div

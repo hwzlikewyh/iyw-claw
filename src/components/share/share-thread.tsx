@@ -2,7 +2,6 @@
 
 import { AgentIcon } from "@/components/agent-icon"
 import { Message, MessageContent } from "@/components/ai-elements/message"
-import { Checkbox } from "@/components/ui/checkbox"
 import type {
   ShareFileSpec,
   ShareSnapshot,
@@ -15,27 +14,13 @@ interface ThreadProps {
   snapshot: ShareSnapshot
   files: ShareFileSpec[]
   fileURL?: (reference: string, download?: boolean) => string | undefined
-  selection?: { ids: Set<string>; toggle: (id: string) => void }
 }
 
-export function ShareThread({
-  snapshot,
-  files,
-  fileURL,
-  selection,
-}: ThreadProps) {
+export function ShareThread({ snapshot, files, fileURL }: ThreadProps) {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5">
       {snapshot.messages.map((message) => (
         <div key={message.id} className="relative flex min-w-0 gap-3">
-          {selection && (
-            <Checkbox
-              className="mt-3"
-              checked={selection.ids.has(message.id)}
-              onCheckedChange={() => selection.toggle(message.id)}
-              aria-label={`选择${message.role === "user" ? "提问" : "回答"}`}
-            />
-          )}
           <Message from={message.role}>
             <MessageContent>
               {message.role === "assistant" && (

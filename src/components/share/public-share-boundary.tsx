@@ -14,7 +14,7 @@ export function PublicShareBoundary({
   content: ReactNode
 }) {
   const path = usePathname()
-  if (path !== "/share" && path !== "/share/") return children
+  if (!["/share", "/share/", "/share.html"].includes(path)) return children
   // 公开快照不初始化工作台登录、WebSocket 或桌面生命周期。
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>

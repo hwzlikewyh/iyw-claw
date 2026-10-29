@@ -33,7 +33,7 @@
   :has(
     .conversation-toolbar-title,
     .conversation-persistent-task,
-    .conversation-side-question
+    .conversation-toolbar-actions button
   )
 ) {
   display: none;

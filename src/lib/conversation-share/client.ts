@@ -30,7 +30,8 @@ export function shareFileURL(
 }
 
 export function sharePageURL(location: ShareLocation, webBase: string) {
-  const url = new URL("share/", `${validateShareBase(webBase)}/`)
+  const base = validateShareBase(webBase)
+  const url = new URL(/\.html$/i.test(base) ? base : `${base}/share/`)
   // 凭据留在 fragment，不进入网页服务器请求和 Referer。
   url.hash = new URLSearchParams({
     token: location.token,

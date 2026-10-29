@@ -18,6 +18,7 @@ import {
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
 import { ContentPartsRenderer } from "./content-parts-renderer"
+import { ShareMessageSelection } from "@/components/share/share-message-selection"
 import { BackgroundTaskStatusScope } from "./background-task-status-context"
 import {
   createMessageTurnAdapter,
@@ -153,6 +154,7 @@ interface MessageListViewProps {
 
 interface ResolvedMessageGroup {
   id: string
+  sourceMessageIDs: string[]
   forkTarget?: ForkTarget
   role: "user" | "assistant" | "system"
   timestamp: string
@@ -389,6 +391,9 @@ function mergeConsecutiveAssistantTurns(
         group: {
           ...last.group,
           id: first.group.id,
+          sourceMessageIDs: buffer.flatMap(
+            (item) => item.group.sourceMessageIDs
+          ),
           forkTarget: [...buffer]
             .reverse()
             .find((item) => item.group.forkTarget)?.group.forkTarget,
@@ -540,7 +545,11 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
       : ""
 
   return (
-    <div className={dimmed ? "opacity-70" : undefined}>
+    <ShareMessageSelection
+      messageIDs={group.sourceMessageIDs}
+      role={group.role}
+      className={dimmed ? "opacity-70" : undefined}
+    >
       <Message from={group.role}>
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
@@ -644,7 +653,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             )}
           </CompletionEntrance>
         )}
-    </div>
+    </ShareMessageSelection>
   )
 })
 
@@ -824,6 +833,7 @@ export function MessageListView({
         const metrics = getMessageOutputMetrics(timelineTurns[i].turn)
         group = {
           id: msg.id,
+          sourceMessageIDs: [msg.id],
           forkTarget:
             forkMessageId && forkSessionId
               ? {
