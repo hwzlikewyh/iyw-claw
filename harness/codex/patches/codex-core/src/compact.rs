@@ -64,6 +64,8 @@ const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
 
 #[path = "compact_request_budget.rs"]
 pub(crate) mod request_budget;
+#[path = "compact_responses_fallback.rs"]
+mod responses_fallback;
 
 /// Thread-local policy that preserves inherited context without changing model or skill budgets.
 /// Insert into `StartThreadOptions::thread_extension_init` to disable automatic compaction.
@@ -213,14 +215,16 @@ async fn run_compact_task_inner(
             return Err(error);
         }
     }
-    let result = run_compact_task_inner_impl(
-        Arc::clone(&sess),
-        Arc::clone(&turn_context),
+    let result = responses_fallback::ResponsesCompaction {
+        session: Arc::clone(&sess),
+        turn_context: Arc::clone(&turn_context),
         replacement_step_context,
         input,
         world_state,
-        compaction_metadata,
-    )
+        metadata: compaction_metadata,
+        item: TurnItem::ContextCompaction(ContextCompactionItem::new()),
+    }
+    .run()
     .await;
     let status = compaction_status_from_result(&result);
     let codex_error = result.as_ref().err();
@@ -269,11 +273,9 @@ async fn run_compact_task_inner_impl(
     replacement_step_context: Arc<StepContext>,
     input: Vec<UserInput>,
     world_state: Arc<WorldState>,
-    compaction_metadata: CompactionTurnMetadata,
+    compaction: (CompactionTurnMetadata, TurnItem),
 ) -> CodexResult<String> {
-    let compaction_item = TurnItem::ContextCompaction(ContextCompactionItem::new());
-    sess.emit_turn_item_started(&turn_context, &compaction_item)
-        .await;
+    let (compaction_metadata, compaction_item) = compaction;
     let initial_input_for_turn: ResponseInputItem = ResponseInputItem::from(input);
 
     let mut history = sess.clone_history().await;
@@ -336,7 +338,6 @@ async fn run_compact_task_inner_impl(
                 &mut client_session,
                 &responses_metadata,
                 &prompt,
-                compaction_metadata.phase(),
             ))
             .await;
 
@@ -418,19 +419,15 @@ async fn run_compact_task_inner_impl(
         }
     };
 
+    let summary_suffix = get_last_assistant_message_from_turn(compaction_response.output.iter())
+        .filter(|summary| !summary.trim().is_empty())
+        .ok_or_else(|| CodexErr::Stream("Compaction completed without an assistant summary".into()))?;
+    // 摘要校验和历史写入放在请求超时边界之外，失败请求不会留下半份摘要。
+    if !matches!(compaction_metadata.phase(), CompactionPhase::PostTurn) {
+        record_compaction_output(&sess, &turn_context, compaction_response.output).await;
+    }
     let history_snapshot = sess.clone_history().await;
     let history_items = history_snapshot.annotated_items();
-    let summary_suffix = if matches!(compaction_metadata.phase(), CompactionPhase::PostTurn) {
-        get_last_assistant_message_from_turn(compaction_response.output.iter())
-            .filter(|summary| !summary.trim().is_empty())
-            .ok_or_else(|| {
-                CodexErr::Stream(
-                    "Post-turn compaction completed without an assistant summary".to_string(),
-                )
-            })?
-    } else {
-        get_last_assistant_message_from_turn(history_snapshot.raw_items()).unwrap_or_default()
-    };
     let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
     let user_messages = collect_annotated_user_messages(history_items);
 
@@ -856,7 +853,6 @@ async fn drain_to_completed(
     client_session: &mut ModelClientSession,
     responses_metadata: &CodexResponsesMetadata,
     prompt: &Prompt,
-    phase: CompactionPhase,
 ) -> CodexResult<CompactionResponse> {
     sess.set_server_reasoning_included(turn_context.model_info().use_responses_lite)
         .await;
@@ -901,22 +897,6 @@ async fn drain_to_completed(
                 usage_metadata,
                 ..
             }) => {
-                if !matches!(phase, CompactionPhase::PostTurn) {
-                    for item in std::mem::take(&mut output) {
-                        sess.record_annotated_conversation_items(
-                            turn_context,
-                            turn_context.model_info(),
-                            vec![ResponseItemEnvelope {
-                                item,
-                                metadata: Some(CodexHarnessMetadata {
-                                    compaction_output: true,
-                                    ..Default::default()
-                                }),
-                            }],
-                        )
-                        .await;
-                    }
-                }
                 sess.record_observed_response_completed(
                     turn_context,
                     &response_id,
@@ -946,4 +926,23 @@ async fn drain_to_completed(
             }
         }
     }
+}
+
+async fn record_compaction_output(
+    sess: &Session,
+    turn_context: &TurnContext,
+    output: Vec<ResponseItem>,
+) {
+    let items = output
+        .into_iter()
+        .map(|item| ResponseItemEnvelope {
+            item,
+            metadata: Some(CodexHarnessMetadata {
+                compaction_output: true,
+                ..Default::default()
+            }),
+        })
+        .collect();
+    sess.record_annotated_conversation_items(turn_context, turn_context.model_info(), items)
+        .await;
 }
