@@ -17,7 +17,7 @@ export function ShareMessageSelection({
 }) {
   const state = useConversationShare()?.state
   const eligible = messageIDs.filter((id) => state?.availableIDs.has(id))
-  const selecting = !!state && !state.preview && !state.result
+  const selecting = !!state && !state.preview
   const checked = eligible.filter((id) => state?.ids.has(id)).length
   return (
     <div className={selecting ? "flex min-w-0 items-start gap-3" : "min-w-0"}>
@@ -32,13 +32,17 @@ export function ShareMessageSelection({
                 ? "indeterminate"
                 : false
           }
-          disabled={!eligible.length || !!state.status}
+          disabled={!eligible.length || !!state.status || !!state.result}
           onCheckedChange={(value) =>
             state.toggleMessages(eligible, value === true)
           }
         />
       )}
-      <div className={`min-w-0 flex-1 ${className ?? ""}`}>{children}</div>
+      <div
+        className={`min-w-0 flex-1 rounded-xl transition-colors ${selecting && checked ? "bg-primary/5 ring-1 ring-primary/10" : ""} ${className ?? ""}`}
+      >
+        {children}
+      </div>
     </div>
   )
 }

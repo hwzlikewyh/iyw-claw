@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ShareMessageText } from "./share-message-text"
+import { withSandboxCsp } from "@/lib/html-preview-inline"
 import type { ShareFileSpec } from "@/lib/conversation-share/types"
 
 interface FileProps {
@@ -17,6 +18,7 @@ interface FileProps {
   url?: string
   downloadURL?: string
 }
+const MAX_HTML_PREVIEW_BYTES = 12 * 1024 * 1024
 
 export function ShareFileCard(props: FileProps) {
   const [open, setOpen] = useState(false)
@@ -92,6 +94,8 @@ function FilePreview({ file, url }: { file: ShareFileSpec; url: string }) {
     return (
       <iframe src={url} title={file.fileName} className="h-[70dvh] w-full" />
     )
+  if (file.contentType === "text/html")
+    return <HtmlPreview file={file} url={url} />
   if (/^(text\/(plain|markdown|csv)|application\/json)$/.test(file.contentType))
     return <TextPreview file={file} url={url} />
   return (
@@ -105,6 +109,75 @@ function FilePreview({ file, url }: { file: ShareFileSpec; url: string }) {
       </Button>
     </div>
   )
+}
+
+function HtmlPreview({ file, url }: { file: ShareFileSpec; url: string }) {
+  const { source, error } = useSharedHtml(file.sizeBytes, url)
+  if (file.sizeBytes > MAX_HTML_PREVIEW_BYTES)
+    return (
+      <p role="status" className="text-sm">
+        HTML 文件超过 12 MiB，无法预览。
+      </p>
+    )
+  if (error)
+    return (
+      <p role="alert" className="text-sm">
+        {error}
+      </p>
+    )
+  if (source === null)
+    return (
+      <p role="status" className="text-sm">
+        正在加载安全预览…
+      </p>
+    )
+  return (
+    <iframe
+      srcDoc={source}
+      title={`安全预览：${file.fileName}`}
+      sandbox=""
+      referrerPolicy="no-referrer"
+      className="h-[70dvh] w-full border-0 bg-white"
+    />
+  )
+}
+
+function useSharedHtml(size: number, url: string) {
+  const [source, setSource] = useState<string | null>(null)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (size > MAX_HTML_PREVIEW_BYTES) return
+    let current = true
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000)
+    void fetch(url, {
+      signal: controller.signal,
+      referrerPolicy: "no-referrer",
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("HTML 预览不可用，分享可能已失效。")
+        const html = await response.text()
+        if (current) setSource(withSandboxCsp(html))
+      })
+      .catch((cause) => {
+        if (current)
+          setError(
+            controller.signal.aborted
+              ? "HTML 预览加载超时，请关闭后重试。"
+              : cause instanceof Error
+                ? cause.message
+                : "HTML 预览加载失败。"
+          )
+      })
+      .finally(() => clearTimeout(timeout))
+    return () => {
+      current = false
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [size, url])
+  return { source, error }
 }
 
 function SharedImagePreview({

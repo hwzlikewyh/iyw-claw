@@ -1,4 +1,3 @@
-import { isDesktop } from "@/lib/transport"
 import { shareAction, sharePageURL, validateShareBase } from "./client"
 import type {
   ShareCreated,
@@ -20,18 +19,9 @@ async function shareConfiguration() {
     "configuration",
     {}
   )
-  const webBase =
-    config.webBase?.trim() ||
-    (!isDesktop() &&
-    !["tauri.localhost", "ipc.localhost"].includes(window.location.hostname) &&
-    /^https?:$/.test(window.location.protocol)
-      ? window.location.origin
-      : null)
-  if (!webBase)
-    throw new Error(
-      "尚未配置公开分享网页，请先将分享页部署到 TOS 或网站，并配置访问地址。"
-    )
   const apiBase = validateShareBase(config.apiBase)
+  const webBase =
+    config.webBase?.trim() || `${apiBase}/conversation-shares/view`
   try {
     sharePageURL({ token: "0".repeat(64), apiBase }, webBase)
   } catch {

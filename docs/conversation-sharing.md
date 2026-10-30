@@ -1,57 +1,35 @@
 # 会话分享
 
 当前会话右上角的“顺便问”和“分享会话”并排显示为图标，悬停显示名称。
-点击分享图标，直接在原对话消息旁勾选，在底部选择成果和有效期，再预览并生成只读链接。
-消息选择不打开弹窗；分享预览和分享记录保留弹窗。“返回选择”回到原对话。
+点击分享图标，直接在原对话消息旁勾选，输入框收起并显示底部分享栏，退出后恢复原草稿。
+底部提供扫码分享、复制链接、生成长图、浏览器打开和预览；链接首次使用时自动发布，后续复用。
+消息选择不打开弹窗；预览、扫码和分享记录保留弹窗。“返回选择”回到原对话。
 “全选对话”覆盖尚未滚动加载的历史，支持逐条取消；成果文件仍需单独确认。
 有效期提供 1、7、15、30 天和长期；分享记录中可以撤销访问。
 
-分享预览和网页复用现有消息、Markdown 和代码展示组件。网页不初始化工作台登录、
-WebSocket 或本机文件操作；文件由 Fusion 校验分享权限后读取，不依赖发布人的电脑在线。
+客户端分享预览复用现有消息和 Markdown 展示组件；Fusion 同域页面显示基础 Markdown、
+表格和代码。网页不初始化工作台登录、WebSocket 或本机文件操作；文件由 Fusion 校验分享权限后读取。
 
 ## 发布配置
 
 - 客户端沿用现有 `IYW_CLAW_FUSION_API_BASE_URL` 和账户认证访问分享后端。
-- 桌面端需要配置 `IYW_CLAW_SHARE_WEB_BASE_URL`，指向已部署同一静态前端的公开根地址，
-  或 TOS 上的完整 `https://<域名>/share.html` 地址。
-  未配置时不生成只在本机可打开的链接。
-- 桌面端不回退到 `tauri.localhost`；缺少网页地址会在创建分享和上传成果之前提示。
-- 浏览器模式可沿用当前网站地址；桌面内部协议和内部主机名不能作为网页地址。
-- 分享页为固定路由 `/share`，符合 Next.js 静态导出，不新增 `[param]` 动态路由。
-- 分享凭据保存在 URL fragment 中，不出现在网页服务器的请求路径或 Referer 中。
-- Fusion 需要先接入分享接口并执行 `085_create_conversation_shares.sql`。
+- 分享网页由 Fusion 在同一 HTTPS 地址提供：`<apiBase>/conversation-shares/view`。
+  默认不需要配置 `IYW_CLAW_SHARE_WEB_BASE_URL`。
+- 可选环境变量仅用于已部署同一分享页面的其他 HTTPS 地址。若改用 TOS 页面，
+  需要配置 `/share.html` URL，并为默认域名配置可直接显示网页的自定义 HTTPS 域名。
+- 分享链接凭据放在 URL fragment 中，不进入网页请求路径或 Referer。
+- Fusion 分享接口和 `085_create_conversation_shares.sql` 已接入。
   不要把工作台访问 token 或发布人账户凭据放进分享链接。
 
-## 部署到 TOS
+## 公开查看页
 
-分享网页可由 TOS 托管，无需另外运行网页服务器。通用网页和静态资源公开读取；
-会话正文继续由 Fusion 返回，成果继续使用私有 TOS 对象及分享文件接口。
-公开网页不包含任何用户会话数据，分享有效期和撤销仍由 Fusion 校验。
+桌面客户端和新部署的 Fusion 版本无需环境配置，生成的分享链接直接打开
+`/conversation-shares/view`。
+查看页只包含通用界面代码；正文通过 `/conversation-shares/read` 读取，
+成果仍通过现有私有 TOS 文件接口按分享 token 下载或预览。
 
-```powershell
-pnpm build
-node scripts/prepare-share-site.mjs
-```
-
-准备结果位于 `artifacts/release-share-site/`，也可在脚本参数中指定输出目录。
-将其中的 `share.html` 和整个 `_next/static/` 按原路径上传到 TOS 根目录，
-只对这些网页资源配置公共读。不要将存放分享成果的整个桶改为公共读。
-更新时先上传静态资源，再更新 `share.html`；保留旧版本的带摘要资源以支持已打开的页面。
-
-使用绑定了 HTTPS 证书的 TOS 自定义域名，然后设置客户端启动环境：
-
-```powershell
-$env:IYW_CLAW_SHARE_WEB_BASE_URL = "https://<TOS自定义域名>/share.html"
-```
-
-从设置了该环境变量的终端重新启动客户端，先确认上述网页可打开，再生成分享链接。
-使用完整 `share.html` 对象地址，无需目录索引或 SPA 路由回退。
-Fusion 的跨域策略需允许该网页域名访问分享读取及文件接口。
-
-火山引擎说明，默认桶域名访问 HTML 会强制下载，直接浏览需要绑定自定义域名：
-[设置静态网站](https://www.volcengine.com/docs/torch-object-storage/hosting-astatic-web-site?lang=zh)、
-[设置自定义域名](https://www.volcengine.com/docs/torch-object-storage/setting-up-a-custom-domain?lang=zh)。
-本地打包不等于已上传，也不更改桶权限、DNS 或证书配置。
+公开查看页和下载/预览接口均禁止缓存，并在每次读取时核对分享有效期和撤销状态。
+HTML 成果只在脚本和网络请求均禁用的 iframe 沙箱内预览，不在分享站点执行。
 
 ## 打开原助理
 
@@ -64,8 +42,10 @@ Fusion 的跨域策略需允许该网页域名访问分享读取及文件接口�
 
 ## 支持边界
 
-图片、音视频、PDF、Markdown 和纯文本提供只读预览；其他格式下载原件。
-HTML/SVG 不在主站执行，不提供可编辑的 Office 或多人续聊。
+客户端支持图片、音视频、PDF、Markdown、纯文本及 12 MiB 内的 HTML 沙箱预览。
+Fusion 公网页支持图片、音视频及 HTML 沙箱预览，其余成果可下载原件。
+HTML 报告的图片、字体和样式需已嵌入文件；脚本和外部网络资源不会运行或加载。
+不提供可编辑的 Office 或多人续聊。
 发布后保存固定快照，未选消息和文件不公开，后续对话不会自动加入旧分享。
 
 验证遵循本仓库规则：类型检查、定向 ESLint、Rust 编译和静态调用链审查；

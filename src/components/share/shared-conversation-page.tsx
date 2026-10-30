@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ExternalLink, RefreshCw } from "lucide-react"
+import { ExternalLink, RefreshCw, Share2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   parseShareLocation,
@@ -63,7 +64,20 @@ export function SharedConversationPage() {
               {share?.title || "会话分享"}
             </h1>
           </div>
-          {share && location && <OpenAssistant location={location} />}
+          {share && location && (
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="分享会话链接"
+                title="分享会话链接"
+                onClick={() => void shareConversationURL(share.title)}
+              >
+                <Share2 className="size-4" />
+              </Button>
+              <OpenAssistant location={location} />
+            </div>
+          )}
         </div>
       </header>
       {error ? (
@@ -107,6 +121,20 @@ export function SharedConversationPage() {
       )}
     </main>
   )
+}
+
+async function shareConversationURL(title: string) {
+  const share = { title: title || "会话分享", url: window.location.href }
+  try {
+    if (navigator.share) await navigator.share(share)
+    else {
+      await navigator.clipboard.writeText(share.url)
+      toast("分享链接已复制")
+    }
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== "AbortError")
+      toast.error("分享失败")
+  }
 }
 
 function OpenAssistant({ location }: { location: ShareLocation }) {

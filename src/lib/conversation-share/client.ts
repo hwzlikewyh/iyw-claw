@@ -31,7 +31,18 @@ export function shareFileURL(
 
 export function sharePageURL(location: ShareLocation, webBase: string) {
   const base = validateShareBase(webBase)
-  const url = new URL(/\.html$/i.test(base) ? base : `${base}/share/`)
+  const root = `${base.replace(/\/+$/, "")}/`
+  const url = new URL(base)
+  if (
+    !/\.html$/i.test(url.pathname) &&
+    !/\/conversation-shares\/view\/?$/i.test(url.pathname)
+  ) {
+    return buildSharePageURL(location, new URL("share/", root))
+  }
+  return buildSharePageURL(location, url)
+}
+
+function buildSharePageURL(location: ShareLocation, url: URL) {
   // 凭据留在 fragment，不进入网页服务器请求和 Referer。
   url.hash = new URLSearchParams({
     token: location.token,

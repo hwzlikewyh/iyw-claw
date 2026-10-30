@@ -38,7 +38,10 @@ import { ConversationActivityVisibility } from "@/components/message/conversatio
 import { ConversationConnectionAlert } from "./conversation-connection-alert"
 import { RuntimeTaskDetailHost } from "./runtime-task-detail-host"
 import { ConversationTaskToolbar } from "./conversation-task-toolbar"
-import { ConversationShareProvider } from "@/components/share/conversation-share-context"
+import {
+  ConversationShareProvider,
+  useConversationShare,
+} from "@/components/share/conversation-share-context"
 import { ConversationSharePanel } from "@/components/share/conversation-share-panel"
 import "./conversation-presentation.css"
 import "./conversation-execution.css"
@@ -260,6 +263,7 @@ function ConversationShellContent({
   onSideInjectConsumed,
 }: ConversationShellProps) {
   const tAcp = useTranslations("Folder.chat.acpConnections")
+  const sharing = !!useConversationShare()?.state
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
@@ -347,7 +351,7 @@ function ConversationShellContent({
           )}
         </div>
 
-        <div className="shrink-0">
+        <div className={sharing ? "hidden" : "shrink-0"}>
           {runtimeTasks && (
             <div className="conversation-composer-tasks mx-auto w-full max-w-4xl shrink-0 px-4">
               {runtimeTasks}

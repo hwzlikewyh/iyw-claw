@@ -9,7 +9,11 @@ pub async fn action_core(conn: &DatabaseConnection, action: String, data: Value)
     if action == "configuration" {
         let endpoint = client::endpoint("/")?;
         let api_base = endpoint.to_string().trim_end_matches('/').to_string();
-        let web_base = std::env::var("IYW_CLAW_SHARE_WEB_BASE_URL").ok();
+        let web_base = std::env::var("IYW_CLAW_SHARE_WEB_BASE_URL")
+            .ok()
+            .map(|value| value.trim().trim_end_matches('/').to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| format!("{api_base}/conversation-shares/view"));
         return Ok(serde_json::json!({"apiBase": api_base, "webBase": web_base}));
     }
     let path = match action.as_str() {

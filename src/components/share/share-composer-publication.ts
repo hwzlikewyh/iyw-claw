@@ -47,15 +47,17 @@ export function useSharePublication(input: PublicationInput) {
     () => () => preview?.urls.forEach((url) => URL.revokeObjectURL(url)),
     [preview]
   )
-  const run = async (work: (current: () => boolean) => Promise<void>) => {
-    if (pending.current || result) return
+  const run = async (
+    work: (current: () => boolean) => Promise<string | void>
+  ) => {
+    if (pending.current) return
     pending.current = true
     const version = revision.current
     const current = () => version === revision.current
     setStatus("正在准备成果…")
     setError("")
     try {
-      await work(current)
+      return await work(current)
     } catch (err) {
       if (current()) setError(toErrorMessage(err))
     } finally {
@@ -96,21 +98,24 @@ export function useSharePublication(input: PublicationInput) {
       }),
     publish: (fallbackTitle: string) =>
       run(async (current) => {
-        if (!preview || !input.snapshot?.messages.length) return
+        if (result) return result.url
+        if (!input.snapshot?.messages.length) return
+        const prepared = preview ?? (await prepareShareFiles(input.files))
         const published = await publishShare(
           {
             title: title ?? fallbackTitle,
             sourceConversationId: String(input.conversationId),
             expirationDays: days,
             snapshot: input.snapshot,
-            files: preview.specs,
+            files: prepared.specs,
           },
-          preview.blobs,
+          prepared.blobs,
           (value) => {
             if (current()) setStatus(value)
           }
         )
         if (current()) setResult(published)
+        return current() ? published.url : undefined
       }),
   }
 }

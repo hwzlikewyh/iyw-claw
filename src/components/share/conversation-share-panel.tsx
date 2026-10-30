@@ -14,6 +14,7 @@ import { useConversationShare } from "./conversation-share-context"
 import { FileSelection, ShareFooter } from "./share-composer-controls"
 import { ShareHistory } from "./share-history"
 import { ShareThread } from "./share-thread"
+import { ShareSelectionToolbar } from "./share-selection-toolbar"
 
 export function ConversationSharePanel() {
   const share = useConversationShare()
@@ -49,7 +50,12 @@ function SharePanelContent({
       ) : (
         <ShareContent state={state} />
       )}
-      {!history && <ShareFooter state={state} close={share.close} />}
+      {!history &&
+        (state.preview ? (
+          <ShareFooter state={state} close={share.close} />
+        ) : (
+          <ShareSelectionToolbar state={state} close={share.close} />
+        ))}
     </>
   )
   if (!state.preview && !history)
@@ -134,6 +140,22 @@ function ShareHeading({
       >
         {history ? "返回分享" : "分享记录"}
       </Button>
+      {!state.preview && !history && (
+        <select
+          aria-label="分享有效期"
+          title="分享有效期"
+          value={state.days}
+          disabled={!!state.status || !!state.result}
+          onChange={(event) => state.setDays(Number(event.target.value))}
+          className="h-8 shrink-0 rounded-md bg-muted/40 px-2 text-xs"
+        >
+          {[1, 7, 15, 30, 0].map((days) => (
+            <option key={days} value={days}>
+              {days ? `${days} 天有效` : "长期有效"}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   )
 }

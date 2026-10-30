@@ -29,7 +29,7 @@ export function FileSelection({ state }: { state: Composer }) {
           >
             <Checkbox
               checked={state.fileIDs.has(file.reference)}
-              disabled={!!state.status}
+              disabled={!!state.status || !!state.result}
               onCheckedChange={() => state.toggleFile(file.reference)}
             />
             <span className="truncate">{file.name}</span>
@@ -42,7 +42,7 @@ export function FileSelection({ state }: { state: Composer }) {
           type="file"
           multiple
           className="sr-only"
-          disabled={!state.ids.size || !!state.status}
+          disabled={!state.ids.size || !!state.status || !!state.result}
           onChange={(event) => {
             if (event.target.files) state.addFiles(event.target.files)
             event.target.value = ""

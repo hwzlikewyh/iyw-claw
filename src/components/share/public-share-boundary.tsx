@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AppearanceProvider } from "@/components/appearance-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { AppToaster } from "@/components/ui/app-toaster"
 
 export function PublicShareBoundary({
   children,
@@ -19,7 +20,10 @@ export function PublicShareBoundary({
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <AppearanceProvider>
-        <TooltipProvider>{content}</TooltipProvider>
+        <TooltipProvider>
+          {content}
+          <AppToaster />
+        </TooltipProvider>
       </AppearanceProvider>
     </ThemeProvider>
   )
