@@ -56,7 +56,10 @@ function mountFrame(
     (value) => value.toString(16)
   ).join("-")
   frame.title = content.title
-  frame.setAttribute("sandbox", "allow-scripts")
+  frame.setAttribute(
+    "sandbox",
+    content.waiting ? "allow-scripts allow-forms" : "allow-scripts"
+  )
   frame.setAttribute("referrerpolicy", "no-referrer")
   frame.style.height = `${HTML_DEFAULT_HEIGHT}px`
   const timeout = window.setTimeout(
@@ -77,7 +80,7 @@ function mountFrame(
     },
     onSubmit: (data) => latest.current.onSubmit(data),
   })
-  frame.srcdoc = interactiveHtmlDocument(content.html, nonce)
+  frame.srcdoc = interactiveHtmlDocument(content.html, nonce, content.waiting)
   container.appendChild(frame)
   return () => {
     clearTimeout(timeout)

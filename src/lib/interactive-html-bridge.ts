@@ -41,17 +41,51 @@ const SUBMIT_SCRIPT = `  Object.defineProperty(window, 'iyw', { value: Object.fr
   }), writable: false, configurable: false });
 `
 
+const FORM_SUBMIT_SCRIPT = `  const enableFormSubmit = () => {
+    const failed = error => {
+      console.warn('Interactive HTML form submission failed', error);
+      send({ type: 'form-error' });
+    };
+    window.addEventListener('submit', event => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || event.defaultPrevented) return;
+      event.preventDefault();
+      if (pending || completed) return;
+      try {
+        const fields = new FormData(form);
+        const data = Object.create(null);
+        for (const [name, value] of fields.entries()) {
+          if (typeof value !== 'string') throw new Error('File inputs are not supported');
+          if (!Object.prototype.hasOwnProperty.call(data, name)) data[name] = value;
+          else if (Array.isArray(data[name])) data[name].push(value);
+          else data[name] = [data[name], value];
+        }
+        window.iyw.submit(data).catch(failed);
+      } catch (error) {
+        failed(error);
+      }
+    });
+  };
+`
+
 // 引导代码在用户文档之前运行，不将 HTML 拼入脚本或带入宿主 origin。
-export function interactiveHtmlDocument(html: string, nonce: string): string {
+export function interactiveHtmlDocument(
+  html: string,
+  nonce: string,
+  canSubmit: boolean
+): string {
   return `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}"><script>
 (() => {
   const nonce = ${JSON.stringify(nonce)};
+  const canSubmit = ${JSON.stringify(canSubmit)};
   const limit = ${MAX_HTML_RESULT_BYTES};
   let port, pending, timer, counter = 0, completed = false, pageError = false;
   const send = value => port?.postMessage(value);
   const reject = message => { clearTimeout(timer); pending?.reject(new Error(message)); pending = null; };
 ${SUBMIT_SCRIPT}
+${FORM_SUBMIT_SCRIPT}
   const ready = () => {
+    if (canSubmit) enableFormSubmit();
     send({ type: 'ready' });
     if (pageError) send({ type: 'page-error' });
     let scheduled = false;
@@ -131,6 +165,10 @@ function createReceiver(
     if (!message || typeof message !== "object") return
     if (message.type === "ready") options.onReady()
     if (message.type === "page-error") options.onError("pageError")
+    if (message.type === "form-error") {
+      options.onError("submitError")
+      return
+    }
     if (message.type === "resize") resize(options.frame, message.height)
     if (
       message.type !== "submit" ||

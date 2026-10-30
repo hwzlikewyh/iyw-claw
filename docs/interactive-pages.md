@@ -28,6 +28,7 @@ HTML 调用保持兼容：
 - `url` 最多 8192 UTF-8 字节，只接受无用户名、密码的 HTTP/HTTPS 地址。
 - `wait_for_response` 默认 `false`。URL 页面仅浏览，不注入 `iyw.submit`，传 `true` 会返回参数错误。
 - HTML 在原有沙箱 iframe 中运行，自包含脚本和样式可用；保留原有 CSP、MessageChannel、用户提交及取消流程。
+- 等待反馈的 HTML 页面可使用标准 `<form>` 提交；宿主会拦截未被页面处理的提交，并把命名控件值发送给 Agent。同名字段以数组返回；文件控件不支持此兜底。复杂交互仍可在用户操作时调用 `iyw.submit(data)`。等待页面的沙箱允许表单事件，CSP 继续禁止表单导航。
 - 返回 `presented` 表示宿主已接受展示请求，不代表网页已经加载或视觉效果已经验证。
 
 ## 右侧操作
