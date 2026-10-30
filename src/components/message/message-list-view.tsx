@@ -18,6 +18,7 @@ import {
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
 import { ContentPartsRenderer } from "./content-parts-renderer"
+import { createMessageGroupCache } from "@/lib/message-group-cache"
 import { ShareMessageSelection } from "@/components/share/share-message-selection"
 import { BackgroundTaskStatusScope } from "./background-task-status-context"
 import {
@@ -318,7 +319,8 @@ function isEmptyTurnItem(item: ThreadRenderItem): boolean {
  * placeholder turns between tool exchanges.
  */
 function mergeConsecutiveAssistantTurns(
-  items: ThreadRenderItem[]
+  items: ThreadRenderItem[],
+  cache: ReturnType<typeof createMessageGroupCache<ResolvedMessageGroup>>
 ): ThreadRenderItem[] {
   const result: ThreadRenderItem[] = []
   const skipped: ThreadRenderItem[] = []
@@ -332,7 +334,16 @@ function mergeConsecutiveAssistantTurns(
       return
     }
 
-    if (buffer.length === 1) {
+    const groups = buffer.map((item) => item.group)
+    const streaming = buffer.some((item) => item.phase === "streaming")
+    const cached = cache.get(groups, streaming)
+    if (cached) {
+      result.push({
+        ...buffer[buffer.length - 1],
+        key: buffer[0].key,
+        group: cached,
+      })
+    } else if (buffer.length === 1) {
       result.push(buffer[0])
     } else {
       const allParts = buffer.flatMap((it) => it.group.parts)
@@ -406,6 +417,8 @@ function mergeConsecutiveAssistantTurns(
           models: mergedModels.length > 1 ? mergedModels : undefined,
         },
       })
+      const merged = result[result.length - 1]
+      if (merged.kind === "turn") cache.set(groups, streaming, merged.group)
     }
 
     // Drop any empty items that were collapsed inside the run
@@ -794,6 +807,9 @@ export function MessageListView({
   const [groupCache] = useState<WeakMap<AdaptedMessage, ResolvedMessageGroup>>(
     () => new WeakMap()
   )
+  const [assistantGroupCache] = useState(() =>
+    createMessageGroupCache<ResolvedMessageGroup>()
+  )
 
   const { threadItems } = useMemo(() => {
     const allTurns = timelineTurns.map((item) => item.turn)
@@ -870,7 +886,7 @@ export function MessageListView({
 
     // Collapse consecutive assistant turn render items into a single rendered
     // turn, so tool-groups straddling a turn boundary fold into one collapsible.
-    const items = mergeConsecutiveAssistantTurns(rawItems)
+    const items = mergeConsecutiveAssistantTurns(rawItems, assistantGroupCache)
 
     // Compute showStats, isRoleTransition, and previousUserIndex for each turn.
     // previousUserIndex points at the closest preceding user turn (used by the
@@ -936,6 +952,7 @@ export function MessageListView({
     timelineTurns,
     turnAdapter,
     groupCache,
+    assistantGroupCache,
     hasEarlierHistory,
     detailError,
     persistedSessionId,
@@ -1265,6 +1282,7 @@ export function MessageListView({
           <AutoScrollOnSend signal={sendSignal} />
           <VirtualizedMessageThread
             items={threadItems}
+            historyStart={session?.detail?.history_start}
             getItemKey={getThreadItemKey}
             renderItem={renderThreadItem}
             emptyState={emptyState}

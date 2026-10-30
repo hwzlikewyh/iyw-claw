@@ -12,8 +12,12 @@ use super::conversation_history_cache_prune::{prune, remove_old_generations};
 
 mod scheduling;
 pub(super) use scheduling::schedule;
+mod reading;
+pub use reading::load;
 
 pub const HISTORY_PAGE_TURNS: usize = 120;
+// 一次翻页补齐可见轮次，同时限制超长工具回合的单次内存和传输量。
+const MAX_HISTORY_PAGE_TURNS: usize = HISTORY_PAGE_TURNS * 8;
 const HISTORY_CACHE_DIR: &str = "conversation-history";
 const HISTORY_CACHE_PARSER_REVISION: u8 = 11;
 
@@ -58,44 +62,33 @@ pub fn revision(external_id: Option<&str>, updated_at: chrono::DateTime<chrono::
     )
 }
 
-pub fn load(
-    conversation_id: i32,
-    expected_revision: &str,
-    before: Option<usize>,
-) -> Option<(DbConversationDetail, bool)> {
-    let root = cache_dir();
-    let index: HistoryCacheIndex =
-        serde_json::from_slice(&fs::read(index_path(&root, conversation_id)).ok()?).ok()?;
-    if index.parser_revision != HISTORY_CACHE_PARSER_REVISION {
-        return None;
-    }
-    let page = select_page(&index.pages, before)?;
-    let mut detail: DbConversationDetail = serde_json::from_slice(
-        &fs::read(
-            root.join(&index.directory)
-                .join(format!("{}.json", page.start)),
-        )
-        .ok()?,
-    )
-    .ok()?;
-    let fresh = index.revision == expected_revision;
-    detail.history_stale = !fresh;
-    Some((detail, fresh))
-}
-
-fn select_page(pages: &[PageMeta], before: Option<usize>) -> Option<&PageMeta> {
-    match before {
-        Some(end) => pages.iter().find(|page| page.end == end),
-        None => pages.last(),
-    }
-}
-
 pub fn page(detail: &DbConversationDetail, before: Option<usize>) -> DbConversationDetail {
     let total = detail.turns.len();
     let end = before.unwrap_or(total).min(total);
-    let start = end.saturating_sub(HISTORY_PAGE_TURNS);
+    let mut start = end.saturating_sub(HISTORY_PAGE_TURNS);
+    if before.is_some() {
+        start = earlier_start(&detail.turns, start..end);
+    }
     let assistants_before = count_assistants(&detail.turns[..start]);
-    page_detail(detail, start..end, assistants_before)
+    let mut page = page_detail(detail, start..end, assistants_before);
+    // 翻页只传正文，沿用首屏已按当前账号核对的账单。
+    if before.is_none() {
+        page.backend_consumption = detail.backend_consumption.clone();
+    }
+    page
+}
+
+fn earlier_start(turns: &[crate::models::MessageTurn], range: std::ops::Range<usize>) -> usize {
+    let is_user =
+        |turn: &crate::models::MessageTurn| matches!(turn.role, crate::models::TurnRole::User);
+    if let Some(offset) = turns[range.clone()].iter().position(is_user) {
+        return range.start + offset;
+    }
+    let limit = range.end.saturating_sub(MAX_HISTORY_PAGE_TURNS);
+    turns[limit..range.start]
+        .iter()
+        .rposition(is_user)
+        .map_or(limit, |offset| limit + offset)
 }
 
 fn page_detail(
@@ -104,7 +97,7 @@ fn page_detail(
     assistants_before: usize,
 ) -> DbConversationDetail {
     DbConversationDetail {
-        backend_consumption: detail.backend_consumption.clone(),
+        backend_consumption: None,
         summary: detail.summary.clone(),
         turns: detail.turns[range.clone()].to_vec(),
         session_stats: detail.session_stats.clone(),

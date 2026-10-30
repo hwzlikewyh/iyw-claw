@@ -1052,14 +1052,9 @@ pub async fn get_folder_conversation_page_core(
         .await
         .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
     };
+    let cache_lookup_ms = started_at.elapsed().as_millis();
+    let cache_fresh = cached.as_ref().map(|(_, fresh)| *fresh);
     let mut detail = if let Some((cached, fresh)) = cached {
-        tracing::info!(
-            conversation_id,
-            before,
-            fresh,
-            elapsed_ms = started_at.elapsed().as_millis(),
-            "[conversation-history] cache hit"
-        );
         let mut cached = cached;
         // 后端消费按当前登录身份核对，历史缓存不跨登录复用确认结果。
         cached.backend_consumption = None;
@@ -1077,7 +1072,7 @@ pub async fn get_folder_conversation_page_core(
             conversation_id,
         )
         .await?;
-        if force_refresh {
+        if force_refresh && before.is_none() {
             super::conversation_points::enrich(conn, &mut parsed).await;
         } else {
             super::conversation_points::enrich_cached(conn, &mut parsed).await;
@@ -1085,6 +1080,7 @@ pub async fn get_folder_conversation_page_core(
         tracing::info!(
             conversation_id,
             before,
+            force_refresh,
             turns = parsed.turns.len(),
             elapsed_ms = started_at.elapsed().as_millis(),
             "[conversation-history] transcript parsed"
@@ -1102,6 +1098,16 @@ pub async fn get_folder_conversation_page_core(
     };
     detail.history_stale = detail.history_stale && !force_refresh;
     crate::acp::turn_timing::enrich(conn, manager, &mut detail).await?;
+    tracing::info!(
+        conversation_id,
+        before,
+        fresh = cache_fresh,
+        start = detail.history_start,
+        turns = detail.turns.len(),
+        cache_lookup_ms,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "[conversation-history] cache hit"
+    );
     Ok(detail)
 }
 

@@ -2261,6 +2261,10 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
   set,
   get
 ) => {
+  const earlierLoads = new Map<
+    number,
+    { generation: number; refresh?: { preserveLive?: boolean } }
+  >()
   const dispatch = (action: Action): void => {
     set((state) => reducer(state, action))
   }
@@ -2311,6 +2315,13 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
     conversationId: number,
     options?: { preserveLive?: boolean }
   ): void => {
+    const earlier = earlierLoads.get(conversationId)
+    if (earlier && isLatestGeneration(conversationId, earlier.generation)) {
+      earlier.refresh = {
+        preserveLive: earlier.refresh?.preserveLive || options?.preserveLive,
+      }
+      return
+    }
     const fetchId =
       get().byConversationId.get(conversationId)?.dbConversationId ??
       conversationId
@@ -2343,15 +2354,15 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
     const fetchId = session.dbConversationId ?? conversationId
     dispatch({ type: "FETCH_DETAIL_START", conversationId })
     const generation = bumpFetchGeneration(conversationId)
+    const earlier = {
+      generation,
+      refresh: undefined as { preserveLive?: boolean } | undefined,
+    }
+    earlierLoads.set(conversationId, earlier)
     getFolderConversation(fetchId, before)
       .then((detail) => {
-        if (!isLatestGeneration(conversationId, generation)) return null
-        return detail.history_stale
-          ? getFolderConversation(fetchId, before, true)
-          : detail
-      })
-      .then((detail) => {
-        if (!detail || !isLatestGeneration(conversationId, generation)) return
+        if (!isLatestGeneration(conversationId, generation)) return
+        // 翻页延续已打开的正文快照；尾页更新不应阻塞历史阅读或重解析全文。
         dispatch({
           type: "PREPEND_HISTORY_SUCCESS",
           conversationId,
@@ -2370,6 +2381,12 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
           conversationId,
           error: toErrorMessage(error),
         })
+      })
+      .finally(() => {
+        if (earlierLoads.get(conversationId) === earlier)
+          earlierLoads.delete(conversationId)
+        if (earlier.refresh && isLatestGeneration(conversationId, generation))
+          refetchDetail(conversationId, earlier.refresh)
       })
   }
 

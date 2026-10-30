@@ -41,16 +41,22 @@ export function mergeEarlierConversationHistory(
   incoming: DbConversationDetail
 ): DbConversationDetail {
   if (!sameConversation(current, incoming)) return current
+  // 只核对新增页的账单；保留已渲染轮次的引用，避免每次翻页重建全部正文。
+  incoming = applyBackendConsumption({
+    ...incoming,
+    backend_consumption:
+      current.backend_consumption ?? incoming.backend_consumption,
+  })
   const key = (turn: DbConversationDetail["turns"][number]) =>
     `${turn.role} ${turn.id}`
   const known = new Set(current.turns.map(key))
   const refreshed = new Map(incoming.turns.map((turn) => [key(turn), turn]))
   const older = incoming.turns.filter((turn) => !known.has(key(turn)))
-  return applyBackendConsumption({
+  return {
     ...current,
     // 仅复用当前登录身份核对过的账单，缓存页中的金额已在读取时撤回。
     backend_consumption:
-      incoming.backend_consumption ?? current.backend_consumption,
+      current.backend_consumption ?? incoming.backend_consumption,
     turns: [
       ...older,
       ...current.turns.map((turn) => refreshed.get(key(turn)) ?? turn),
@@ -64,5 +70,5 @@ export function mergeEarlierConversationHistory(
       incoming.history_start <= current.history_start
         ? incoming.history_assistant_turns_before
         : current.history_assistant_turns_before,
-  })
+  }
 }

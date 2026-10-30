@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useEffect, useMemo, useRef } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, ReactNode, RefObject } from "react"
 import { Virtualizer, type VirtualizerHandle } from "virtua"
 import { useStickToBottomContext } from "use-stick-to-bottom"
@@ -17,6 +17,8 @@ import {
 interface VirtualizedMessageThreadProps<T> {
   /** Data to virtualise — each entry becomes one virtual row. */
   items: T[]
+  /** Distinguishes history prepends from live replies appended at the end. */
+  historyStart?: number
   /** Stable key for a given item (used as React key). */
   getItemKey: (item: T, index: number) => string
   /** Render the content of one row. */
@@ -60,8 +62,32 @@ export interface MessageScrollPosition {
   wasAtBottom: boolean
 }
 
+function useHistoryPrepend(start: number | undefined, count: number): boolean {
+  const [previous, setPrevious] = useState({ start, count, shift: false })
+  const changed = previous.start !== start || previous.count !== count
+  const shift =
+    changed &&
+    start !== undefined &&
+    previous.start !== undefined &&
+    start < previous.start &&
+    count > previous.count
+  useEffect(() => {
+    if (!previous.shift) return
+    const frame = requestAnimationFrame(() =>
+      setPrevious({ start, count, shift: false })
+    )
+    return () => cancelAnimationFrame(frame)
+  }, [previous, start, count])
+  if (changed) {
+    setPrevious({ start, count, shift })
+    return shift
+  }
+  return previous.shift
+}
+
 function VirtualizedMessageThreadImpl<T>({
   items,
+  historyStart,
   getItemKey,
   renderItem,
   emptyState,
@@ -77,6 +103,7 @@ function VirtualizedMessageThreadImpl<T>({
 }: VirtualizedMessageThreadProps<T>) {
   const { scrollRef } = useStickToBottomContext()
   const virtualizerHandleRef = useRef<VirtualizerHandle>(null)
+  const shift = useHistoryPrepend(historyStart, items.length)
 
   const scrollToIndex = useCallback<MessageScrollContextValue["scrollToIndex"]>(
     (index, opts) => {
@@ -200,6 +227,7 @@ function VirtualizedMessageThreadImpl<T>({
             itemSize={itemSize}
             bufferSize={bufferSize}
             data={items}
+            shift={shift}
           >
             {(item, index) => (
               <div

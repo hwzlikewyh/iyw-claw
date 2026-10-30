@@ -54,6 +54,7 @@ import {
   isContextBudgetConfigId,
 } from "@/lib/model-context-window"
 import { useDocumentVisibility } from "@/hooks/use-document-visibility"
+import { useInactiveConversationHistory } from "@/hooks/use-inactive-conversation-history"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
@@ -654,6 +655,11 @@ const ConversationTabView = memo(function ConversationTabView({
   const sessionIdRef = useRef<string | null>(null)
   const syncCancelRef = useRef<(() => void) | null>(null)
   const messageScrollPositionRef = useRef<MessageScrollPosition | null>(null)
+  useInactiveConversationHistory({
+    conversationId: effectiveConversationId,
+    visible: isVisible && isDocumentVisible,
+    scrollPositionRef: messageScrollPositionRef,
+  })
 
   useEffect(() => {
     dbConvIdRef.current = dbConversationId

@@ -26,11 +26,11 @@ export async function requestConversationHistory(
   transport: Transport,
   request: HistoryRequest
 ): Promise<DbConversationDetail> {
+  if (request.before !== undefined)
+    return requestConversationHistoryPage(transport, request)
   const [detail, inputs] = await Promise.all([
     requestConversationHistoryPage(transport, request),
-    request.before === undefined
-      ? requestAgentInputs(transport, request.conversationId)
-      : Promise.resolve([]),
+    requestAgentInputs(transport, request.conversationId),
   ])
   return mergeAgentInputHistory(detail, inputs)
 }
