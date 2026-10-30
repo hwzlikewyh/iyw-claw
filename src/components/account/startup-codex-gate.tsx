@@ -14,6 +14,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { OverlayWindowControls } from "@/components/layout/overlay-window-controls"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
+import { detectPlatform } from "@/hooks/use-platform"
 import { officecliBootstrap } from "@/lib/api"
 import { isLocalDesktop, subscribe } from "@/lib/platform"
 import { onTransportChange } from "@/lib/transport"
@@ -25,6 +26,7 @@ import {
 } from "./startup-codex-bootstrap"
 import { StartupInitializationPanel } from "./startup-initialization-panel"
 import { DesktopRuntimeMonitor } from "./desktop-runtime-monitor"
+import { MacosStartupEnvironmentGate } from "./macos-startup-environment-gate"
 
 const BOOTSTRAP_INIT_EVENT = "app://bootstrap-init"
 const CHECKING_VISIBILITY_DELAY_MS = 800
@@ -44,6 +46,9 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     () => null
   )
   if (localDesktop === null) return null
+  if (localDesktop && detectPlatform() === "macos") {
+    return <MacosStartupEnvironmentGate>{children}</MacosStartupEnvironmentGate>
+  }
   // 桌面环境由安装引导准备；刷新仅后台检测，不再阻塞工作区或自动修复。
   if (localDesktop) {
     return (

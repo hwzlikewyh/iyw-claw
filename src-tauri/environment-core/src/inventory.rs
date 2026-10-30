@@ -151,7 +151,12 @@ fn discover_entrypoints(component: &str, root: &Path) -> Result<BTreeMap<String,
     let mut values = BTreeMap::new();
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = entry?;
-        if !entry.file_type().is_file() {
+        // macOS Node 发行包中的 npm/npx 是指向包内脚本的符号链接。
+        if !entry.file_type().is_file()
+            && !(cfg!(target_os = "macos")
+                && entry.file_type().is_symlink()
+                && entry.path().is_file())
+        {
             continue;
         }
         let relative = slash_relative(root, entry.path())?;

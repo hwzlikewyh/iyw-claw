@@ -9,6 +9,10 @@ use tar::EntryType;
 use xz2::read::XzDecoder;
 use zip::ZipArchive;
 
+#[cfg(target_os = "macos")]
+#[path = "archive_macos.rs"]
+mod macos;
+
 const MAX_EXPANDED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -25,6 +29,8 @@ pub fn unpack(archive: &Path, destination: &Path, kind: &str, file_name: &str) -
             crate::retry::file("stage binary component", &output, || {
                 fs::copy(archive, &output)
             })?;
+            #[cfg(target_os = "macos")]
+            macos::make_executable(&output)?;
             Ok(())
         }
         "zip" | "npm_runtime_bundle_zip" | "uvx_runtime_bundle_zip" => {
@@ -54,17 +60,28 @@ fn unpack_zip(archive: &Path, destination: &Path) -> Result<()> {
     let total = check_zip_space(&mut archive, destination)?;
     let mut expanded = 0_u64;
     let mut reported = Instant::now();
+    #[cfg(target_os = "macos")]
+    let mut links = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).context("read ZIP entry")?;
         let enclosed = entry.enclosed_name().context("ZIP entry path is unsafe")?;
         reject_unsafe_path(&enclosed)?;
+        let output = destination.join(enclosed);
         if entry
             .unix_mode()
             .is_some_and(|mode| mode & 0o170000 == 0o120000)
         {
+            #[cfg(target_os = "macos")]
+            {
+                links.push((
+                    output.clone(),
+                    macos::read_link(&mut entry, destination, &output)?,
+                ));
+                continue;
+            }
+            #[cfg(not(target_os = "macos"))]
             bail!("ZIP symbolic links are not allowed")
         }
-        let output = destination.join(enclosed);
         if entry.is_dir() {
             create_directory(&output)?;
             continue;
@@ -77,6 +94,8 @@ fn unpack_zip(archive: &Path, destination: &Path) -> Result<()> {
             reported = Instant::now();
         }
     }
+    #[cfg(target_os = "macos")]
+    macos::create_links(destination, links)?;
     crate::progress::extracted(expanded, total);
     Ok(())
 }
@@ -203,10 +222,13 @@ fn create_links(links: Vec<(std::path::PathBuf, std::path::PathBuf)>) -> Result<
 }
 
 fn reject_unsafe_path(path: &Path) -> Result<()> {
+    // macOS 的 Git TAR 使用 ./ 根目录及前缀；其他平台保持原有校验。
     if path.as_os_str().is_empty()
-        || path
-            .components()
-            .any(|part| !matches!(part, Component::Normal(_)))
+        || path.components().any(|part| match part {
+            Component::Normal(_) => false,
+            Component::CurDir => !cfg!(target_os = "macos"),
+            _ => true,
+        })
         || path.to_string_lossy().contains(':')
     {
         bail!("archive entry path is unsafe")
