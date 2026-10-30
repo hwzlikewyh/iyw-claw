@@ -24,7 +24,7 @@ export function shareFileURL(
   reference: string,
   download = false
 ) {
-  const params = new URLSearchParams({ token: location.token, reference })
+  const params = new URLSearchParams({ shareToken: location.token, reference })
   if (download) params.set("download", "1")
   return `${validateShareBase(location.apiBase)}/conversation-shares/file?${params}`
 }
@@ -68,7 +68,7 @@ export async function readShare(
   const url = new URL(
     `${validateShareBase(location.apiBase)}/conversation-shares/read`
   )
-  url.searchParams.set("token", location.token)
+  url.searchParams.set("shareToken", location.token)
   const controller = new AbortController()
   const abort = () => controller.abort()
   if (signal?.aborted) abort()

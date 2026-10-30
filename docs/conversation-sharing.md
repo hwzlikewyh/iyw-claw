@@ -18,6 +18,7 @@
 - 可选环境变量仅用于已部署同一分享页面的其他 HTTPS 地址。若改用 TOS 页面，
   需要配置 `/share.html` URL，并为默认域名配置可直接显示网页的自定义 HTTPS 域名。
 - 分享链接凭据放在 URL fragment 中，不进入网页请求路径或 Referer。
+- 公开数据及文件请求使用 `shareToken` 查询参数，与网关账号登录的 `token` 分开。
 - Fusion 分享接口和 `085_create_conversation_shares.sql` 已接入。
   不要把工作台访问 token 或发布人账户凭据放进分享链接。
 
