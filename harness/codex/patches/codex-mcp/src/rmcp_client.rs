@@ -1330,6 +1330,14 @@ pub(crate) async fn make_rmcp_client(
     let resolved_environment =
         resolved_environment.map_err(|err| StartupOutcomeError::from(anyhow!(err)))?;
     let is_local_environment = config.is_local_environment();
+    if let Some(factory) = runtime_context
+        .in_process_factory(server_name, &config)
+        .map_err(|error| StartupOutcomeError::from(anyhow!(error)))?
+    {
+        return RmcpClient::new_in_process_client(factory)
+            .await
+            .map_err(|error| StartupOutcomeError::from(anyhow!(error)));
+    }
     let oauth_credential_name = config.oauth_credential_name(server_name);
     let McpServerConfig { transport, .. } = config;
 

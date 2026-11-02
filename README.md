@@ -149,6 +149,10 @@ docker run -d -p 3080:3080 -v iyw-claw-data:/data iyw-claw
 Streamable HTTP `/mcp`。当前版本不会构建、启动或发布独立的
 `iyw-claw-mcp` 可执行文件。
 
+内置星河通过宿主注入的进程内 MCP 通道调用同一工具处理器，省去 loopback HTTP
+往返与 HTTP 会话删除。其他 Agent SDK 仍使用上述 HTTP 入口；会话鉴权、取消、
+目录通知和反馈回执继续共用。实现及验证边界见 [星河内部 MCP](docs/xinghe-in-process-mcp.md)。
+
 从 `v0.1.92` 或更早版本运行服务端的用户，第一次迁移必须重新执行安装器（Linux）
 或 `install.ps1`（Windows）；当前 server release workflow 未发布 macOS server 归档，
 macOS 安装器会 fail-closed。Docker 部署必须更新源码并重新构建部署。旧版服务端的内置

@@ -5,6 +5,22 @@
 desktop calls it through Rust APIs. The standalone server retains its external
 ACP distribution.
 
+## Built-in MCP transport
+
+The application injects a `BuiltinMcpTransport` into the embedded runtime's
+environment manager, including runtime prewarming and recovery. Only its exact
+registered endpoint selects `RmcpClient::new_in_process_client`; other HTTP and
+stdio servers keep their existing transports. The application validates the
+session credential, owning connection, agent type and saved server namespace
+before opening a bounded memory stream. No HTTP request or session DELETE is
+sent for this built-in connection. The two pinned RMCP versions communicate
+using MCP messages; this removes local network transport, not serialization.
+
+The application handler, catalog notifications, cancellation and delivery
+receipts are shared with the HTTP entry used by other Agent SDKs. Model requests
+and real remote services retain their own transport and policy behavior.
+See [`docs/xinghe-in-process-mcp.md`](../../docs/xinghe-in-process-mcp.md).
+
 ## Upstream boundary
 
 The initial upstream pin is recorded in [`upstream.lock`](upstream.lock):

@@ -941,6 +941,14 @@ pub fn apply_http_headers_helper(
 }
 
 impl McpRuntimeContext {
+    pub(crate) fn in_process_factory(
+        &self,
+        server: &str,
+        config: &codex_config::McpServerConfig,
+    ) -> Result<Option<Arc<dyn codex_rmcp_client::InProcessTransportFactory>>, String> {
+        crate::in_process::factory(self.environment_manager.in_process_mcp(), server, config)
+    }
+
     pub fn new(environment_manager: Arc<EnvironmentManager>, local_process_cwd: PathBuf) -> Self {
         let local_http_client = Arc::new(
             RouteAwareHttpClient::new(environment_manager.http_client_factory().clone())

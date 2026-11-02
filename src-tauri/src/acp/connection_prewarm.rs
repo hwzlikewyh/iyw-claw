@@ -20,6 +20,7 @@ pub(crate) struct RuntimePrewarmRequest {
     pub(crate) agent_type: AgentType,
     pub(crate) environment: BTreeMap<String, String>,
     pub(crate) target: RuntimePrewarmTarget,
+    pub(crate) builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
 }
 
 pub(super) struct OwnedRuntimeScope<'a> {
@@ -137,6 +138,7 @@ async fn prepare_host(
             connection_id: "runtime-host-prewarm",
             expected_session_id: request.target.session_id.as_deref(),
             runtime_fingerprint: &fingerprint,
+            builtin_mcp: request.builtin_mcp.as_ref(),
         }),
         runtime_env: &prepared.environment,
         cwd,

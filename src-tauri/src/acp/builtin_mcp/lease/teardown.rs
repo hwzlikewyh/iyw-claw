@@ -216,6 +216,10 @@ impl LeaseManager {
         ticket: &CleanupTicket,
         snapshot: &CleanupSnapshot,
     ) -> bool {
+        match ticket.parent_id() {
+            Some(parent) => self.in_process_tasks.close_parent(parent).await,
+            None => self.in_process_tasks.close_all().await,
+        }
         for (session_id, handle) in &snapshot.protocol_sessions {
             if let Err(error) = handle.close().await {
                 tracing::warn!(
@@ -247,7 +251,9 @@ impl LeaseManager {
             pending_cleanup_empty: self.pending_cleanup.is_empty(),
             protocol_sessions_empty: self.protocol_sessions.sessions.read().await.is_empty(),
             parent_tasks_reaped,
-            cleanup_tasks_reaped: self.cleanup_tasks.is_idle() && !self.cleanup_tasks.take_failed(),
+            cleanup_tasks_reaped: self.cleanup_tasks.is_idle()
+                && !self.cleanup_tasks.take_failed()
+                && self.in_process_tasks.is_clean(),
         }
     }
 }

@@ -30,7 +30,8 @@ pub(super) const SERVER_INSTRUCTIONS: &str = "Choose the call surface before con
 pub struct BuiltinMcpClient {
     endpoint: Arc<str>,
     ready: Arc<AtomicBool>,
-    leases: Arc<LeaseManager>,
+    pub(super) leases: Arc<LeaseManager>,
+    pub(super) handler: BuiltinMcpHandler,
     remote: Arc<super::remote_mcp::RemoteGateway>,
     advertised_tools: Arc<[String]>,
     capability_tools: Arc<[String]>,
@@ -164,16 +165,12 @@ fn build_runtime(
     let handler_lifecycle = leases.lifecycle();
     let protocol_sessions = leases.protocol_sessions();
     let remote = Arc::clone(&iyw.remote);
+    let handler = BuiltinMcpHandler::new(
+        listener, handler_runtimes, handler_receipts, handler_lifecycle, iyw,
+    );
+    let http_handler = handler.clone();
     let protocol = StreamableHttpService::new(
-        move || {
-            Ok(BuiltinMcpHandler::new(
-                Arc::clone(&listener),
-                Arc::clone(&handler_runtimes),
-                handler_receipts.clone(),
-                Arc::clone(&handler_lifecycle),
-                Arc::clone(&iyw),
-            ))
-        },
+        move || Ok(http_handler.fresh_connection()),
         Arc::clone(&protocol_sessions),
         StreamableHttpServerConfig::default().with_cancellation_token(shutdown.child_token()),
     );
@@ -192,6 +189,7 @@ fn build_runtime(
         endpoint,
         ready,
         leases,
+        handler,
         advertised_tools,
         capability_tools,
         remote,

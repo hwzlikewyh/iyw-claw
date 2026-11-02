@@ -1413,11 +1413,34 @@ const ConversationTabView = memo(function ConversationTabView({
     selectedAgent,
     updateRequestedModel,
   ])
+  const modelSelectionRef = useRef({
+    connectionId: conn.connectionId,
+    agentType: selectedAgent,
+    target: draftConfigValues.model,
+    actual: liveModelOption?.kind.current_value,
+  })
+  useEffect(() => {
+    modelSelectionRef.current = {
+      connectionId: conn.connectionId,
+      agentType: selectedAgent,
+      target: draftConfigValues.model,
+      actual: liveModelOption?.kind.current_value,
+    }
+  }, [
+    conn.connectionId,
+    selectedAgent,
+    draftConfigValues.model,
+    liveModelOption,
+  ])
+  const configSyncPendingRef = useRef(new Set<string>())
   const handleModelSwitchFailure = useCallback(
     (target: string, error?: unknown) => {
+      const selection = modelSelectionRef.current
       if (
-        requestedModelRef.current !== null &&
-        requestedModelRef.current !== target
+        selection.target !== target ||
+        selection.actual === target ||
+        (requestedModelRef.current !== null &&
+          requestedModelRef.current !== target)
       ) {
         console.warn("[ConversationTabView] ignored stale model failure", {
           agentType: selectedAgent,
@@ -1440,8 +1463,8 @@ const ConversationTabView = memo(function ConversationTabView({
         error,
       })
       toast.error(tConfig("modelPicker.modelFailed"))
-      if (liveModelOption?.kind.type === "select") {
-        const actual = liveModelOption.kind.current_value
+      if (selection.actual) {
+        const actual = selection.actual
         void persistConfirmedModel(actual).catch((persistError) => {
           console.error("[ConversationTabView] persist actual model failed", {
             model: actual,
@@ -1453,7 +1476,6 @@ const ConversationTabView = memo(function ConversationTabView({
     [
       clearRequestedModel,
       conn.connectionId,
-      liveModelOption,
       persistConfirmedModel,
       selectedAgent,
       tConfig,
@@ -1487,14 +1509,39 @@ const ConversationTabView = memo(function ConversationTabView({
       const isModel =
         configId === "model" || (live && isModelConfigOption(live))
       if (isModel && failedModel === valueId) continue
+      const sourceConnectionId = conn.connectionId
+      const pendingKey = JSON.stringify([sourceConnectionId, configId, valueId])
+      if (configSyncPendingRef.current.has(pendingKey)) continue
+      configSyncPendingRef.current.add(pendingKey)
+      const isCurrent = () => {
+        const current = modelSelectionRef.current
+        return (
+          current.connectionId === sourceConnectionId &&
+          current.agentType === selectedAgent &&
+          (!isModel || current.target === valueId)
+        )
+      }
       void handleSetConfigOption(configId, valueId)
-        .then(async () => {
-          if (!isModel) return
+        .then(() => {
+          if (!isModel || !isCurrent()) return
           clearRequestedModel(valueId)
           setFailedModel(null)
-          await persistConfirmedModel(valueId)
+          setModelReapplyAttempt((current) =>
+            current?.target === valueId ? null : current
+          )
+          void persistConfirmedModel(valueId).catch((error: unknown) => {
+            console.error(
+              "[ConversationTabView] persist confirmed model failed",
+              {
+                connectionId: sourceConnectionId,
+                model: valueId,
+                error,
+              }
+            )
+          })
         })
         .catch((error: unknown) => {
+          if (!isCurrent()) return
           if (isModel) {
             handleModelSwitchFailure(valueId, error)
             return
@@ -1516,9 +1563,11 @@ const ConversationTabView = memo(function ConversationTabView({
             error,
           })
         })
+        .finally(() => configSyncPendingRef.current.delete(pendingKey))
     }
   }, [
     conn.configOptions,
+    conn.connectionId,
     connStatus,
     connectionConfigOptions,
     connectionReady,
@@ -1586,13 +1635,7 @@ const ConversationTabView = memo(function ConversationTabView({
         }
         return
       }
-      if (!modelReapplyAttempt) {
-        return
-      }
-      if (modelReapplyAttempt.target === target) {
-        setModelReapplyAttempt(null)
-      }
-      handleModelSwitchFailure(target)
+      // 目录已更新，交给前面的配置同步请求确认，不把中间选值判为失败。
       return
     }
     if (modelReapplyAttempt) return
@@ -1704,7 +1747,13 @@ const ConversationTabView = memo(function ConversationTabView({
       })
       return
     }
-    handleModelSwitchFailure(modelReapplyAttempt.target)
+    if (
+      !live.kind.options.some(
+        (option) => option.value === modelReapplyAttempt.target
+      )
+    ) {
+      handleModelSwitchFailure(modelReapplyAttempt.target)
+    }
   }, [
     conn.configOptions,
     conn.connectionId,

@@ -54,7 +54,7 @@ impl RelayDelivery {
         callback();
     }
 
-    fn complete(&self) {
+    pub(super) fn complete(&self) {
         let callbacks = {
             let mut state = self
                 .state

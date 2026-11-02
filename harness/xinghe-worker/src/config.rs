@@ -51,6 +51,7 @@ impl WorkerConfig {
             api_key: optional_value("CODEX_API_KEY"),
             config_json: optional_value("CODEX_CONFIG"),
             runtime_environment: Default::default(),
+            builtin_mcp_transport: None,
             mcp_server_openai_form_elicitation: false,
             opt_out_notification_methods: Vec::new(),
         }

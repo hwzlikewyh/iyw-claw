@@ -33,6 +33,7 @@ pub struct UpstreamStartArgs {
     pub api_key: Option<String>,
     pub config_json: Option<String>,
     pub runtime_environment: std::collections::HashMap<String, String>,
+    pub builtin_mcp_transport: Option<crate::BuiltinMcpTransport>,
     pub mcp_server_openai_form_elicitation: bool,
     pub opt_out_notification_methods: Vec<String>,
 }
@@ -73,7 +74,8 @@ impl UpstreamStartArgs {
         launch: (Arg0DispatchPaths, serde_json::Value, EmbeddedNetworkPolicy),
     ) -> Result<InProcessClientStartArgs, UpstreamError> {
         let (arg0_paths, launch_overrides, embedded_network_policy) = launch;
-        let environment_manager = build_environment(&config, &arg0_paths).await?;
+        let environment_manager = build_environment(&config, &arg0_paths).await?
+            .with_in_process_mcp(self.builtin_mcp_transport.clone().map(|transport| transport.0));
         let stage = StartupStage::new("state_db");
         let state_db = stage
             .finish(

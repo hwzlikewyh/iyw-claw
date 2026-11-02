@@ -15,6 +15,7 @@ impl LeaseManager {
         };
         let count = sessions.len();
         let close = async {
+            self.in_process_tasks.close_parent(connection_id).await;
             for session in sessions {
                 self.protocol_sessions
                     .close_session(&session)

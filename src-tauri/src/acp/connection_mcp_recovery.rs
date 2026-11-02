@@ -46,14 +46,14 @@ pub(super) async fn wait_ready(
     match ready.wait(cancellation).await {
         Ok(()) => tracing::info!(
             connection_id,
-            "[ACP] Agent HTTP MCP tool catalog delivered before session ready"
+            "[ACP] Agent built-in MCP tool catalog delivered before session ready"
         ),
         Err(crate::acp::builtin_mcp::ToolReadinessError::TimedOut) => {
             tracing::warn!(
                 connection_id,
                 degraded = true,
                 reason = crate::acp::builtin_mcp::ToolReadinessError::TimedOut.as_str(),
-                "[ACP] Agent HTTP MCP tool catalog is not ready; continuing without built-in MCP"
+                "[ACP] Agent built-in MCP tool catalog is not ready; continuing without built-in MCP"
             );
             return Ok(());
         }
@@ -62,7 +62,7 @@ pub(super) async fn wait_ready(
                 connection_id,
                 reason = reason.as_str(),
                 degraded = false,
-                "[ACP] Agent HTTP MCP tool catalog is not ready"
+                "[ACP] Agent built-in MCP tool catalog is not ready"
             );
             return Err(AcpError::BuiltinMcpUnavailable(reason.as_str().to_string()));
         }

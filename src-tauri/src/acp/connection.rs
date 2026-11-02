@@ -763,12 +763,14 @@ struct InternalWorkerLaunch<'a> {
     connection_id: &'a str,
     expected_session_id: Option<&'a str>,
     runtime_fingerprint: &'a str,
+    builtin_mcp: Option<&'a crate::acp::builtin_mcp::BuiltinMcpClient>,
 }
 
 struct AgentRebuildSpec {
     connection_id: String,
     agent_type: AgentType,
     dedicated_worker: bool,
+    builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     expected_session_id: Option<String>,
     runtime_fingerprint: String,
     runtime_env: BTreeMap<String, String>,
@@ -787,6 +789,7 @@ async fn rebuild_agent(
             connection_id: &spec.connection_id,
             expected_session_id: spec.expected_session_id.as_deref(),
             runtime_fingerprint: &spec.runtime_fingerprint,
+            builtin_mcp: spec.builtin_mcp.as_ref(),
         }),
         runtime_env: &spec.runtime_env,
         cwd: &spec.process_cwd,
@@ -1335,6 +1338,9 @@ fn build_internal_xinghe_worker_agent(
     let config_json = runtime_env.get("CODEX_CONFIG")
         .cloned()
         .ok_or_else(|| AcpError::protocol("Xinghe launch configuration is missing"))?;
+    let builtin_mcp_transport = launch.builtin_mcp
+        .ok_or_else(|| AcpError::BuiltinMcpUnavailable("In-process MCP service is unavailable".into()))?
+        .in_process_transport(launch.connection_id);
     let start_args = UpstreamStartArgs {
         harness: HarnessConfig {
             experimental_api: true,
@@ -1359,6 +1365,7 @@ fn build_internal_xinghe_worker_agent(
                 "CODEX_API_KEY" | "OPENAI_API_KEY" | "CODEX_CONFIG"))
             .collect(),
         mcp_server_openai_form_elicitation: false,
+        builtin_mcp_transport: Some(builtin_mcp_transport),
         opt_out_notification_methods: Vec::new(),
     };
     let embedded = CodexAcpAgent::new(start_args)
@@ -1621,6 +1628,7 @@ pub(crate) async fn spawn_agent_connection(
                 connection_id: &connection_id,
                 expected_session_id: session_id.as_deref(),
                 runtime_fingerprint: &process_fingerprint,
+                builtin_mcp: builtin_mcp.as_ref(),
             }),
             runtime_env: &prepared.environment,
             cwd: &process_cwd,
@@ -1693,6 +1701,7 @@ pub(crate) async fn spawn_agent_connection(
         connection_id: connection_id.clone(),
         agent_type,
         dedicated_worker,
+        builtin_mcp: builtin_mcp.clone(),
         expected_session_id: session_id.clone(),
         runtime_fingerprint: process_fingerprint.clone(),
         runtime_env: launch_environment,
@@ -3004,11 +3013,11 @@ async fn prepare_http_companion(
     tracing::info!(
         connection_id = context.connection_id,
         agent = %context.agent_type,
-        transport = "http",
+        transport = if crate::internal_xinghe_worker::is_desktop_agent(context.agent_type) { "in_process" } else { "http" },
         server_name,
         endpoint = %client.endpoint(),
         features = %resolved.features_arg,
-        "[ACP] selected built-in MCP transport: main-process HTTP"
+        "[ACP] selected built-in MCP transport"
     );
     Ok(CompanionLaunchPreparation {
         health,

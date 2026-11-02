@@ -107,6 +107,7 @@ pub struct EnvironmentManager {
     local_environment: Option<Arc<Environment>>,
     local_runtime_paths: Option<ExecServerRuntimeOptions>,
     http_client_factory: HttpClientFactory,
+    in_process_mcp: Option<crate::InProcessMcpBridge>,
 }
 
 /// Information supplied by the environment owner when an environment is ready.
@@ -147,6 +148,15 @@ pub enum EnvironmentObservedStatus {
 }
 
 impl EnvironmentManager {
+    pub fn with_in_process_mcp(mut self, bridge: Option<crate::InProcessMcpBridge>) -> Self {
+        self.in_process_mcp = bridge;
+        self
+    }
+
+    pub fn in_process_mcp(&self) -> Option<&crate::InProcessMcpBridge> {
+        self.in_process_mcp.as_ref()
+    }
+
     /// Builds a test-only manager without configured sandbox helper paths.
     pub fn default_for_tests() -> Self {
         Self {
@@ -159,6 +169,7 @@ impl EnvironmentManager {
             local_runtime_paths: None,
             // Test-only construction has no application config from which to resolve proxy policy.
             http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            in_process_mcp: None,
         }
     }
 
@@ -170,6 +181,7 @@ impl EnvironmentManager {
             local_environment: None,
             local_runtime_paths: None,
             http_client_factory,
+            in_process_mcp: None,
         }
     }
 
@@ -251,6 +263,7 @@ impl EnvironmentManager {
             local_environment: None,
             local_runtime_paths,
             http_client_factory,
+            in_process_mcp: None,
         };
         let identity = noise_channel_identity()?;
         let environment = Arc::new(Environment::remote_with_transport(
@@ -367,6 +380,7 @@ impl EnvironmentManager {
             local_environment,
             local_runtime_paths,
             http_client_factory,
+            in_process_mcp: None,
         })
     }
 

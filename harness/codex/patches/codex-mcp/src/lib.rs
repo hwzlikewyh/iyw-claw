@@ -125,6 +125,7 @@ mod ema_token_source;
 pub use ema_account::EmaState;
 mod event_stream;
 mod executor_environment_http_client;
+mod in_process;
 pub(crate) mod mcp;
 mod openai_docs_source_attribution;
 mod pagination;

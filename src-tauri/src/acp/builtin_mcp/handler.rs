@@ -40,6 +40,13 @@ pub(super) struct BuiltinMcpHandler {
 }
 
 impl BuiltinMcpHandler {
+    pub(super) fn fresh_connection(&self) -> Self {
+        Self {
+            remote_updates: Arc::new(server::RemoteUpdates::default()),
+            ..self.clone()
+        }
+    }
+
     pub(super) fn new(
         listener: Arc<DelegationListener>,
         runtimes: Arc<RuntimeRegistry>,
@@ -60,6 +67,9 @@ impl BuiltinMcpHandler {
     fn authenticated(
         extensions: &rmcp::model::Extensions,
     ) -> Result<(SessionContext, Option<RelayDelivery>), ErrorData> {
+        if let Some(context) = extensions.get::<super::in_process::RequestContext>() {
+            return Ok((context.authority.clone(), Some(context.delivery.clone())));
+        }
         let parts = extensions
             .get::<Parts>()
             .ok_or_else(|| ErrorData::invalid_request("missing HTTP request context", None))?;

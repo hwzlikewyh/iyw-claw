@@ -17,6 +17,10 @@ mod mcp_readiness;
 mod helper_dispatch;
 #[cfg(feature = "upstream")]
 mod launch_config;
+#[cfg(feature = "upstream")]
+mod in_process_mcp;
+#[cfg(feature = "upstream")]
+pub use in_process_mcp::{BuiltinMcpTransport, McpOpenFuture};
 mod method_routes;
 mod runtime;
 mod server_requests;

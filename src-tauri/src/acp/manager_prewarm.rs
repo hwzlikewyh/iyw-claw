@@ -109,6 +109,7 @@ impl ConnectionManager {
             agent_type,
             environment,
             target,
+            builtin_mcp: self.builtin_mcp.get().cloned(),
         }))
     }
 

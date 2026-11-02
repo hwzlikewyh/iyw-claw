@@ -626,6 +626,7 @@ type Action =
   | {
       type: "CONFIG_OPTION_CHANGED"
       contextKey: string
+      connectionId: string
       configId: string
       valueId: string
     }
@@ -2490,7 +2491,7 @@ function connectionsReducer(
 
     case "CONFIG_OPTION_CHANGED": {
       const conn = state.get(action.contextKey)
-      if (!conn) return state
+      if (!conn || conn.connectionId !== action.connectionId) return state
       const options =
         conn.configOptions ??
         selectorsCache.get(conn.agentType)?.configOptions ??
@@ -5983,14 +5984,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const setConfigOption = useCallback(
     async (contextKey: string, configId: string, valueId: string) => {
       const conn = storeRef.current.connections.get(contextKey)
-      if (!conn) return
+      if (!conn)
+        throw new Error("Session disconnected before applying configuration")
       lastActivityRef.current.set(contextKey, Date.now())
       const previous =
         configOptionChainsRef.current.get(conn.connectionId) ??
         Promise.resolve()
       const current = previous
         .catch(() => {})
-        .then(() => acpSetConfigOption(conn.connectionId, configId, valueId))
+        .then(() => {
+          if (
+            storeRef.current.connections.get(contextKey)?.connectionId !==
+            conn.connectionId
+          ) {
+            throw new Error("Session changed before applying configuration")
+          }
+          return acpSetConfigOption(conn.connectionId, configId, valueId)
+        })
       configOptionChainsRef.current.set(conn.connectionId, current)
       try {
         await current
@@ -6002,9 +6012,16 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       // The backend command now resolves only after the Agent returns its
       // updated config-options payload. Do not paint a selection as applied
       // before that acknowledgement arrives.
+      if (
+        storeRef.current.connections.get(contextKey)?.connectionId !==
+        conn.connectionId
+      ) {
+        throw new Error("Session changed while applying configuration")
+      }
       dispatch({
         type: "CONFIG_OPTION_CHANGED",
         contextKey,
+        connectionId: conn.connectionId,
         configId,
         valueId,
       })

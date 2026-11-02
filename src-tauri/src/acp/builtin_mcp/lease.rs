@@ -74,6 +74,7 @@ pub(super) struct LeaseManager {
     parent_tasks: ParentRevocationTasks,
     pending_cleanup: PendingCleanupRegistry,
     cleanup_tasks: Arc<CleanupTasks>,
+    in_process_tasks: super::in_process::Tasks,
 }
 
 impl LeaseManager {
@@ -90,11 +91,16 @@ impl LeaseManager {
             parent_tasks: ParentRevocationTasks::default(),
             pending_cleanup: PendingCleanupRegistry::default(),
             cleanup_tasks: Arc::new(CleanupTasks::default()),
+            in_process_tasks: Default::default(),
         })
     }
 
     pub(super) fn sessions(&self) -> Arc<SessionRegistry> {
         Arc::clone(&self.sessions)
+    }
+
+    pub(super) fn in_process_tasks(&self) -> &super::in_process::Tasks {
+        &self.in_process_tasks
     }
 
     pub(super) fn protocol_sessions(&self) -> Arc<LocalSessionManager> {

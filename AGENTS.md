@@ -33,7 +33,8 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 - **`iyw-claw`**（`tauri-runtime`，默认）：完整桌面应用，包含 Tauri 窗口管理、系统通知、自动更新等
 - **`iyw-claw-server`**（`server-runtime`）：独立服务器模式，仅编译 Axum HTTP API + WebSocket
 
-内置 MCP 由桌面/服务器主进程通过 Streamable HTTP 提供，不构建或分发独立 MCP 伴生可执行文件。
+内置 MCP 由桌面/服务器主进程提供：星河复用进程内 MCP 通道，其他 Agent SDK 使用
+Streamable HTTP。两种入口共用工具处理器、会话授权和回收逻辑，不构建或分发独立 MCP 伴生可执行文件。
 
 ### 共享核心
 
