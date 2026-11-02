@@ -2,11 +2,7 @@ import { create } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-reset"
-import {
-  getFolderConversation,
-  listOpenedTabs,
-  saveOpenedTabs,
-} from "@/lib/api"
+import { getFolderConversation } from "@/lib/api"
 import { resolveDefaultAgent } from "@/lib/resolve-default-agent"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import {
@@ -17,11 +13,9 @@ import {
   type SplitDirection,
 } from "@/lib/tab-group-layout"
 import {
-  buildTabGroupSnapshot,
   groupOfTab,
   reconcileTabGroupState,
   resolveTargetGroup,
-  restorePersistedDrafts,
 } from "@/lib/tab-group-state"
 import {
   beginGroupSplit,
@@ -33,25 +27,11 @@ import {
   toggleGroupTileState,
   unsplitGroupState,
 } from "@/lib/tab-group-mutations"
-import {
-  loadTabGroupSnapshot,
-  saveTabGroupSnapshot,
-  type PersistedGroupDraft,
-} from "@/lib/tab-group-persistence"
-import { mergeRemoteTabSnapshot } from "@/lib/tab-remote-merge"
-import {
-  loadLastActiveContext,
-  saveLastActiveContext,
-  clearLastActiveContext,
-} from "@/lib/last-active-context-storage"
-import { isAgentType } from "@/lib/types"
 import type {
   AgentType,
   ConversationChange,
   ConversationStatus,
   DbConversationSummary,
-  OpenedTab,
-  TabsChanged,
 } from "@/lib/types"
 
 export {
@@ -69,9 +49,8 @@ export {
  * `useTabStore(selector)` / `useTabActions()`.
  *
  * The store owns all state, the cross-derive-stable `tabs` derivation, and every
- * mutation + orchestration action (hydration, debounced CAS save, cross-client
- * `tabs://changed` apply, sub-session summary seeding, provisional-agent
- * correction, post-hydration recovery). `TabRuntimeEffects` (in
+ * mutation + orchestration action (session initialization, sub-session summary
+ * seeding, provisional-agent correction, initial draft). `TabRuntimeEffects` (in
  * `contexts/tab-context.tsx`) is a thin component that injects the React-land
  * dependencies (i18n labels, `activateConversationPane`, `acpDisconnect`, the
  * agent availability list) and drives the effects that need a React lifecycle
@@ -98,8 +77,7 @@ export interface TabItemInternal {
    * from a stale localStorage seed or the AGENT_DISPLAY_ORDER fallback;
    * cleared by `confirmDraftAgent` (user click), `bindConversationTab`
    * (draft → real conversation), or the correction effect (fresh agent
-   * list arrives). **Not persisted** to opened_tabs — hydrated drafts
-   * default to false and are re-evaluated only when their agent_type is
+   * list arrives). Drafts are re-evaluated when their agent_type is
    * no longer in the fresh sorted list (the `!sortedAvailableAgents.
    * includes(...)` branch of correction). Internal-only: no UI component
    * reads it, so a stale `true` value is harmless if correction never
@@ -110,9 +88,8 @@ export interface TabItemInternal {
    * Marks a draft tab as "chat mode" (folderless). Set by `openChatModeTab`,
    * cleared implicitly once the draft binds to a real conversation (whose hidden
    * hidden chat folder then drives chat-mode chrome via `useIsActiveChatMode`).
-   * **Internal-only and never persisted** — drafts (`conversationId == null`) are
-   * not written to opened_tabs, so this flag only ever lives in memory for the
-   * pre-send draft. While set, the draft has no resolvable folder, so the
+   * **Internal-only and never persisted** — tabs only live in memory.
+   * While set, the draft has no resolvable folder, so the
    * composer hides the branch picker and shows the "no-folder" chip.
    */
   isChat?: boolean
@@ -170,9 +147,6 @@ export interface TabStoreState {
   tabs: TabItemInternal[]
   /** Bumped on reconnect to re-run the child-summary reconcile. */
   reseedTick: number
-  /** Bumped from a save's resolution to re-run the save effect when the local
-   *  set moved while the save was in flight. */
-  saveReconcileTick: number
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   openTab: (
@@ -244,20 +218,15 @@ export interface TabStoreState {
   onPreviewTabReplaced: (callback: (tabId: string) => void) => () => void
 
   // ── Orchestration (driven by TabRuntimeEffects) ──────────────────────────────
-  hydrate: () => () => void
-  runSaveEffect: () => void
-  clearSaveTimer: () => void
+  hydrate: () => void
   reconcileChildSummaries: () => void
   handleChildConversationChange: (change: ConversationChange) => void
   handleChildReconnect: () => void
-  handleTabsChanged: (change: TabsChanged) => void
-  refetchTabs: () => Promise<void>
   correctDraftAgents: () => void
   recoverActiveContext: () => void
   consumePreviewReplaced: () => void
   consumeDraftRetargets: () => void
   syncActiveFolderId: () => void
-  persistLastActiveContext: () => void
 
   // ── Runtime dependency injection ─────────────────────────────────────────────
   setLabels: (labels: TabLabels) => void
@@ -268,12 +237,6 @@ export interface TabStoreState {
   }) => void
   setAgentAvailability: (sortedTypes: AgentType[], fresh: boolean) => void
 }
-
-/** Per-window/session identity stamped on every tab save and echoed back on
- *  `tabs://changed`, so this client ignores its own broadcast (echo
- *  suppression). Regenerated each load — it identifies the window for echo
- *  suppression, not the user, so nothing about it needs to persist. */
-const TAB_ORIGIN = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
 // ── React-land dependencies, injected by TabRuntimeEffects ─────────────────────
 // Kept out of the reactive store state so updating them never notifies
@@ -305,26 +268,6 @@ function defaultRuntime(): TabRuntime {
 let runtime: TabRuntime = defaultRuntime()
 const authorizedDraftReplacements = new Set<string>()
 
-// ── Cross-client / coordination state (non-reactive; see original TabProvider) ──
-// `version` — last workspace tab version this client observed/applied; every
-//   save sends it as the CAS `expected_version`.
-// `applyingRemote` — one-shot guard so applying a remote snapshot does not echo
-//   back as a save.
-// `pendingRemote` — a remote change that beat hydration; applied once hydrated.
-// `lastSavedPayload` — JSON of the last persisted payload; draft-only changes
-//   match it and skip the save.
-let version = 0
-let applyingRemote = false
-let remoteActivationPending = false
-let pendingRemote: TabsChanged | null = null
-let lastSavedPayload: string | null = null
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-let serverKnownTabKeys = new Set<string>()
-let lastGroupBlob: string | null = null
-let groupPersistTimer: ReturnType<typeof setTimeout> | null = null
-let pendingRestoreDrafts: PersistedGroupDraft[] = []
-let pendingRestoreActiveDraft: string | null = null
-let tabsSnapshotLoaded = false
 const childSummaryInFlight = new Set<number>()
 const childSeedBuffer = new Map<
   number,
@@ -348,26 +291,6 @@ function makeConversationTabId(
 
 function makeNewConversationTabId(): string {
   return `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function tabSyncKey(tab: TabItemInternal): string | null {
-  if (tab.conversationId == null) return null
-  return makeConversationTabId(tab.folderId, tab.agentType, tab.conversationId)
-}
-
-function snapshotSyncKeys(items: OpenedTab[]): Set<string> {
-  const keys = new Set<string>()
-  for (const item of items) {
-    if (item.conversation_id == null) continue
-    keys.add(
-      makeConversationTabId(
-        item.folder_id,
-        item.agent_type,
-        item.conversation_id
-      )
-    )
-  }
-  return keys
 }
 
 function findTabIndexForConversation(
@@ -407,27 +330,6 @@ function sameDerivedTab(a: TabItemInternal, b: TabItemInternal): boolean {
     a.agentTypeProvisional === b.agentTypeProvisional &&
     a.isChat === b.isChat
   )
-}
-
-/** Build the persisted (synced) tab payload: conversation-bound tabs only
- *  (drafts are device-local), `position` = display index, and `is_active` set on
- *  the focused tab so focus mirrors across clients. Used by both the save effect
- *  and remote-apply so their JSON is byte-identical for the no-op gate. */
-function buildPersistItems(
-  tabs: TabItemInternal[],
-  activeTabId: string | null
-): OpenedTab[] {
-  return tabs
-    .filter((tab) => tab.conversationId != null)
-    .map((tab, i) => ({
-      id: 0,
-      folder_id: tab.folderId,
-      conversation_id: tab.conversationId,
-      agent_type: tab.agentType,
-      position: i,
-      is_active: tab.id === activeTabId,
-      is_pinned: tab.isPinned,
-    }))
 }
 
 /**
@@ -531,58 +433,10 @@ function makeReplacementDraftTab(preferred?: TabItemInternal): TabItemInternal {
   }
 }
 
-function mergeRestoredDrafts(restored: TabItemInternal[]): {
-  tabs: TabItemInternal[]
-  assignments: Record<string, string>
-} {
-  const drafts = pendingRestoreDrafts
-  pendingRestoreDrafts = []
-  return restorePersistedDrafts(restored, drafts, (draft) => {
-    const resolved = isAgentType(draft.agentType)
-      ? { agentType: draft.agentType, provisional: false }
-      : resolveAgentForFolder(draft.folderId, null)
-    return {
-      id: draft.id,
-      kind: "conversation",
-      folderId: draft.folderId,
-      conversationId: null,
-      agentType: resolved.agentType,
-      title: runtime.labels.newConversation,
-      isPinned: true,
-      workingDir: draft.workingDir,
-      agentTypeProvisional: resolved.provisional,
-      ...(draft.isChat ? { isChat: true } : {}),
-    }
-  })
-}
-
-function persistGroupState(): void {
-  if (typeof window === "undefined" || !tabsSnapshotLoaded) return
-  const state = useTabStore.getState()
-  if (!state.tabsHydrated) return
-  const snapshot = buildTabGroupSnapshot(state, tabSyncKey)
-  const blob = JSON.stringify(snapshot)
-  if (blob === lastGroupBlob) return
-  const written = saveTabGroupSnapshot(snapshot)
-  if (written) lastGroupBlob = written
-}
-
-function schedulePersistGroupState(): void {
-  if (groupPersistTimer) clearTimeout(groupPersistTimer)
-  groupPersistTimer = setTimeout(() => {
-    groupPersistTimer = null
-    persistGroupState()
-  }, 300)
-}
-
 function applyGroupInvariants(): void {
   const state = useTabStore.getState()
-  const projection = reconcileTabGroupState(
-    state,
-    state.tabsHydrated && tabsSnapshotLoaded
-  )
+  const projection = reconcileTabGroupState(state, state.tabsHydrated)
   if (projection) useTabStore.setState(projection)
-  persistGroupState()
 }
 
 function focusTab(tabId: string): void {
@@ -593,9 +447,6 @@ function focusTab(tabId: string): void {
 }
 
 function initialTabState() {
-  const groups = loadTabGroupSnapshot()
-  pendingRestoreDrafts = groups.drafts
-  pendingRestoreActiveDraft = groups.activeDraft
   return {
     rawTabs: [] as TabItemInternal[],
     activeTabId: null as string | null,
@@ -603,15 +454,14 @@ function initialTabState() {
     draftRetargetRequests: [] as DraftRetargetRequest[],
     tabsHydrated: false,
     isTileMode: false,
-    groupLayout: groups.layout,
-    groupOf: groups.assignments,
-    groupSelection: groups.selection,
-    tileByGroup: groups.tileByGroup,
+    groupLayout: singleGroupLayout(),
+    groupOf: {},
+    groupSelection: {},
+    tileByGroup: {},
     tabDrag: null as TabStoreState["tabDrag"],
     childSummaries: new Map<number, DbConversationSummary>(),
     tabs: [] as TabItemInternal[],
     reseedTick: 0,
-    saveReconcileTick: 0,
   }
 }
 
@@ -883,7 +733,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     const mutation = toggleGroupTileState(state, groupId)
     if (!mutation) return
     set(mutation)
-    persistGroupState()
   },
 
   splitTab: (tabId, direction) => {
@@ -924,7 +773,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     const layout = toggleGroupOrientationState(state, groupId)
     if (!layout) return
     set({ groupLayout: layout })
-    persistGroupState()
   },
 
   dissolveGroup: (groupId) => {
@@ -959,7 +807,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     })
     if (!layout) return
     set({ groupLayout: layout })
-    schedulePersistGroupState()
   },
 
   updateTabDrag: (drag) => set({ tabDrag: drag }),
@@ -1351,11 +1198,8 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     recomputeTabs()
   },
 
-  consumeRemoteActivation: () => {
-    if (!remoteActivationPending) return false
-    remoteActivationPending = false
-    return true
-  },
+  // 页签仅属于当前窗口，保留路由同步调用所需的接口。
+  consumeRemoteActivation: () => false,
 
   onPreviewTabReplaced: (callback) => {
     previewReplacedCallbacks.add(callback)
@@ -1365,167 +1209,11 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   },
 
   hydrate: () => {
-    let cancelled = false
-    void (async () => {
-      let snapshotLoaded = false
-      try {
-        const snap = await listOpenedTabs()
-        if (cancelled) return
-        snapshotLoaded = true
-        tabsSnapshotLoaded = true
-        version = snap.version
-        const remoteItems = snap.items.filter(
-          (item) => item.conversation_id != null
-        )
-        serverKnownTabKeys = snapshotSyncKeys(remoteItems)
-        const restored: TabItemInternal[] = remoteItems.map((item) => ({
-          id: makeConversationTabId(
-            item.folder_id,
-            item.agent_type,
-            item.conversation_id as number
-          ),
-          kind: "conversation",
-          folderId: item.folder_id,
-          conversationId: item.conversation_id,
-          agentType: item.agent_type,
-          title: runtime.labels.loadingConversation,
-          isPinned: item.is_pinned,
-        }))
-        const merged = mergeRestoredDrafts(restored)
-        const restoredTabs = merged.tabs
-        const activeItem = remoteItems.find((item) => item.is_active)
-        const remoteActive: string | null = activeItem
-          ? makeConversationTabId(
-              activeItem.folder_id,
-              activeItem.agent_type,
-              activeItem.conversation_id as number
-            )
-          : null
-        const restoredActive =
-          pendingRestoreActiveDraft &&
-          restoredTabs.some((tab) => tab.id === pendingRestoreActiveDraft)
-            ? pendingRestoreActiveDraft
-            : remoteActive &&
-                restoredTabs.some((tab) => tab.id === remoteActive)
-              ? remoteActive
-              : (restoredTabs[0]?.id ?? null)
-        pendingRestoreActiveDraft = null
-        set({
-          rawTabs: restoredTabs,
-          activeTabId: restoredActive,
-          groupOf: { ...get().groupOf, ...merged.assignments },
-        })
-        recomputeTabs()
-        lastSavedPayload = JSON.stringify(
-          buildPersistItems(restoredTabs, restoredActive)
-        )
-      } catch (err) {
-        console.error("[TabStore] listOpenedTabs failed:", err)
-        if (!cancelled) {
-          const merged = mergeRestoredDrafts(get().rawTabs)
-          if (merged.tabs.length > 0) {
-            const active =
-              pendingRestoreActiveDraft &&
-              merged.tabs.some((tab) => tab.id === pendingRestoreActiveDraft)
-                ? pendingRestoreActiveDraft
-                : merged.tabs[0].id
-            set({
-              rawTabs: merged.tabs,
-              activeTabId: active,
-              groupOf: { ...get().groupOf, ...merged.assignments },
-            })
-            recomputeTabs()
-          }
-          lastSavedPayload = JSON.stringify(
-            buildPersistItems(get().rawTabs, get().activeTabId)
-          )
-        }
-      } finally {
-        if (!cancelled) {
-          set({ tabsHydrated: true })
-          if (snapshotLoaded) applyGroupInvariants()
-          // Apply a remote change that raced ahead of hydration. Call
-          // applyRemoteSnapshot directly (not handleTabsChanged): `pending` is
-          // an authoritative server snapshot, and routing it through the live
-          // handler's `version` gate would drop an equal-version reconcile.
-          const pending = pendingRemote
-          pendingRemote = null
-          if (pending && pending.version >= version) {
-            applyRemoteSnapshot(pending)
-          }
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  },
-
-  runSaveEffect: () => {
-    const st = get()
-    if (!st.tabsHydrated) return
-
-    // A remote snapshot just mutated rawTabs/focus — consume the one-shot guard
-    // so we don't echo it back (which would re-broadcast and ping-pong).
-    if (applyingRemote) {
-      applyingRemote = false
-      return
-    }
-
-    const items = buildPersistItems(st.rawTabs, st.activeTabId)
-    const payload = JSON.stringify(items)
-    // Reverted to the last-saved state → cancel any save still armed.
-    if (payload === lastSavedPayload) {
-      if (saveTimer) {
-        clearTimeout(saveTimer)
-        saveTimer = null
-      }
-      return
-    }
-
-    if (saveTimer) clearTimeout(saveTimer)
-    const expectedVersion = version
-    saveTimer = setTimeout(() => {
-      saveTimer = null
-      saveOpenedTabs(items, expectedVersion, TAB_ORIGIN)
-        .then((res) => {
-          version = Math.max(version, res.version)
-          if (!res.accepted) {
-            // Rejected (another client committed first) → adopt server truth.
-            // Apply directly, NOT via handleTabsChanged: we just advanced
-            // `version` to `res.version`, so the live handler's
-            // `change.version <= version` gate would drop this equal-version
-            // snapshot and leave the stale local set in place. applyRemoteSnapshot
-            // reconciles on equal version (its guard is strict `<`).
-            applyRemoteSnapshot({
-              version: res.version,
-              origin: "server",
-              tabs: res.tabs,
-            })
-            return
-          }
-          lastSavedPayload = payload
-          if (res.version === version) {
-            serverKnownTabKeys = snapshotSyncKeys(res.tabs)
-          }
-          const current = JSON.stringify(
-            buildPersistItems(get().rawTabs, get().activeTabId)
-          )
-          if (current !== lastSavedPayload) {
-            set({ saveReconcileTick: get().saveReconcileTick + 1 })
-          }
-        })
-        .catch(() => {
-          // Ignore save errors; the reconnect refetch reconciles.
-        })
-    }, 500)
-  },
-
-  clearSaveTimer: () => {
-    if (saveTimer) {
-      clearTimeout(saveTimer)
-      saveTimer = null
-    }
+    if (get().tabsHydrated) return
+    if (get().rawTabs.length === 0) get().openChatModeTab()
+    set({ tabsHydrated: true })
+    applyGroupInvariants()
+    console.info("[TabStore] 新会话页签已初始化，未恢复历史页签")
   },
 
   reconcileChildSummaries: () => {
@@ -1648,52 +1336,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     set({ reseedTick: get().reseedTick + 1 })
   },
 
-  handleTabsChanged: (change) => {
-    if (change.origin === TAB_ORIGIN) {
-      if (change.version > version) {
-        version = change.version
-        serverKnownTabKeys = snapshotSyncKeys(change.tabs)
-      }
-      return
-    }
-    if (change.version <= version) return
-    if (!get().tabsHydrated) {
-      const pending = pendingRemote
-      if (!pending || change.version >= pending.version) {
-        pendingRemote = change
-      }
-      return
-    }
-    applyRemoteSnapshot(change)
-  },
-
-  refetchTabs: async () => {
-    try {
-      const snap = await listOpenedTabs()
-      const snapshotWasLoaded = tabsSnapshotLoaded
-      tabsSnapshotLoaded = true
-      const change: TabsChanged = {
-        version: snap.version,
-        origin: "server",
-        tabs: snap.items,
-      }
-      if (!get().tabsHydrated) {
-        const pending = pendingRemote
-        if (!pending || snap.version >= pending.version) {
-          pendingRemote = change
-        }
-        return
-      }
-      if (snap.version > version || !snapshotWasLoaded) {
-        applyRemoteSnapshot(change)
-      } else {
-        version = Math.max(version, snap.version)
-      }
-    } catch (err) {
-      console.error("[TabStore] refetchTabs failed:", err)
-    }
-  },
-
   correctDraftAgents: () => {
     const candidates = get().rawTabs.filter((tab) => {
       if (tab.conversationId != null) return false
@@ -1759,19 +1401,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   },
 
   recoverActiveContext: () => {
-    const hint = loadLastActiveContext()
-    if (hint?.isChat) {
-      get().openChatModeTab()
-      return
-    }
-    const folders = useAppWorkspaceStore.getState().folders
-    if (hint) {
-      const f = folders.find((x) => x.id === hint.folderId)
-      if (f) {
-        get().openNewConversationTab(f.id, f.path)
-        return
-      }
-    }
     get().openChatModeTab()
   },
 
@@ -1851,21 +1480,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     useAppWorkspaceStore
       .getState()
       .setActiveFolderId(activeTab?.folderId ?? null)
-  },
-
-  persistLastActiveContext: () => {
-    const st = get()
-    if (!st.tabsHydrated) return
-    const active = st.rawTabs.find((t) => t.id === st.activeTabId)
-    if (!active) return
-    if (active.conversationId == null) {
-      saveLastActiveContext({
-        folderId: active.folderId,
-        isChat: active.isChat === true,
-      })
-    } else {
-      clearLastActiveContext()
-    }
   },
 
   setLabels: (labels) => {
@@ -1961,22 +1575,6 @@ export function useTabActions() {
  * the window's lifetime and is never reset.
  */
 export function resetTabStore() {
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-  if (groupPersistTimer) {
-    clearTimeout(groupPersistTimer)
-    groupPersistTimer = null
-  }
-  version = 0
-  applyingRemote = false
-  remoteActivationPending = false
-  pendingRemote = null
-  lastSavedPayload = null
-  serverKnownTabKeys = new Set()
-  lastGroupBlob = null
-  tabsSnapshotLoaded = false
   childSummaryInFlight.clear()
   childSeedBuffer.clear()
   seedEpoch = 0
@@ -1993,94 +1591,3 @@ export function resetTabStore() {
 // Reset this backend-scoped store on any (currently-unreachable) in-realm
 // backend switch. See `backend-scoped-store-reset.ts`.
 registerBackendScopedStoreReset(resetTabStore)
-
-/**
- * Standalone `applyRemoteSnapshot` (not a store method: it is only called
- * internally by handleTabsChanged / refetchTabs / hydrate, and closing over the
- * module coordination vars keeps the semantics identical to the former
- * `applyRemoteSnapshot` callback).
- */
-function remoteItemSyncKey(item: OpenedTab): string {
-  return makeConversationTabId(
-    item.folder_id,
-    item.agent_type,
-    item.conversation_id as number
-  )
-}
-
-function materializeRemoteTab(
-  item: OpenedTab,
-  previousTabs: TabItemInternal[]
-): TabItemInternal {
-  const canonicalId = remoteItemSyncKey(item)
-  const existing =
-    previousTabs.find((tab) => tab.id === canonicalId) ??
-    previousTabs.find(
-      (tab) =>
-        tab.conversationId === item.conversation_id &&
-        tab.folderId === item.folder_id &&
-        tab.agentType === item.agent_type
-    )
-  return {
-    id: existing?.id ?? canonicalId,
-    kind: "conversation",
-    folderId: item.folder_id,
-    conversationId: item.conversation_id,
-    agentType: item.agent_type,
-    title: existing?.title ?? runtime.labels.loadingConversation,
-    isPinned: item.is_pinned,
-    runtimeConversationId: existing?.runtimeConversationId,
-    status: existing?.status,
-    workingDir: existing?.workingDir,
-    isChat: existing?.isChat,
-    pendingComposerText: existing?.pendingComposerText,
-  }
-}
-
-function retainLocalDraft(tab: TabItemInternal): boolean {
-  if (tab.conversationId != null) return false
-  const folders = useAppWorkspaceStore.getState().folders
-  return (
-    tab.isChat === true || folders.some((folder) => folder.id === tab.folderId)
-  )
-}
-
-function applyRemoteSnapshot(change: TabsChanged) {
-  if (change.version < version) return
-  version = change.version
-  tabsSnapshotLoaded = true
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-
-  const previous = useTabStore.getState()
-  const ancestorKeys = serverKnownTabKeys
-  const merged = mergeRemoteTabSnapshot({
-    snapshot: change.tabs,
-    previousTabs: previous.rawTabs,
-    previousActiveId: previous.activeTabId,
-    ancestorKeys,
-    itemKey: remoteItemSyncKey,
-    tabKey: tabSyncKey,
-    materialize: materializeRemoteTab,
-    retainDraft: retainLocalDraft,
-    createReplacement: () =>
-      useAppWorkspaceStore.getState().folders.length > 0
-        ? makeReplacementDraftTab()
-        : null,
-  })
-  serverKnownTabKeys = merged.snapshotKeys
-  applyingRemote = !merged.diverged
-  if (merged.activeTabId !== previous.activeTabId) {
-    remoteActivationPending = true
-  }
-  lastSavedPayload = merged.diverged
-    ? null
-    : JSON.stringify(buildPersistItems(merged.tabs, merged.activeTabId))
-  useTabStore.setState({
-    rawTabs: merged.tabs,
-    activeTabId: merged.activeTabId,
-  })
-  recomputeTabs()
-}

@@ -17,9 +17,7 @@ import {
 } from "@/stores/tab-store"
 import {
   CONVERSATION_CHANGED_EVENT,
-  TABS_CHANGED_EVENT,
   type ConversationChange,
-  type TabsChanged,
 } from "@/lib/types"
 
 export type { TabItem }
@@ -32,10 +30,9 @@ interface TabProviderProps {
 /**
  * Thin lifecycle glue for `useTabStore`: injects the React-land dependencies
  * (i18n labels, `activateConversationPane`, `acpDisconnect`, agent availability)
- * and drives the effects that need a React lifecycle — the persisted-tab
- * hydration, the debounced CAS save, the cross-client `tabs://changed` and
+ * and drives the effects that need a React lifecycle — session initialization,
  * sub-session `conversation://changed` subscriptions, the provisional-agent
- * correction gate, and post-hydration recovery. All state and logic live in the
+ * correction gate, and the initial draft. All state and logic live in the
  * store; this component renders nothing but `children`.
  */
 export function TabProvider({ children }: TabProviderProps) {
@@ -63,7 +60,6 @@ export function TabProvider({ children }: TabProviderProps) {
   const previewReplacedTabIds = useTabStore((s) => s.previewReplacedTabIds)
   const draftRetargetRequests = useTabStore((s) => s.draftRetargetRequests)
   const tabsHydrated = useTabStore((s) => s.tabsHydrated)
-  const saveReconcileTick = useTabStore((s) => s.saveReconcileTick)
   const reseedTick = useTabStore((s) => s.reseedTick)
 
   // ── Runtime dependency injection ─────────────────────────────────────────────
@@ -107,16 +103,8 @@ export function TabProvider({ children }: TabProviderProps) {
     useTabStore.getState().consumeDraftRetargets()
   }, [draftRetargetRequests])
 
-  // Hydrate from persisted opened_tabs on mount.
+  // 页签仅保留在本次运行中，启动时不读取上次打开的会话。
   useEffect(() => useTabStore.getState().hydrate(), [])
-
-  // Debounced compare-and-set save + broadcast.
-  useEffect(() => {
-    useTabStore.getState().runSaveEffect()
-  }, [rawTabs, activeTabId, tabsHydrated, saveReconcileTick])
-
-  // Clear a pending save only on unmount — NOT on every effect re-run.
-  useEffect(() => () => useTabStore.getState().clearSaveTimer(), [])
 
   // Reconcile the sub-session summary cache to the open child tabs.
   useEffect(() => {
@@ -145,35 +133,6 @@ export function TabProvider({ children }: TabProviderProps) {
     }
   }, [])
 
-  // Subscribe to the global `tabs://changed` side-channel.
-  useEffect(() => {
-    let disposed = false
-    let unlisten: (() => void) | undefined
-    void (async () => {
-      const dispose = await subscribe<TabsChanged>(
-        TABS_CHANGED_EVENT,
-        (change) => useTabStore.getState().handleTabsChanged(change)
-      )
-      if (disposed) {
-        dispose()
-        return
-      }
-      unlisten = dispose
-      // Close the initial-connect window (a change committed between the hydrate
-      // snapshot read and the subscription going live is dropped by the
-      // broadcaster). One reconcile after subscribe is ready catches it.
-      void useTabStore.getState().refetchTabs()
-    })()
-    const offReconnect = onTransportReconnect(() =>
-      useTabStore.getState().refetchTabs()
-    )
-    return () => {
-      disposed = true
-      unlisten?.()
-      offReconnect?.()
-    }
-  }, [])
-
   // Correction must wait for the fresh agent list, hydrated tabs, and hydrated
   // folders (so folder defaults resolve). One-shot per session via the store.
   useEffect(() => {
@@ -183,18 +142,12 @@ export function TabProvider({ children }: TabProviderProps) {
     runCorrectionOnce()
   }, [agentsFresh, tabsHydrated, foldersHydrated])
 
-  // Post-hydration recovery: a draft-only session hydrates to zero tabs; never
-  // leave the workspace blank.
+  // 初始化后保留一个新对话；手动打开的会话不受影响。
   useEffect(() => {
     if (!tabsHydrated || !foldersHydrated) return
     if (rawTabs.length > 0) return
     runRecoveryOnce()
   }, [tabsHydrated, foldersHydrated, rawTabs])
-
-  // Persist the active draft's context for the next cold start.
-  useEffect(() => {
-    useTabStore.getState().persistLastActiveContext()
-  }, [rawTabs, activeTabId, tabsHydrated])
 
   return <>{children}</>
 }
