@@ -547,21 +547,38 @@ const ConversationTabView = memo(function ConversationTabView({
         ? (usableAgentTypes[0] ?? draftAgentType)
         : draftAgentType
   useEffect(() => {
-    if (accountStatus !== "authenticated") return
+    if (accountStatus !== "authenticated" || accountProfile?.workspace_pending)
+      return
     let active = true
+    // SDK 目录就绪后重新读取，首次安装时早发的模型请求可能缺少映射。
     void loadFixedAgentOptions(selectedAgent).then(() => {
       if (active) setCatalogVersion((version) => version + 1)
     })
     return () => {
       active = false
     }
-  }, [accountStatus, selectedAgent])
+  }, [
+    accountStatus,
+    accountProfile?.workspace_pending,
+    selectedAgent,
+    agentsLoaded,
+  ])
   useEffect(() => {
-    if (conversationId !== null || accountStatus !== "authenticated") return
+    if (
+      conversationId !== null ||
+      accountStatus !== "authenticated" ||
+      accountProfile?.workspace_pending
+    )
+      return
     void refreshFixedAgentOptions(selectedAgent).then(() =>
       setCatalogVersion((version) => version + 1)
     )
-  }, [conversationId, accountStatus, selectedAgent])
+  }, [
+    conversationId,
+    accountStatus,
+    accountProfile?.workspace_pending,
+    selectedAgent,
+  ])
   // Seed from localStorage so the React state reflects the user's saved
   // mode for this agent immediately on mount. Without this seed, a reuse-
   // path connect (idle window after a refresh, before the agent is GC'd)

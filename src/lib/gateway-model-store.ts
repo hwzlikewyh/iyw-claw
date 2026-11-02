@@ -2,6 +2,7 @@ import {
   parseGatewayModels,
   type GatewayModel,
 } from "@/lib/gateway-model-parser"
+import { toErrorMessage } from "@/lib/app-error"
 
 export interface GatewayModelPayloadCache {
   read: () => unknown | null
@@ -47,6 +48,19 @@ function modelPayloadData(payload: unknown): unknown[] | null {
   return Array.isArray(data) ? data : null
 }
 
+function onlineModels(payload: unknown, replaceWithEmpty: boolean) {
+  const data = modelPayloadData(payload)
+  if (!data) throw new Error("Gateway model response has no model array")
+  const models = parseGatewayModels(payload)
+  if (data.length > 0 && models.length === 0) {
+    throw new Error("Gateway model response has no valid models")
+  }
+  if (models.length === 0 && !replaceWithEmpty) {
+    throw new Error("Gateway model catalog is empty")
+  }
+  return models
+}
+
 export function createGatewayModelCatalog({
   fetchModels,
   cache,
@@ -64,19 +78,23 @@ export function createGatewayModelCatalog({
     if (pending) return pending
     pending = fetchModels()
       .then((payload) => {
-        const data = modelPayloadData(payload)
-        if (!data) return [...cached]
-        const online = parseGatewayModels(payload)
-        if (data.length > 0 && online.length === 0) return [...cached]
-        if (online.length === 0 && !replaceWithEmpty) return [...cached]
-        cached = online
+        cached = onlineModels(payload, replaceWithEmpty)
         authoritative = true
         cache.write(payload)
+        loaded = true
+        console.info("[ModelCatalog] Refreshed models:", cached.length)
         return [...cached]
       })
-      .catch(() => [...cached])
+      .catch((error) => {
+        loaded = false
+        console.warn("[ModelCatalog] Refresh failed; next load will retry", {
+          error: toErrorMessage(error),
+          cachedModelCount: cached.length,
+          scoped: replaceWithEmpty,
+        })
+        return [...cached]
+      })
       .finally(() => {
-        loaded = true
         pending = null
       })
     return pending
@@ -85,7 +103,11 @@ export function createGatewayModelCatalog({
   return {
     getCached: () => [...cached],
     hasAuthoritativeData: () => authoritative,
-    load: () => (loaded ? Promise.resolve([...cached]) : refresh()),
+    load: async () => {
+      // 等待早于登录或 SDK 目录就绪的请求结束，失败后重新拉取。
+      if (pending) await pending
+      return loaded ? [...cached] : refresh()
+    },
     refresh,
   }
 }

@@ -70,6 +70,7 @@ import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { TrayActionBridge } from "@/components/layout/tray-action-bridge"
 import { AppToaster } from "@/components/ui/app-toaster"
 import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
+import { ModelCatalogBootstrap } from "@/components/workspace/model-catalog-bootstrap"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -84,19 +85,8 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { IywAccountProvider } from "@/contexts/iyw-account-context"
 import { StartupLoginGate } from "@/components/account/startup-login-gate"
 import { StartupCodexGate } from "@/components/account/startup-codex-gate"
-import { getGatewayModels } from "@/lib/gateway-model-catalog"
 import { groupOfTab } from "@/stores/tab-store"
 import type { LayoutNode } from "@/lib/tab-group-layout"
-
-// Fires getGatewayModels() once on mount so the model catalog is warm from the
-// first user interaction. Placed inside StartupLoginGate so it only runs after
-// authentication is confirmed.
-function ModelCatalogBootstrap() {
-  useEffect(() => {
-    void getGatewayModels()
-  }, [])
-  return null
-}
 
 function WorkspaceDocumentTitle() {
   const { activeFolder } = useActiveFolder()
@@ -1087,6 +1077,7 @@ function WorkbenchRouteConversationSync() {
 function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
   return (
     <IywAccountProvider>
+      <ModelCatalogBootstrap />
       <StartupLoginGate>
         <StartupCodexGate>
           <AppWorkspaceProvider>
@@ -1104,7 +1095,6 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                               <TabProvider>
                                 <WorkspaceDocumentTitle />
                                 <TabKeysSync />
-                                <ModelCatalogBootstrap />
                                 <DeepLinkBootstrap />
                                 <SidebarViewOptionsProvider>
                                   <SettingsDialog />
