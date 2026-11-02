@@ -40,6 +40,7 @@ impl EnvironmentManager {
             local_environment: None,
             local_runtime_paths: None,
             http_client_factory,
+            in_process_mcp: None,
         })
     }
 
