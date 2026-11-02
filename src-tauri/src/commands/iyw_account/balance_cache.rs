@@ -34,7 +34,8 @@ pub(super) async fn refresh(
         Err(error) => {
             cache.failures = cache.failures.saturating_add(1).min(FAILURE_LIMIT);
             tracing::warn!(stage = "points", failures = cache.failures, has_cached_balance = cache.amount.is_some(),
-                code = ?error.code, "[iyw-account] points unavailable; preserving last confirmed balance");
+                code = ?error.code, detail = ?error.detail,
+                "[iyw-account] points unavailable; preserving last confirmed balance");
         }
     }
     profile.balance_points = cache.amount;
