@@ -46,6 +46,7 @@ pub(crate) fn start_args(id: &str, spec: &Value) -> Result<UpstreamStartArgs, Ap
                 )
             })
             .collect(),
+        builtin_mcp_transport: None,
         mcp_server_openai_form_elicitation: false,
         opt_out_notification_methods: Vec::new(),
     })
