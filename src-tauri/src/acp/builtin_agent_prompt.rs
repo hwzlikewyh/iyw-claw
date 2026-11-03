@@ -11,6 +11,9 @@ use crate::models::agent::AgentType;
 
 const TOOL_NAMES: [&str; 5] = ["uv", "uvx", "node", "npm", "git"];
 const COMMON_PROMPT: &str = include_str!("../../resources/agent-prompt.md");
+const CLAUDE_SINGLE_VERSION_PROMPT: &str = r#"## Single-version responses
+
+Return one complete version of the requested deliverable. Do not append a second, shorter or alternative version after already providing the full version, and do not offer to provide a version that you then include unasked. Provide multiple versions only when the user requests them."#;
 
 const NO_HOST_MCP: &str = r#"## Agent capability boundary
 
@@ -50,6 +53,9 @@ pub fn render(
         .map_err(|error| AcpError::BuiltinPromptRender(error.to_string()))?
     {
         sections.push(gateway);
+    }
+    if agent_type == AgentType::ClaudeCode {
+        sections.push(CLAUDE_SINGLE_VERSION_PROMPT.to_string());
     }
     #[cfg(windows)]
     sections.push(super::windows_shell::prompt());
