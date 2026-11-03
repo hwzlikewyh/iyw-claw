@@ -4,6 +4,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 pub const ROUTING_DESCRIPTION_MAX_CHARS: usize = 240;
+const LEGACY_SKILL_NAME_MAX_CHARS: usize = 64;
+const LEGACY_SKILL_DESCRIPTION_MAX_CHARS: usize = 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,7 +154,9 @@ pub fn validate_install_skill_description(content: &str) -> Result<(), String> {
 }
 
 pub fn repair_legacy_skill_description_content(content: &str) -> Option<String> {
-    let frontmatter = read_frontmatter(content)?;
+    let Some(frontmatter) = read_frontmatter(content) else {
+        return repair_legacy_markdown_skill_content(content);
+    };
     if frontmatter.get("description").is_some() {
         return None;
     }
@@ -179,14 +183,51 @@ pub fn repair_legacy_skill_description_content(content: &str) -> Option<String> 
     ))
 }
 
-pub(crate) fn original_legacy_skill_description_content(content: &str) -> Option<String> {
-    let (opening, rest) = content.split_once('\n')?;
-    let (description, rest) = rest.split_once('\n')?;
-    if !description.starts_with("description: ") {
+fn repair_legacy_markdown_skill_content(content: &str) -> Option<String> {
+    let body = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let first = body.lines().map(str::trim).find(|line| !line.is_empty())?;
+    // 仅补齐无头部的旧 Markdown，不将损坏或未闭合的 YAML 当作正文。
+    if matches!(first, "---" | "...") {
         return None;
     }
-    let original = format!("{opening}\n{rest}");
-    // 仅接受既有兼容修复能够逐字节重现的补齐，不忽略任意 description 修改。
+    let title = first.trim_start_matches('#').trim();
+    if title.is_empty() {
+        return None;
+    }
+    let description = body
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .unwrap_or(title);
+    let name = title
+        .chars()
+        .take(LEGACY_SKILL_NAME_MAX_CHARS)
+        .collect::<String>();
+    let description = description
+        .chars()
+        .take(LEGACY_SKILL_DESCRIPTION_MAX_CHARS)
+        .collect::<String>();
+    let name = serde_json::to_string(&name).ok()?;
+    let description = serde_json::to_string(&description).ok()?;
+    let newline = if body.contains("\r\n") { "\r\n" } else { "\n" };
+    Some(format!(
+        "---{newline}name: {name}{newline}description: {description}{newline}---{newline}{content}"
+    ))
+}
+
+pub(crate) fn original_legacy_skill_description_content(content: &str) -> Option<String> {
+    let (opening, rest) = content.split_once('\n')?;
+    let (field, rest) = rest.split_once('\n')?;
+    let original = if field.starts_with("description: ") {
+        format!("{opening}\n{rest}")
+    } else if field.starts_with("name: ") {
+        let (_, rest) = rest.split_once('\n')?;
+        let (_, body) = rest.split_once('\n')?;
+        body.to_string()
+    } else {
+        return None;
+    };
+    // 仅接受兼容补齐能够逐字节重现的头部，不忽略 name、description 或正文修改。
     (repair_legacy_skill_description_content(&original).as_deref() == Some(content))
         .then_some(original)
 }
