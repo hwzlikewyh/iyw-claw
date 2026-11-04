@@ -8,6 +8,7 @@ use codex_protocol::protocol::HookOutputEntryKind;
 use codex_protocol::protocol::HookRunStatus;
 use codex_protocol::protocol::HookRunSummary;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use codex_utils_path_uri::PathUri;
 use serde_json::Value;
 
 use super::common;
@@ -26,6 +27,9 @@ pub struct PreToolUseRequest {
     pub turn_id: String,
     pub subagent: Option<common::SubagentHookContext>,
     pub cwd: AbsolutePathBuf,
+    /// Local tool cwd for hook stdin. Remote commands leave this unset to retain
+    /// the host cwd. The hook process still runs in `cwd`.
+    pub tool_cwd: Option<PathUri>,
     pub transcript_path: Option<PathBuf>,
     pub model: String,
     pub permission_mode: String,
@@ -171,7 +175,9 @@ fn latest_updated_input(
 /// Handler selection may include internal matcher aliases, but hook stdin keeps
 /// the canonical `tool_name` so audit logs and downstream policy decisions stay
 /// stable. Shell-like tools pass `{ "command": ... }` as `tool_input`; MCP
-/// tools pass their resolved JSON arguments.
+/// tools pass their resolved JSON arguments. Local commands can expose their
+/// execution cwd here, independently of the directory used to launch hooks.
+/// Remote commands retain the host cwd; remote cwd reporting is deferred.
 fn command_input(request: &PreToolUseRequest) -> Result<Value, serde_json::Error> {
     let subagent = SubagentCommandInputFields::from(request.subagent.as_ref());
     serde_json::to_value(PreToolUseCommandInput {
@@ -180,7 +186,7 @@ fn command_input(request: &PreToolUseRequest) -> Result<Value, serde_json::Error
         agent_id: subagent.agent_id,
         agent_type: subagent.agent_type,
         transcript_path: crate::schema::NullableString::from_path(request.transcript_path.clone()),
-        cwd: request.cwd.display().to_string(),
+        cwd: common::command_input_cwd(request.cwd.as_ref(), request.tool_cwd.as_ref()),
         hook_event_name: "PreToolUse".to_string(),
         model: request.model.clone(),
         permission_mode: request.permission_mode.clone(),

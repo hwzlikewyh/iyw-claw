@@ -1,6 +1,6 @@
 [package]
 name = "codex-feedback"
-version = "0.165.0"
+version = "0.166.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -15,23 +15,23 @@ version = "1.10.1"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.codex-login]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.codex-rollout]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.codex-state]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.flate2]
 version = "1.1.8"

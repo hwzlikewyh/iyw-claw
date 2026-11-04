@@ -133,9 +133,11 @@ impl WriteStdinHandler {
             ToolCallSource::Direct | ToolCallSource::DirectPlaintextMessage
         ) {
             for (environment, _) in context.step_context.environments() {
-                let capture =
-                    managed_output_images::capture_exec_output(&response.raw_output, environment)
-                        .await;
+                let capture = managed_output_images::capture_exec_output(
+                    response.raw_output.text.as_bytes(),
+                    environment,
+                )
+                .await;
                 if capture.is_empty() {
                     continue;
                 }

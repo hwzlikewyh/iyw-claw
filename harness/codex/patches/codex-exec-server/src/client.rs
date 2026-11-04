@@ -1065,6 +1065,21 @@ impl ExecServerClient {
         .await
     }
 
+    pub(crate) async fn fs_watch_missing(
+        &self,
+        missing: Vec<codex_utils_path_uri::PathUri>,
+        present: Option<codex_utils_path_uri::PathUri>,
+    ) -> Result<Option<tokio::sync::oneshot::Receiver<()>>, ExecServerError> {
+        if !self.environment_info().await?.capabilities.fs_watch_missing {
+            return Ok(None);
+        }
+        Ok(self
+            .rpc_client()
+            .await?
+            .watch_missing(missing, present)
+            .await?)
+    }
+
     pub async fn fs_get_metadata(
         &self,
         params: FsGetMetadataParams,

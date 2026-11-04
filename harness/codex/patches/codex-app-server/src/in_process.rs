@@ -80,7 +80,7 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::Result;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
-use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadItemPayload;
 use codex_arg0::Arg0DispatchPaths;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
@@ -120,14 +120,19 @@ type PendingClientRequestResponse = std::result::Result<Result, JSONRPCErrorErro
 fn server_notification_requires_delivery(notification: &ServerNotification) -> bool {
     matches!(
         notification,
-        ServerNotification::TurnCompleted(_)
+        ServerNotification::ProcessOutputDelta(_)
+            | ServerNotification::ProcessExited(_)
+            | ServerNotification::TurnCompleted(_)
             | ServerNotification::ThreadQueueChanged(_)
             | ServerNotification::ThreadSettingsUpdated(_)
             | ServerNotification::ThreadAttachmentUpdated(_)
             | ServerNotification::ExternalAgentConfigImportCompleted(_)
             | ServerNotification::ItemCompleted(ItemCompletedNotification {
-                item: ThreadItem::AgentMessage {
-                    delivery: Some(AgentMessageDelivery::Async),
+                item: codex_app_server_protocol::ThreadItem {
+                    payload: ThreadItemPayload::AgentMessage {
+                        delivery: Some(AgentMessageDelivery::Async),
+                        ..
+                    },
                     ..
                 },
                 ..
@@ -466,10 +471,12 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
         let analytics_events_client =
             analytics_events_client_from_config(Arc::clone(&auth_manager), args.config.as_ref());
         let analytics_events_flush_client = analytics_events_client.clone();
-        let outgoing_message_sender = Arc::new(OutgoingMessageSender::new(
-            outgoing_tx,
-            analytics_events_client.clone(),
-        ));
+        // A client can be waiting for process/kill while nobody is polling next_event.
+        let (process_reply_tx, mut process_reply_rx) = mpsc::channel(channel_capacity);
+        let outgoing_message_sender = Arc::new(
+            OutgoingMessageSender::new(outgoing_tx, analytics_events_client.clone())
+                .with_process_reply_sender(process_reply_tx),
+        );
 
         let log_write_warning = crate::log_write_warning::LogWriteWarningReporter::new(
             args.feedback.clone(),
@@ -509,6 +516,7 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
         let processor_outgoing = Arc::clone(&outgoing_message_sender);
         let (processor_tx, mut processor_rx) = mpsc::channel::<ProcessorCommand>(channel_capacity);
         let mut processor_handle = AbortOnDropHandle::new(tokio::spawn(async move {
+            let (startup_warnings_tx, mut startup_warnings_rx) = mpsc::unbounded_channel();
             let processor = Arc::new(MessageProcessor::new(MessageProcessorArgs {
                 cloud_skill_provider: None,
                 outgoing: Arc::clone(&processor_outgoing),
@@ -522,6 +530,7 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
                 log_db: args.log_db,
                 state_db: args.state_db,
                 config_warnings: args.config_warnings,
+                startup_warnings_tx,
                 session_source: args.session_source,
                 user_verification: Arc::new(crate::user_verification::Service::new(Arc::clone(
                     &auth_manager,
@@ -583,6 +592,9 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
                             }
                         }
                     }
+                    Some(message) = startup_warnings_rx.recv(), if session.initialized() => {
+                        crate::startup_warnings::send_warning(&processor_outgoing, message).await;
+                    }
                     created = thread_created_rx.recv(), if listen_for_threads => {
                         match created {
                             Ok(thread_id) => {
@@ -618,6 +630,7 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
         let mut pending_request_responses =
             HashMap::<RequestId, oneshot::Sender<PendingClientRequestResponse>>::new();
         let mut shutdown_ack = None;
+        let mut pending_event: Option<(InProcessServerEvent, Option<oneshot::Sender<()>>)> = None;
 
         loop {
             tokio::select! {
@@ -695,7 +708,27 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
                         }
                     }
                 }
-                queued_message = writer_rx.recv() => {
+                permit = event_tx.reserve(), if pending_event.is_some() => {
+                    let Ok(permit) = permit else { break };
+                    let Some((event, written)) = pending_event.take() else { continue };
+                    permit.send(event);
+                    if let Some(written) = written {
+                        let _ = written.send(());
+                    }
+                }
+                queued_message = async {
+                    tokio::select! {
+                        reply = process_reply_rx.recv() => match reply {
+                            Some(OutgoingEnvelope::ToConnection { message, write_complete_tx, .. }) => {
+                                Some(QueuedOutgoingMessage { message, write_complete_tx })
+                            }
+                            Some(OutgoingEnvelope::Broadcast { .. }) => unreachable!("replies are connection scoped"),
+                            None => None,
+                        },
+                        // Leave ordinary replies and events queued until the pending event fits.
+                        event = writer_rx.recv(), if pending_event.is_none() => event,
+                    }
+                } => {
                     let Some(queued_message) = queued_message else {
                         break;
                     };
@@ -759,16 +792,13 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
                         OutgoingMessage::AppServerNotification(envelope) => {
                             let notification = envelope.notification;
                             if server_notification_requires_delivery(&notification) {
-                                if event_tx
-                                    .send(InProcessServerEvent::ServerNotification(Box::new(
-                                        notification,
-                                    )))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
-                                }
-                            } else if let Err(send_error) =
+                                pending_event = Some((
+                                    InProcessServerEvent::ServerNotification(Box::new(notification)),
+                                    queued_message.write_complete_tx,
+                                ));
+                                continue;
+                            }
+                            if let Err(send_error) =
                                 event_tx.try_send(InProcessServerEvent::ServerNotification(
                                     Box::new(notification),
                                 ))
@@ -792,7 +822,9 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
             }
         }
 
+        drop(pending_event);
         drop(writer_rx);
+        drop(process_reply_rx);
         drop(processor_tx);
         outgoing_message_sender
             .cancel_all_requests(Some(internal_error(

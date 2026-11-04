@@ -236,11 +236,8 @@ impl ThreadWatchManager {
         }
     }
 
-    pub(crate) async fn subscribe(
-        &self,
-        thread_id: ThreadId,
-    ) -> Option<watch::Receiver<ThreadStatus>> {
-        Some(self.state.lock().await.subscribe(thread_id.to_string()))
+    pub(crate) async fn subscribe(&self, thread_id: ThreadId) -> watch::Receiver<ThreadStatus> {
+        self.state.lock().await.subscribe(thread_id.to_string())
     }
 
     async fn note_active_guard_released(
@@ -327,7 +324,9 @@ impl ThreadWatchState {
         {
             self.running_turn_count -= 1;
         }
-        self.update_status_watcher(thread_id, &ThreadStatus::NotLoaded);
+        if let Some(sender) = self.status_watcher_by_thread_id.remove(thread_id) {
+            sender.send_replace(ThreadStatus::NotLoaded);
+        }
         if previous_status.is_some() && previous_status != Some(ThreadStatus::NotLoaded) {
             Some(ThreadStatusChangedNotification {
                 thread_id: thread_id.to_string(),
@@ -385,12 +384,7 @@ impl ThreadWatchState {
 
     fn update_status_watcher_for_thread(&mut self, thread_id: &str) {
         let status = self.loaded_status_for_thread(thread_id);
-        self.update_status_watcher(thread_id, &status);
-    }
-
-    fn update_status_watcher(&mut self, thread_id: &str, status: &ThreadStatus) {
         let remove_watcher = if let Some(sender) = self.status_watcher_by_thread_id.get(thread_id) {
-            let status = status.clone();
             let _ = sender.send_if_modified(|current| {
                 if *current == status {
                     false

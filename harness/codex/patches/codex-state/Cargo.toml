@@ -1,6 +1,6 @@
 [package]
 name = "codex-state"
-version = "0.165.0"
+version = "0.166.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -18,19 +18,19 @@ version = "0.4.43"
 
 [dependencies.codex-file-system]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.codex-history]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
+rev = "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856"
 
 [dependencies.file-id]
 version = "0.2.3"
@@ -67,6 +67,9 @@ features = [ "offline",]
 [dependencies.strum]
 version = "0.27.2"
 features = [ "derive",]
+
+[dependencies.tempfile]
+version = "3.23.0"
 
 [dependencies.tokio]
 version = "1"

@@ -67,7 +67,7 @@ the legacy public image service and Fusion. External agents keep their original 
 
 ## Embedded Desktop Integration
 
-The desktop now links the pinned 0.165.0 runtime into its executable. The local
+The desktop now links the pinned 0.166.0 runtime into its executable. The local
 `codex-app-server-client` production sources pass host credentials and runtime
 environment to the in-process server; no process-global credential mutation is
 required. The app-server reapplies tool environment on config reload and closes
@@ -93,6 +93,14 @@ does not introduce schema, file-path, session-ID, or migration-SQL changes.
 The older worker/helper packaging descriptions below are historical. Normal
 desktop builds prepare only `runtime.json`, then validate the embedded identity
 and static CRT imports in the linked executable.
+
+The 0.166.0 refresh uses commit `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`.
+Three-way production-source migration retains host auth, managed images, command
+descriptions, billing attribution, published MCP status and platform patches.
+Thread items adopt upstream lifecycle timestamps; terminal output uses the
+upstream captured-stream type. The combined async graph requires a compile-time
+`recursion_limit` of 256 in `codex-core`. See
+`docs/xinghe-upgrade-0.166.0.md` for validation.
 
 The 0.165.0 refresh uses commit `360319d8dee62d87e2d59fc0c21805d79519cfed`.
 Three-way production-source migration preserves host auth, managed images,
@@ -174,7 +182,7 @@ background process indefinitely. This prevents the host's 120-second silence
 watchdog from cancelling a valid 180- or 300-second output wait. Recheck this
 patch when upgrading the pinned runtime.
 
-`codex-mcp` retains the production sources of pinned 0.164.0 (`6aaac69`), with
+`codex-mcp` retains the production sources of pinned 0.166.0 (`6ff1e1c`), with
 test-only modules omitted and standalone dependency metadata. Its status inspection
 reads one published runtime generation without starting/reconnecting clients.
 Thread-scoped `mcpServerStatus/list` uses that view through `codex-core`; global
@@ -188,7 +196,7 @@ compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.
 
 `codex-state` contains the production sources and migrations from pinned
-0.164.0, with test-only items omitted. Migration SQL is stored with LF endings.
+0.166.0, with test-only items omitted. Migration SQL is stored with LF endings.
 Before migration, the runtime accepts an applied checksum only when it matches
 the exact embedded SQL or its LF/CRLF variant. It adjusts the in-memory migrator,
 preserving database migration records, locking and rejection of other changes.
@@ -231,7 +239,7 @@ and `send_message`, independently of `fork_turns`. Collaboration guidance keeps
 the parent working after dispatch and bounds missing-task recovery to one resend.
 Review this classification and guidance on upstream upgrades.
 
-`codex-utils-pty` is copied from the locked `rust-v0.164.0` source tree. Local
+`codex-utils-pty` is copied from the locked `rust-v0.166.0` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in
 `src/win/mod.rs`, and `src/win/psuedocon.rs`. Its `Cargo.toml` is standalone
@@ -242,7 +250,7 @@ when starting internal Git and MCP subprocesses. Assigning the process to a job
 must not undo the hidden-window setting.
 
 `codex-shell-command` contains the production sources from the same locked
-`rust-v0.164.0` commit. Its runtime changes include setting `CREATE_NO_WINDOW`
+`rust-v0.166.0` commit. Its runtime changes include setting `CREATE_NO_WINDOW`
 on the two PowerShell detection commands in `src/powershell.rs`. Detection calls
 `pwsh` directly instead of adding an intermediate `cmd /C` process. The standalone
 manifest resolves the original workspace dependencies at the same pin. Upstream

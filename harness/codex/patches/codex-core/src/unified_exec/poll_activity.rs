@@ -3,7 +3,7 @@ use tokio::time::{Duration, Instant, MissedTickBehavior};
 
 use codex_protocol::protocol::{EventMsg, TerminalInteractionEvent};
 
-use super::head_tail_buffer::HeadTailBuffer;
+use codex_utils_head_tail_buffer::HeadTailBuffer;
 use super::process::OutputHandles;
 use super::{UnifiedExecProcessManager, WriteStdinInteractionEvent};
 
