@@ -66,8 +66,11 @@ pub(crate) fn direct_gateway_skill_prompt(
          Its SKILL.md path (JSON string) is {path}. This Skill remains available even if \
          the native Skill list omits it. For IYW business tools, social research, images, \
          video, uploads, memory, host actions, sessions, artifacts, browser, audio, \
-         channels, automation, interaction or delegation, read this SKILL.md before \
-         using the capability and follow its relevant references. Resolve relative \
+         channels, automation, interaction or delegation, read this SKILL.md when \
+         workflow or operation details are missing, then follow its relevant references. \
+         Complete direct-tool schemas need no generic discovery or policy preflight; \
+         common manage_iyw_memory operations perform policy preflight in the host. \
+         Resolve relative \
          references against the directory containing this SKILL.md. Reuse instructions \
          already read in the conversation; read only relevant references. Keep this \
          central directory as the single source; do not create per-Agent Skill copies."

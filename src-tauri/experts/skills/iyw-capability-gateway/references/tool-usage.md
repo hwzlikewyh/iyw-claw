@@ -46,9 +46,10 @@ For image work, choose an applicable platform operation or model through
 A missing dedicated operation does not exclude prompt-driven editing; evaluate
 the available service routes and verify technical constraints without inventing
 requirements. Prioritize custom redesign (`variation`), series extension (`extend`)
-and multi-image fusion (`mix`) when applicable. Use model editing when explicitly
-selected or the preferred route is demonstrably unsupported, unavailable or
-confirmed failed; documented incompatibility needs no failed trial. With source
+and multi-image fusion (`mix`) when applicable. Use model editing for complex
+visual constraints, freer creative control, explicit model selection or a preferred
+route that is demonstrably unsupported, unavailable or confirmed failed; no
+manufactured failed trial is needed. With source
 images and a selected catalog model, use `edit`. Built-in image-to-3d is disabled,
 including fetch/browser fallbacks.
 Correct input errors, reassess alternatives after confirmed route failures, and
@@ -160,17 +161,18 @@ Account switching invalidates the previous remote catalog.
    aliases, `when_to_use`, status, required inputs, and schema digest. Read the
    best matching stable ID and its full description/schema; read at most one
    same-result alternative.
-4. Invoke only an available ID returned by that search. Supply arguments exactly
-   as the current read schema requires, using its examples and declared fields.
+4. Invoke an available member ID from current search/read results, the current
+   overview or an advertised mapping. Reuse its complete schema, examples and fields.
    Omit unnecessary optional fields; never borrow parameters from another tool.
-   Ask for a missing primary object; never guess IDs, paths, URLs, field names,
-   or permissions.
+   Obtain required objects through documented prerequisites; ask only for
+   unresolved user-owned input. Never guess IDs, paths, URLs, fields or permissions.
 5. Verify the result state and business effect. Distinguish success from
    queued, preview, blocked, canceled, failed, unavailable, and effect-unknown.
 
 When progress needs a concrete user-owned input, preference or decision, call
 an advertised `ask_user_question` directly. Use concise options or free text for
-requirements, scope, missing information and short feedback; wait for the answer.
+requirements, scope, missing information and short feedback; wait before dependent
+actions and continue independent authorized work.
 Only fall back to search/read/invoke when the direct question tool is unavailable.
 Do not ask routine progress confirmations or questions you can resolve yourself.
 
@@ -194,30 +196,30 @@ error does not require another read; read only if not previously read. Use the
 error's field path, allowed properties, enum choices, bounds, and hint; never replay unchanged arguments or silently
 drop intended behavior. Stop this recovery if the corrected call fails.
 
-An empty result, unknown ID, malformed output, timeout, unavailable capability,
-schema rejection without that evidence, or two non-matching reads ends the
-current gateway attempt. It does not by itself end the user's task. Permission
-and effect-unknown errors do not permit this correction. One search retry is
-allowed only after an exhausted result set and only with a close synonym. Do
-not switch namespaces, promote nested tools, or cycle guessed names; hand off
-to another already-authorized route instead. Follow the owning reference for
-other bounded recoveries; do not chain recoveries after a failed correction.
+Apply remote discovery/version recovery above before generic stop rules. After
+bounded recovery, unknown IDs, malformed output, unavailable capabilities, schema
+rejection without not_started evidence or two non-matching reads end this route
+attempt, not the user's task. A zero-result business query is not a missing tool.
+Permission failures require their documented resolution; unknown outcomes require
+original status evidence before replay, including through a fallback. Do not switch
+namespaces, promote nested tools or cycle guessed names. Follow the owning
+workflow for an authorized alternative after failed correction.
 
 ## Memory Card
 
-For `manage_iyw_memory`, first read the selected operation's full instructions
-using the capability ID advertised in `operation.description`. Then pass its
-schema fields under `parameters`. This direct tool executes policy preflight
-automatically; reading instructions does not execute the policy. The following
-explicit policy sequence applies when invoking memory through the gateway.
+For `manage_iyw_memory`, `recall`, `append`, `propose`, `retire` and `documents.read`
+have complete inline schemas: call directly without discovery, metadata, Skill
+or policy reads. Other operations need one read of their advertised mapping.
+Put business fields under `parameters`; this direct tool performs policy preflight
+automatically. Explicit policy preflight applies only to legacy/catalog calls;
+use the advertised policy capability in [memory-and-learning.md](memory-and-learning.md).
+If the host returns `memory_policy_required`, follow that documented recovery
+before retrying the intended operation; do not guess names or switch routes.
 
-When memory is relevant, load `memory-and-learning.md`. Before the first direct
-memory operation in each accepted turn, invoke `read_memory_policy` exactly as
-advertised. If the host returns `memory_policy_required`, perform that
-preflight and retry the intended operation with fresh schema evidence. For
-substantive work, do one bounded `memory_recall` unless the request is clearly
-self-contained. Interpret `matched`, `no_evidence`, and `unavailable` literally;
-timeout is not evidence of an empty history.
+Reuse relevant memory already supplied. Recall once when a decision depends on
+earlier preferences, workflows or failures; self-contained tasks need no recall.
+Read the memory reference for maintenance or policy questions. Interpret `matched`,
+`no_evidence` and `unavailable` literally; timeout does not prove an empty history.
 
 Use current document reads only when the actual `memory`, `profile`, or `soul`
 document is needed. Read the smallest set, preserve revisions/eTags, and use
