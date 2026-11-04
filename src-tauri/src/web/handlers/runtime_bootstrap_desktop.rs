@@ -56,6 +56,7 @@ pub async fn bootstrap_initialize(
             .map_err(AppCommandError::task_execution_failed)?;
         report = status().await?;
     }
+    crate::shared_runtime::python::prepare(&params.task_id, &state.emitter);
     Ok(Json(report))
 }
 

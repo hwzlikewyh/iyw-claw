@@ -167,6 +167,7 @@ pub async fn bootstrap_initialize(
     let mut state = read_state(data_dir).await?;
     let mut manifest = read_manifest(data_dir).await?;
     if reconcile_active_components(data_dir, &mut state, &manifest).await? {
+        crate::shared_runtime::python::prepare(task_id, emitter);
         return bootstrap_init_status(data_dir).await;
     }
 
@@ -216,6 +217,12 @@ pub async fn bootstrap_initialize(
         }
     };
 
+    if !deferred_components
+        .iter()
+        .any(|component| component == "uv")
+    {
+        crate::shared_runtime::python::prepare(task_id, emitter);
+    }
     state.set_phase(InitPhase::Ready);
     write_state(data_dir, &state).await?;
     if deferred_components.is_empty() {

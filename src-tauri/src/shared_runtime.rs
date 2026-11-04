@@ -3,6 +3,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+pub mod python;
+#[path = "../shared-python.rs"]
+pub(crate) mod python_environment;
+
 pub const SHARED_TOOLS: [&str; 3] = ["node", "git", "uv"];
 
 pub fn managed_tool_environment() -> &'static [(&'static str, &'static str)] {
@@ -50,6 +54,14 @@ pub fn environment() -> BTreeMap<&'static str, PathBuf> {
             crate::paths::iyw_claw_user_dir().join("skills"),
         ),
         ("IYW_CLAW_SKILL_ENVS_DIR", envs_dir()),
+        (
+            "IYW_CLAW_PYTHON_ENV",
+            python_environment::environment_dir(&root()),
+        ),
+        (
+            "IYW_CLAW_PYTHON",
+            python_environment::interpreter(&python_environment::environment_dir(&root())),
+        ),
         ("UV_CACHE_DIR", cache.join("uv")),
         ("UV_TOOL_DIR", uv_tools_dir()),
         ("UV_TOOL_BIN_DIR", uv_bin_dir()),
@@ -78,9 +90,21 @@ pub fn bin_dirs() -> Vec<PathBuf> {
 }
 
 pub fn prompt_context() -> String {
-    environment()
+    let mut context = environment()
         .into_iter()
         .map(|(name, path)| format!("- {name}: {}", path.display()))
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+    let environment = python_environment::environment_dir(&root());
+    let python = python_environment::interpreter(&environment);
+    context.push_str(&format!(
+        "\n- Shared Python interpreter: {} ({})",
+        python.display(),
+        if python_environment::available(&root()) {
+            "ready"
+        } else {
+            "unavailable; initialize or repair the runtime"
+        }
+    ));
+    context
 }

@@ -158,6 +158,13 @@ pub async fn runtime_bootstrap_managed_core(
     )
     .await;
 
+    if matches!(
+        uv.status,
+        RuntimeComponentStatus::Ready | RuntimeComponentStatus::Installed
+    ) {
+        crate::shared_runtime::python::prepare(&task_id, emitter);
+    }
+
     let failed = node.status == RuntimeComponentStatus::Failed
         || git.status == RuntimeComponentStatus::Failed
         || uv.status == RuntimeComponentStatus::Failed;
@@ -248,13 +255,14 @@ pub async fn bootstrap_initialize(
     if repair {
         crate::managed_environment::repair_startup(
             &task_id,
-            &EventEmitter::Tauri(app),
+            &EventEmitter::Tauri(app.clone()),
             explicit_repair,
         )
         .await?;
-        return tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
+        report = tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
             .await
-            .map_err(|error| format!("环境检测任务异常：{error}"));
+            .map_err(|error| format!("环境检测任务异常：{error}"))?;
     }
+    crate::shared_runtime::python::prepare(&task_id, &EventEmitter::Tauri(app));
     Ok(report)
 }
