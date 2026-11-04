@@ -1,5 +1,5 @@
 use codex_app_server_protocol::McpToolCallResult;
-use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::Turn;
 use serde_json::Value as JsonValue;
 
@@ -16,8 +16,8 @@ pub(super) fn should_redact_thread_resume_payloads(client_name: Option<&str>) ->
 
 pub(super) fn redact_thread_resume_payloads(turns: &mut [Turn]) {
     for turn in turns {
-        turn.items.retain_mut(|item| match item {
-            ThreadItem::McpToolCall {
+        turn.items.retain_mut(|entry| match &mut entry.payload {
+            ThreadItemPayload::McpToolCall {
                 arguments,
                 result,
                 error,
@@ -32,7 +32,7 @@ pub(super) fn redact_thread_resume_payloads(turns: &mut [Turn]) {
                 }
                 true
             }
-            ThreadItem::ImageGeneration(_) => false,
+            ThreadItemPayload::ImageGeneration(_) => false,
             _ => true,
         });
     }

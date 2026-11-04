@@ -38,7 +38,7 @@ packages remain in their respective component directories.
 ## 内置星河运行时
 
 - Project: `openai/codex` (`codex-rs` App Server components)
-- Locked source: `rust-v0.156.1` / `b412ff32c417f855c2b2d1581b77058eed87c84b`
+- Locked source: `rust-v0.166.0` / `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`
 - Source: https://github.com/openai/codex
 - License: Apache License 2.0
 
