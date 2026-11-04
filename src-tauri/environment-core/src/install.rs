@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use fs2::FileExt;
 use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 
 use crate::activation;
 use crate::client::FusionClient;
@@ -234,11 +235,39 @@ pub fn commit(transaction: Option<&str>) -> Result<()> {
     };
     crate::maintenance::install(&layout, &state)?;
     activation::commit(&layout, &state, &snapshot)?;
+    if let Err(error) = prepare_shared_python(&layout, &snapshot) {
+        eprintln!("共享 Python 环境尚未就绪，Agent 可按需检查并修复：{error:#}");
+    }
     if fs::read_to_string(layout.pending_transaction()).is_ok_and(|id| id.trim() == transaction) {
         let _ = fs::remove_file(layout.pending_transaction());
     }
     emit("environment", "committed", 0, 0);
     Ok(())
+}
+
+fn prepare_shared_python(layout: &Layout, snapshot: &EnvironmentSnapshot) -> Result<()> {
+    if !crate::shared_python::supported() {
+        return Ok(());
+    }
+    let uv = snapshot
+        .components
+        .iter()
+        .find(|component| component.component_id == "uv")
+        .and_then(|component| component.entrypoints.get("uv"))
+        .context("共享 Python 初始化缺少受管 uv 入口")?;
+    let uv = crate::paths::from_slash(&layout.root, uv)?;
+    crate::shared_python::ensure(&layout.runtime, &uv, &|message| {
+        eprintln!("{message}");
+        crate::progress::event("uv", "verifying", 0, 0);
+        println!(
+            "{}",
+            serde_json::json!({
+                "componentId": "uv", "phase": "health_check", "message": message
+            })
+        );
+        let _ = std::io::stdout().flush();
+    })
+    .map_err(anyhow::Error::msg)
 }
 
 pub fn diagnose() -> Result<u8> {

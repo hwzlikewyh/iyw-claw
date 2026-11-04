@@ -14,6 +14,8 @@ mod model;
 mod paths;
 mod progress;
 mod retry;
+#[path = "../../shared-python.rs"]
+mod shared_python;
 
 use std::process::ExitCode;
 
