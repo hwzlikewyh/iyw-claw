@@ -6,6 +6,7 @@ use serde_json::Value;
 use super::{account_error, types, AppCommandError, ACCOUNT_BASE_URL};
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 15;
+const READ_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 pub(super) fn http_client() -> Result<reqwest::Client, AppCommandError> {
     reqwest::Client::builder()
@@ -32,12 +33,46 @@ pub(super) async fn post(
     if let Some(token) = token {
         request = request.header("token", token);
     }
-    let response = request.send().await.map_err(|error| {
+    let response = send_account_request(request, path).await.map_err(|error| {
         tracing::warn!(stage = path, "[iyw-account] request failed");
         AppCommandError::network("Account service is temporarily unavailable")
             .with_detail(error.without_url().to_string())
     })?;
     decode(response, path).await
+}
+
+async fn send_account_request(
+    request: reqwest::RequestBuilder,
+    path: &str,
+) -> Result<Response, reqwest::Error> {
+    if path != "/user-service/user/getMyInfo" {
+        return request.send().await;
+    }
+    let retry = request.try_clone();
+    let started = std::time::Instant::now();
+    let result = request.send().await;
+    let transient = match &result {
+        Ok(response) => matches!(
+            response.status(),
+            reqwest::StatusCode::BAD_GATEWAY
+                | reqwest::StatusCode::SERVICE_UNAVAILABLE
+                | reqwest::StatusCode::GATEWAY_TIMEOUT
+        ),
+        Err(error) => error.is_connect() || error.is_timeout(),
+    };
+    let remaining = Duration::from_secs(REQUEST_TIMEOUT_SECONDS).saturating_sub(started.elapsed());
+    if transient && remaining > READ_RETRY_DELAY {
+        if let Some(retry) = retry {
+            tracing::warn!(
+                stage = path,
+                "[iyw-account] transient read failure; retrying once"
+            );
+            drop(result);
+            tokio::time::sleep(READ_RETRY_DELAY).await;
+            return retry.timeout(remaining - READ_RETRY_DELAY).send().await;
+        }
+    }
+    result
 }
 
 pub(super) async fn decode(response: Response, stage: &str) -> Result<Value, AppCommandError> {

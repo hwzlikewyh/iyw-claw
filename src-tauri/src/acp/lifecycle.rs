@@ -742,7 +742,7 @@ async fn try_cache_link(
 /// `PendingReview` from `TurnComplete` and any user-driven `Completed`),
 /// re-emit `ConversationStatusChanged` if the write took effect.
 ///
-/// Removing the cache entry on first terminal event handles the
+/// Removing the cache entry after a successful terminal write handles the
 /// `Error` → `Disconnected` sequence that `connection.rs` emits on the error
 /// path: the second event finds an empty cache and is a clean no-op, so we
 /// don't pay a redundant DB read.
@@ -751,7 +751,7 @@ async fn handle_terminal_event(
     cache: &mut HashMap<String, CachedConn>,
     connection_id: &str,
 ) -> Result<(), DbError> {
-    let Some(entry) = cache.remove(connection_id) else {
+    let Some(entry) = cache.get(connection_id) else {
         return Ok(());
     };
     let task_data = {
@@ -770,6 +770,7 @@ async fn handle_terminal_event(
     )
     .await?;
     if !changed {
+        cache.remove(connection_id);
         return Ok(());
     }
     tracing::info!(
@@ -786,6 +787,7 @@ async fn handle_terminal_event(
         },
     )
     .await;
+    cache.remove(connection_id);
     Ok(())
 }
 
@@ -1207,7 +1209,7 @@ async fn connection_worker_loop(
                     forward_disconnect_to_broker(b.as_ref(), &connection_id, None).await;
                 }
                 finish_browser_connection(browser.as_ref(), &connection_id).await;
-                terminal_dispatched = true;
+                terminal_dispatched = cache.is_empty();
             }
             AcpEvent::Error {
                 message,
@@ -1251,7 +1253,7 @@ async fn connection_worker_loop(
                     forward_disconnect_to_broker(b.as_ref(), &connection_id, Some(&detail)).await;
                 }
                 finish_browser_connection(browser.as_ref(), &connection_id).await;
-                terminal_dispatched = true;
+                terminal_dispatched = cache.is_empty();
             }
             _ => {
                 handle_event_with_retry(
@@ -1265,6 +1267,9 @@ async fn connection_worker_loop(
                 .await;
             }
         }
+    }
+    if let Err(error) = handle_terminal_event(&db, &mut cache, &connection_id).await {
+        tracing::error!(%error, connection_id, "[lifecycle] final terminal persistence failed");
     }
 }
 

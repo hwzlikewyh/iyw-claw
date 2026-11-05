@@ -1,9 +1,8 @@
 use chrono::Utc;
-use sea_orm::ExprTrait;
 use sea_orm::sea_query::Expr;
+use sea_orm::ExprTrait;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder,
-    TransactionTrait,
 };
 
 use crate::acp::{AgentInputItem, AgentInputStatus, AgentInputStrategy};
@@ -34,7 +33,7 @@ pub async fn mark_force_batch_dispatching(
         AgentInputStatus::Waiting.as_str(),
         AgentInputStatus::FallbackQueued.as_str(),
     ];
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let members = transaction_members(&txn, claim.batch_id).await?;
     let Some(expected) = valid_claim_count(&members, &statuses) else {
         txn.rollback().await?;
@@ -95,7 +94,7 @@ pub async fn transition_force_batch(
     conn: &DatabaseConnection,
     transition: ForceBatchTransition<'_>,
 ) -> Result<u64, DbError> {
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let members = transaction_members(&txn, transition.batch_id).await?;
     let Some(expected) = valid_transition_count(&members, &transition) else {
         txn.rollback().await?;
