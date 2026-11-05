@@ -26,6 +26,8 @@ pub mod capability_policy;
 #[cfg(feature = "tauri-runtime")]
 pub mod capability_policy_tauri;
 pub mod chat_attachments;
+#[cfg(feature = "tauri-runtime")]
+pub mod native_share;
 pub mod chat_channel;
 pub mod chat_channel_runtime;
 mod chat_channel_delete;

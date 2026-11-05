@@ -4,6 +4,7 @@ import { useAccountChatRequestsBlocked } from "@/components/account/use-account-
 import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
+import { useNativeShareComposer } from "@/components/native-share/use-native-share-composer"
 import { ComposerActivityBorder } from "./composer-activity-border"
 import { parseSideQuestion } from "@/lib/side-question"
 
@@ -1051,6 +1052,12 @@ export function MessageInput({
   const containerRef = useRef<HTMLDivElement>(null)
   const lastDomDropAtRef = useRef(0)
   const disabledRef = useRef(disabled)
+  useNativeShareComposer({
+    tabId: attachmentTabId,
+    draftKey: effectiveDraftStorageKey,
+    enabled: composerHydrated && !disabled && !isEditingQueueItem,
+    editorRef,
+  })
   const isPromptingRef = useRef(isPrompting)
   const sendGenerationRef = useRef(0)
   const hydratedRef = useRef(false)

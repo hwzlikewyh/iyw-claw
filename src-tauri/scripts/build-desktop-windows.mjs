@@ -231,6 +231,7 @@ function windowsBuildArgs(tauriCli, options, target, signingConfigPath) {
 export function createWindowsBuildPlan(tauriCli, options, signingConfigPath) {
   const target = resolveWindowsTarget()
   const env = windowsBuildEnvironment(target)
+  if (options.noSign) env.IYW_SHARE_UNSIGNED = "1"
   if (options.jobs) env.CARGO_BUILD_JOBS = String(options.jobs)
   return {
     env,

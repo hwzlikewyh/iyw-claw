@@ -88,3 +88,8 @@ __pycache__/
 public/preview-assets/
 # Win7 固定 WebView2 由构建器从已验证归档暂存，不进入源码。
 src-tauri/resources/webview2-win7/
+
+# Native share bundles and per-platform packaging output.
+src-tauri/native-share/build/
+src-tauri/native-share/resources/*
+!src-tauri/native-share/resources/.gitkeep
