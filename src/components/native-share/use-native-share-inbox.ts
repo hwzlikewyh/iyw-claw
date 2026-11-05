@@ -1,14 +1,13 @@
 "use client"
 
-import { useCallback, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useTabStore } from "@/stores/tab-store"
-import { isRemoteDesktopMode } from "@/lib/transport"
-import { requireFileUploadCapability } from "@/lib/transport/capability-policy"
+import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
+import { deliverNativeShare } from "./native-share-delivery"
+import type { AgentType } from "@/lib/types"
 import {
-  addNativeShareToDraft,
-  completeNativeShare,
   importNativeShare,
   nativeShareStatus,
   registerNativeShare,
@@ -36,7 +35,7 @@ function useBusyOperation(patch: PatchShareState) {
       try {
         await operation()
       } catch (error) {
-        patch({ error: shareError(error) })
+        patch({ error: shareError(error), open: true })
       } finally {
         running.current = false
         patch({ busy: false })
@@ -56,32 +55,6 @@ async function pickArchive(t: Translate): Promise<string | null> {
   return (await importNativeShare(Array.isArray(paths) ? paths : [paths])).id
 }
 
-async function deliverDraft(
-  state: ShareInboxState,
-  t: Translate
-): Promise<void> {
-  if (isRemoteDesktopMode()) throw new Error(t("remoteUnsupported"))
-  const { preview, selected, targetTab } = state
-  if (!preview || preview.id !== selected || !targetTab)
-    throw new Error(t("chooseConversation"))
-  await requireFileUploadCapability()
-  const store = useTabStore.getState()
-  if (!store.rawTabs.some((tab) => tab.id === targetTab))
-    throw new Error(t("chooseConversation"))
-  store.switchTab(targetTab)
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-  await addNativeShareToDraft(
-    {
-      tabId: targetTab,
-      batchId: preview.id,
-      paths: preview.paths,
-      prompt: t("prompt"),
-    },
-    t("composerUnavailable")
-  )
-  await completeNativeShare(preview.id)
-}
-
 function previewReload(previous: ShareInboxState) {
   return {
     loading: previous.selected !== null,
@@ -98,7 +71,7 @@ function selectBatch(previous: ShareInboxState, selected: string) {
 function useShareCommands(
   state: ShareInboxState,
   patch: PatchShareState,
-  context: { t: Translate; refresh: () => Promise<void> }
+  context: { t: Translate; refresh: () => Promise<void>; agentType?: AgentType }
 ) {
   const { t, refresh } = context
   const run = useBusyOperation(patch)
@@ -110,27 +83,34 @@ function useShareCommands(
         patch((previous) => selectBatch(previous, id))
       }
     })
-  const addToDraft = () =>
+  const addToDraft = (batchId = state.selected) =>
     run(async () => {
-      await deliverDraft(state, t)
+      if (!batchId || !context.agentType)
+        throw new Error(t("composerUnavailable"))
+      patch((previous) => selectBatch(previous, batchId))
+      await deliverNativeShare({
+        batchId,
+        agentType: context.agentType,
+        title: t("conversationTitle"),
+        prompt: t("prompt"),
+        remoteUnsupported: t("remoteUnsupported"),
+      })
       await refresh()
       patch({ open: false })
       toast.success(t("added"))
     })
-  const register = () =>
-    run(async () => {
-      await registerNativeShare()
-      patch({ status: await nativeShareStatus() })
-      toast.success(t("registrationComplete"))
-    })
   return {
     manualImport,
     addToDraft,
-    register,
+    register: () =>
+      run(async () => {
+        await registerNativeShare()
+        patch({ status: await nativeShareStatus() })
+        toast.success(t("registrationComplete"))
+      }),
     setOpen: (open: boolean) => patch({ open }),
     setSelected: (selected: string) =>
       patch((previous) => selectBatch(previous, selected)),
-    setTargetTab: (targetTab: string) => patch({ targetTab }),
     refresh: () =>
       run(async () => {
         await refresh()
@@ -141,12 +121,60 @@ function useShareCommands(
 
 export function useNativeShareInbox() {
   const t = useTranslations("NativeShare")
-  const tabs = useTabStore((state) => state.rawTabs)
+  const { sortedTypes, fresh } = useSortedAvailableAgents()
+  const tabsHydrated = useTabStore((store) => store.tabsHydrated)
+  const activeAgent = useTabStore(
+    (store) =>
+      store.rawTabs.find((tab) => tab.id === store.activeTabId)?.agentType
+  )
   const { state, patch } = useShareState()
   const refresh = useShareRefresh(patch)
   useShareEvents(refresh, patch)
   useSharePreview(state, patch)
   useShareStatus(state.open, patch)
-  const commands = useShareCommands(state, patch, { t, refresh })
-  return { ...state, t, tabs, ...commands }
+  const commands = useShareCommands(state, patch, {
+    t,
+    refresh,
+    agentType:
+      activeAgent && sortedTypes.includes(activeAgent)
+        ? activeAgent
+        : sortedTypes[0],
+  })
+  useAutomaticDelivery(state, patch, {
+    ready: fresh && tabsHydrated,
+    hasAgent: sortedTypes.length > 0,
+    addToDraft: commands.addToDraft,
+    noAgent: t("noAvailableAgent"),
+  })
+  return { ...state, t, ...commands }
+}
+
+function useAutomaticDelivery(
+  state: ShareInboxState,
+  patch: PatchShareState,
+  context: {
+    ready: boolean
+    hasAgent: boolean
+    addToDraft: (id: string) => Promise<void>
+    noAgent: string
+  }
+) {
+  const attempted = useRef(new Set<string>())
+  const delivering = useRef(false)
+  useEffect(() => {
+    if (delivering.current || !context.ready || state.busy || state.open) return
+    const pending = state.items.find(
+      (item) => !item.imported && !attempted.current.has(item.id)
+    )
+    if (!pending) return
+    if (!context.hasAgent) {
+      patch({ open: true, selected: pending.id, error: context.noAgent })
+      return
+    }
+    delivering.current = true
+    attempted.current.add(pending.id)
+    void context.addToDraft(pending.id).finally(() => {
+      delivering.current = false
+    })
+  }, [context, state.busy, state.items, state.open, patch])
 }

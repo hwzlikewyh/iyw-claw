@@ -4,7 +4,7 @@ use windows::{
     core::Interface,
     ApplicationModel::Activation::ShareTargetActivatedEventArgs,
     ApplicationModel::DataTransfer::{ShareTarget::ShareOperation, StandardDataFormats},
-    ApplicationModel::{AppInstance, Package},
+    ApplicationModel::{AppInfo, AppInstance, Package},
     Storage::{NameCollisionOption, StorageFile, StorageFolder},
     Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
 };
@@ -24,8 +24,7 @@ pub fn run() -> Result<()> {
     }
     let _runtime = Runtime;
     if std::env::args().any(|arg| arg == "--registration-check") {
-        Package::Current()?.Id()?.FullName()?;
-        return Ok(());
+        return check_identity();
     }
     let activation = AppInstance::GetActivatedEventArgs()?;
     let arguments: ShareTargetActivatedEventArgs = activation.cast()?;
@@ -46,6 +45,21 @@ pub fn run() -> Result<()> {
             Err(error)
         }
     }
+}
+
+fn check_identity() -> Result<()> {
+    let package = Package::Current()?.Id()?;
+    let expected_app = format!("{}!Share", package.FamilyName()?);
+    if package.Name()?.to_string() != "IywAssistant.ShareTarget" {
+        return Err("分享接收程序取得了其它包的身份".into());
+    }
+    if package.Publisher()?.to_string() != env!("IYW_SHARE_PUBLISHER") {
+        return Err("分享包的发布者与接收程序不一致".into());
+    }
+    if AppInfo::Current()?.AppUserModelId()?.to_string() != expected_app {
+        return Err("分享接收程序的应用标识不匹配".into());
+    }
+    Ok(())
 }
 
 fn receive(operation: &ShareOperation) -> Result<String> {

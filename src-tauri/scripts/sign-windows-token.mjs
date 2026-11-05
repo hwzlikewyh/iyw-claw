@@ -23,7 +23,7 @@ function resolvePowerShell(env) {
   )
 }
 
-export function signWithToken({ file, digest, env, timeout }) {
+export function signWithToken({ file, digest, env, timeout, timestampUrl }) {
   if (!(env.IYW_CLAW_SAFENET_PIN ?? "").trim())
     throw new Error("IYW_CLAW_SAFENET_PIN is required for unattended signing")
   const environment = Object.fromEntries(
@@ -47,6 +47,7 @@ export function signWithToken({ file, digest, env, timeout }) {
       (env.IYW_CLAW_SIGN_THUMBPRINT ?? "").replace(/[\s:]/g, ""),
       "-Digest",
       digest,
+      ...(timestampUrl ? ["-TimestampUrl", timestampUrl] : []),
     ],
     {
       env: environment,

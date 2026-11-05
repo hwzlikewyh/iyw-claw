@@ -20,6 +20,7 @@ interface TaskArtifactsListProps {
   openOnDoubleClick?: boolean
   onSelect: (item: TaskArtifactInfo) => void
   onOpenWorkspace?: () => void
+  onDelete?: (items: TaskArtifactInfo[]) => Promise<void>
 }
 
 export function TaskArtifactsList({
@@ -28,6 +29,7 @@ export function TaskArtifactsList({
   openOnDoubleClick = false,
   onSelect,
   onOpenWorkspace,
+  onDelete,
 }: TaskArtifactsListProps) {
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -40,6 +42,7 @@ export function TaskArtifactsList({
             openOnDoubleClick={openOnDoubleClick}
             onSelect={onSelect}
             onOpenWorkspace={onOpenWorkspace}
+            onDelete={onDelete}
           />
         ))}
       </div>
@@ -53,6 +56,7 @@ function ArtifactGroup({
   openOnDoubleClick,
   onSelect,
   onOpenWorkspace,
+  onDelete,
 }: Omit<TaskArtifactsListProps, "groups"> & { group: TaskArtifactGroup }) {
   return (
     <section className="space-y-1">
@@ -65,6 +69,7 @@ function ArtifactGroup({
           openOnDoubleClick={openOnDoubleClick}
           onSelect={onSelect}
           onOpenWorkspace={onOpenWorkspace}
+          onDelete={onDelete}
         />
       ))}
     </section>

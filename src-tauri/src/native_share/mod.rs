@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod registration;
+#[cfg(target_os = "macos")]
+mod registration_macos;
 pub use registration::{register, status, ShareStatus};
 
 #[cfg(target_os = "macos")]
@@ -60,6 +62,12 @@ pub fn setup(app: &AppHandle) {
     if let Err(error) = watch(app) {
         tracing::warn!(target: "iyw_native_share", error = %error, "share watcher unavailable; inbox remains readable");
     }
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = registration::register_if_missing(&handle).await {
+            tracing::warn!(target: "iyw_native_share", error = %error, "share registration unavailable; retry from channel settings");
+        }
+    });
 }
 
 fn watch(app: &AppHandle) -> Result<()> {
