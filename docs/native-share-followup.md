@@ -51,6 +51,26 @@
 
 飞书／钉钉的应用身份与发布配置已向用户询问；不申请全量聊天读取权限、不冒用 WorkBuddy 身份，也不把云端应用注册描述为本地安装即生效。
 
+### 飞书和钉钉接入前置条件
+
+飞书的网页消息快捷操作需要在开放平台启用网页能力，并配置
+`https://applink.feishu.cn/client/web_app/open?appId=<应用ID>&mode=sidebar`。
+网页在完成 H5 SDK 签名鉴权后，从 URL 的 `bdp_launch_query` JSON 中读取
+`__trigger_id__`，交给 `tt.getBlockActionSourceDetail` 获取用户选中的消息。
+签名必须包含页面完整 query。此场景不能使用 `tt.getTriggerContext`。
+接口最多返回 20 条消息，必须分别处理 `support` 和 `status`，不能把不支持的消息
+假装解析成功。依据：[消息详情接口](https://open.feishu.cn/document/getBlockActionSourceDetail)。
+
+钉钉需要启用“酷应用扩展 → 扩展到消息菜单”，配置桌面端 HTTPS 承接地址，并发布应用。
+承接页完成 JSAPI 鉴权后，通过 `dingtalk-jsapi/api/util/openTemporary/getData`
+取得选中消息及会话信息。PC 要求 6.5.30+；文本、富文本、图片、视频、文件的表示不同，
+不能将所有内容当作纯文本。第三方企业应用对钉盘文件和大尺寸媒体的限制需保留，
+不能承诺与微信 ZIP 完全相同的附件能力。
+
+这两种平台入口尚未实现和注册。还需确定承接页部署域名、相应应用的网页能力与发布权限，
+以及网页消息交给本机原生应用的交接方式；已有机器人渠道的连接凭证不足以证明这些条件
+已经具备。当前原生分享组件只处理来源应用实际交给系统的文件。
+
 ## 2026-11-06 验证记录
 
 - 本机签名接收 EXE 和 MSIX 均通过签名验证；MSIX 与 EXE 的包名、应用 ID、发布者一致，PRI／图标内外哈希一致。
@@ -59,3 +79,5 @@
 - TypeScript 与定向 ESLint 通过；webpack 生产构建导出 40 页。构建中 PDF 查看器依赖输出服务端 `window` 引用提示，已定位到既有 `use-pdf-viewer.ts` 静态导入的 `pdfjs-dist/legacy/web/pdf_viewer.mjs`，本次未修改该路径，导出仍完成。
 - Windows `cargo check --locked --manifest-path src-tauri/Cargo.toml --lib` 通过，输出既有警告；接收器已执行真实 release 构建。
 - 本机已有一个飞书机器人渠道配置，但渠道连接不等于网页消息快捷操作已经注册；没有钉钉渠道配置。仍需平台侧的网页能力、可信域名、消息菜单配置和发布权限。
+- 新增 PIN 签名扩展已分别在 PowerShell 7 和 Windows PowerShell 5 编译；无 PIN 的可选签名探测已停止，未将其列为通过。当前已执行的实签采用可用的 Windows 签名身份与 signtool；PIN 认证入口的完整运行仍需带现有 CI 签名凭证的构建。
+- 跨平台编译使用 [运行 42065927787](https://github.com/hwzlikewyh/iyw-claw/actions/runs/42065927787)，原生源码提交 `4bd1f7e8`。后续 `304cc348` 仅修改前端，`src-tauri` 与该编译源码无差异，最终前端另外完成了本地生产构建和类型检查。
