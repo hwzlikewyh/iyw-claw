@@ -16,8 +16,7 @@ import { NativeShareButton } from "./native-share-button"
 
 const subscribeDesktop = () => () => {}
 
-export function NativeShareSettings() {
-  const t = useTranslations("NativeShare")
+function useNativeShareSettings() {
   const [status, setStatus] = useState<ShareStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -37,7 +36,6 @@ export function NativeShareSettings() {
   useEffect(() => {
     if (local) void refresh()
   }, [local, refresh])
-  if (!local) return null
   const register = async () => {
     setBusy(true)
     setError(null)
@@ -50,6 +48,13 @@ export function NativeShareSettings() {
       setBusy(false)
     }
   }
+  return { status, error, busy, local, register }
+}
+
+export function NativeShareSettings() {
+  const t = useTranslations("NativeShare")
+  const { status, error, busy, local, register } = useNativeShareSettings()
+  if (!local) return null
   return (
     <SettingSection icon={Share2} title={t("title")}>
       <SettingRow

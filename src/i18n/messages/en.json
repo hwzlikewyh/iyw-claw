@@ -7738,6 +7738,7 @@
     "result": "Result"
   },
   "NativeShare": {
+    "noAvailableAgent": "Enable an available assistant, then retry importing this chat.",
     "title": "Chat imports",
     "description": "Each shared batch opens a new conversation draft. You can also import exported ZIP or TXT files.",
     "pendingCount": "{count} chat archives awaiting import",

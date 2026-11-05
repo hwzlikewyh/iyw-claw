@@ -99,16 +99,15 @@ function useShareCommands(
       patch({ open: false })
       toast.success(t("added"))
     })
-  const register = () =>
-    run(async () => {
-      await registerNativeShare()
-      patch({ status: await nativeShareStatus() })
-      toast.success(t("registrationComplete"))
-    })
   return {
     manualImport,
     addToDraft,
-    register,
+    register: () =>
+      run(async () => {
+        await registerNativeShare()
+        patch({ status: await nativeShareStatus() })
+        toast.success(t("registrationComplete"))
+      }),
     setOpen: (open: boolean) => patch({ open }),
     setSelected: (selected: string) =>
       patch((previous) => selectBatch(previous, selected)),
@@ -141,35 +140,41 @@ export function useNativeShareInbox() {
         ? activeAgent
         : sortedTypes[0],
   })
+  useAutomaticDelivery(state, patch, {
+    ready: fresh && tabsHydrated,
+    hasAgent: sortedTypes.length > 0,
+    addToDraft: commands.addToDraft,
+    noAgent: t("noAvailableAgent"),
+  })
+  return { ...state, t, ...commands }
+}
+
+function useAutomaticDelivery(
+  state: ShareInboxState,
+  patch: PatchShareState,
+  context: {
+    ready: boolean
+    hasAgent: boolean
+    addToDraft: (id: string) => Promise<void>
+    noAgent: string
+  }
+) {
   const attempted = useRef(new Set<string>())
   const delivering = useRef(false)
   useEffect(() => {
-    if (
-      delivering.current ||
-      !fresh ||
-      !tabsHydrated ||
-      !sortedTypes.length ||
-      state.busy ||
-      state.open
-    )
-      return
+    if (delivering.current || !context.ready || state.busy || state.open) return
     const pending = state.items.find(
       (item) => !item.imported && !attempted.current.has(item.id)
     )
     if (!pending) return
+    if (!context.hasAgent) {
+      patch({ open: true, selected: pending.id, error: context.noAgent })
+      return
+    }
     delivering.current = true
     attempted.current.add(pending.id)
-    void commands.addToDraft(pending.id).finally(() => {
+    void context.addToDraft(pending.id).finally(() => {
       delivering.current = false
     })
-  }, [
-    commands,
-    fresh,
-    sortedTypes.length,
-    state.busy,
-    state.items,
-    state.open,
-    tabsHydrated,
-  ])
-  return { ...state, t, ...commands }
+  }, [context, state.busy, state.items, state.open, patch])
 }

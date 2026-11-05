@@ -7738,6 +7738,7 @@
     "result": "结果"
   },
   "NativeShare": {
+    "noAvailableAgent": "请先启用一个可用助手，再重试导入聊天记录。",
     "title": "聊天记录导入",
     "description": "每批分享记录会新建独立对话并保存草稿，也可以导入已导出的 ZIP 或 TXT 文件。",
     "pendingCount": "{count} 批聊天记录待导入",
