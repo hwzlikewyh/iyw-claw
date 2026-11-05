@@ -3,7 +3,6 @@ import { applyBackendConsumption } from "./backend-consumption"
 import { getCurrentEffectiveAppLocale } from "./i18n"
 import {
   normalizeSettingsSection,
-  requestSettingsDialog,
   type OpenSettingsDialogOptions,
   type SettingsSection,
 } from "./settings-navigation"
@@ -1120,7 +1119,6 @@ export async function openSettingsWindow(
   options?: OpenSettingsDialogOptions
 ): Promise<void> {
   const normalizedSection = normalizeSettingsSection(section)
-  if (requestSettingsDialog(normalizedSection, options)) return
 
   return invoke("open_settings_window", {
     section: normalizedSection,

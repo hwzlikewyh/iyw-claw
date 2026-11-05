@@ -2363,7 +2363,7 @@ export async function openSettingsWindow(
   options?: OpenSettingsDialogOptions
 ): Promise<void> {
   const normalizedSection = normalizeSettingsSection(section)
-  if (requestSettingsDialog(normalizedSection, options)) return
+  if (!isDesktop() && requestSettingsDialog(normalizedSection, options)) return
 
   const locale = getCurrentEffectiveAppLocale()
   if (isDesktop()) {

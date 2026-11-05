@@ -1326,10 +1326,7 @@ mod tauri_app {
                 }
 
                 if (label == "settings" || label.starts_with("remote-settings-"))
-                    && matches!(
-                        event,
-                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-                    )
+                    && matches!(event, tauri::WindowEvent::Destroyed)
                 {
                     let app = window.app_handle();
                     if let Some(state) = app.try_state::<windows::SettingsWindowState>() {

@@ -66,7 +66,7 @@ import { AuxPanel } from "@/components/layout/aux-panel"
 import { FileWorkspaceTabBar } from "@/components/files/file-workspace-tab-bar"
 import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
 import { ExternalConflictDialog } from "@/components/files/external-conflict-dialog"
-import { SettingsDialog } from "@/components/settings/settings-dialog"
+import { WebSettingsDialog } from "@/components/settings/web-settings-dialog"
 import { TrayActionBridge } from "@/components/layout/tray-action-bridge"
 import { AppToaster } from "@/components/ui/app-toaster"
 import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
@@ -1097,7 +1097,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                 <TabKeysSync />
                                 <DeepLinkBootstrap />
                                 <SidebarViewOptionsProvider>
-                                  <SettingsDialog />
+                                  <WebSettingsDialog />
                                   {/* Always mounted: external-change conflicts must be
                             resolvable even with the aux file tree closed. */}
                                   <ExternalConflictDialog />
