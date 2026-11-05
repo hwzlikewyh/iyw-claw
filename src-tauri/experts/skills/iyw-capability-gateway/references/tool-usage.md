@@ -50,8 +50,9 @@ and multi-image fusion (`mix`) when applicable. Use model editing for complex
 visual constraints, freer creative control, explicit model selection or a preferred
 route that is demonstrably unsupported, unavailable or confirmed failed; no
 manufactured failed trial is needed. With source
-images and a selected catalog model, use `edit`. Built-in image-to-3d is disabled,
-including fetch/browser fallbacks.
+images and a selected catalog model, use `edit`. The built-in image-to-3d endpoint
+is disabled, including fetch/browser fallbacks; this does not prohibit local
+Three.js code-based modeling or GLB export for coding tasks.
 Correct input errors, reassess alternatives after confirmed route failures, and
 check original task state after uncertain submissions. Refine inadequate results
 through suitable services within scope and charging authorization. Manual fallback
