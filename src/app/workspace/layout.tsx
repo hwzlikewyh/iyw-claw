@@ -70,6 +70,7 @@ import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { TrayActionBridge } from "@/components/layout/tray-action-bridge"
 import { AppToaster } from "@/components/ui/app-toaster"
 import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
+import { NativeShareInbox } from "@/components/native-share/native-share-inbox"
 import { ModelCatalogBootstrap } from "@/components/workspace/model-catalog-bootstrap"
 import {
   ResizableHandle,
@@ -1096,6 +1097,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                 <WorkspaceDocumentTitle />
                                 <TabKeysSync />
                                 <DeepLinkBootstrap />
+                                <NativeShareInbox />
                                 <SidebarViewOptionsProvider>
                                   <SettingsDialog />
                                   {/* Always mounted: external-change conflicts must be

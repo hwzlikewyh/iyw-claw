@@ -116,3 +116,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
+
+## WeChatBridge / Dukou — native chat sharing
+
+The native sharing integration references WeChatBridge at commit
+`3d181a2cc29a9e0b2534f2c36df4ea8d918c0d32`, derived from Dukou.
+Source: https://github.com/freestylefly/WeChatBridge .
+Copyright (c) 2026 qzz0518. MIT License; the complete notice is retained in
+`src-tauri/native-share/UPSTREAM-LICENSE` and distributed with the share component.

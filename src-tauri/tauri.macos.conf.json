@@ -4,7 +4,11 @@
     "targets": ["app", "dmg"],
     "macOS": {
       "minimumSystemVersion": "13.5",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "native-share/build/main.entitlements",
+      "files": {
+        "PlugIns/IywAssistantShare.appex": "native-share/build/IywAssistantShare.appex"
+      }
     }
   }
 }

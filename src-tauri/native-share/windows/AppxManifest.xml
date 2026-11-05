@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+ xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+ IgnorableNamespaces="uap uap10 rescap">
+ <Identity Name="IywAssistant.ShareTarget" Publisher="{{publisher}}" Version="{{version}}" ProcessorArchitecture="neutral" />
+ <Properties>
+  <DisplayName>原助理</DisplayName><PublisherDisplayName>原助理</PublisherDisplayName>
+  <Logo>Assets\Square150x150Logo.png</Logo>
+  <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+ </Properties>
+ <Resources><Resource Language="zh-cn" /><Resource Language="en-us" /></Resources>
+ <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+ <Capabilities><rescap:Capability Name="runFullTrust" /><rescap:Capability Name="unvirtualizedResources" /></Capabilities>
+ <Applications>
+  <Application Id="Share" Executable="iyw-share-target.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+   <uap:VisualElements AppListEntry="none" DisplayName="原助理" Description="将聊天记录交给原助理"
+    BackgroundColor="transparent" Square44x44Logo="Assets\Square44x44Logo.png" Square150x150Logo="Assets\Square150x150Logo.png" />
+   <Extensions><uap:Extension Category="windows.shareTarget"><uap:ShareTarget Description="原助理">
+    <!-- 微信宿主会过滤过窄的格式声明；接收程序仍严格校验实际文件。 -->
+    <uap:SupportedFileTypes><uap:SupportsAnyFileType /></uap:SupportedFileTypes>
+    <uap:DataFormat>StorageItems</uap:DataFormat><uap:DataFormat>Text</uap:DataFormat>
+    <uap:DataFormat>URI</uap:DataFormat><uap:DataFormat>Bitmap</uap:DataFormat>
+   </uap:ShareTarget></uap:Extension></Extensions>
+  </Application>
+ </Applications>
+</Package>
