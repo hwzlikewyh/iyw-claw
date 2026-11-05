@@ -177,13 +177,15 @@ pub async fn update_status_if(
     new_status: conversation::ConversationStatus,
 ) -> Result<bool, DbError> {
     use sea_orm::sea_query::Expr;
-    let result = conversation::Entity::update_many()
+    let query = conversation::Entity::update_many()
         .col_expr(conversation::Column::Status, Expr::value(new_status))
         .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
         .filter(conversation::Column::Id.eq(conversation_id))
-        .filter(conversation::Column::Status.eq(expected))
-        .exec(conn)
-        .await?;
+        .filter(conversation::Column::Status.eq(expected));
+    let result = crate::db::retry_sqlite_maintenance("conversation_status_cas", || async {
+        query.clone().exec(conn).await.map_err(DbError::from)
+    })
+    .await?;
     Ok(result.rows_affected > 0)
 }
 
@@ -216,9 +218,7 @@ pub async fn update_external_id(
     conversation_id: i32,
     external_id: String,
 ) -> Result<(), DbError> {
-    use sea_orm::TransactionTrait;
-
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let result = super::conversation_session_segment_transition::replace_alias(
         &txn,
         conversation_id,
@@ -243,9 +243,7 @@ pub async fn update_external_id_if_matches(
     expected_external_id: Option<&str>,
     external_id: &str,
 ) -> Result<bool, DbError> {
-    use sea_orm::TransactionTrait;
-
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let result = super::conversation_session_segment_transition::persist(
         &txn,
         conversation_id,

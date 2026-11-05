@@ -1,9 +1,7 @@
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, TransactionTrait,
-};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 
 use super::query::RequestRows;
 use crate::db::{entities::app_metadata, error::DbError, service::app_metadata_service};
@@ -75,7 +73,7 @@ pub(super) async fn save(
     if records.is_empty() {
         return Ok(());
     }
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     for (id, rows) in records {
         let mut cost_only = rows.clone();
         for row in &mut cost_only.items {

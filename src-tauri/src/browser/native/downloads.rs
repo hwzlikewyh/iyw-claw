@@ -23,6 +23,14 @@ pub(super) fn attach<'a>(
     let tab_id = id.to_string();
     builder
         .with_download_started_handler(move |url, destination| {
+            let _ = super::state::with_page(&tab_id, |page| {
+                if page.loading && page.url == url {
+                    page.navigation_download = true;
+                    page.loading = false;
+                }
+                Ok(())
+            });
+            super::metadata::publish(&start_app, &tab_id);
             match prepare(&start_app, (&tab_id, &url), destination) {
                 Ok(()) => true,
                 Err(error) => {

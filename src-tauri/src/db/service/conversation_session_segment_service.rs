@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+    EntityTrait, QueryFilter, QueryOrder, Set,
 };
 
 use crate::db::entities::{conversation, conversation_session_segment as segment};
@@ -47,7 +47,7 @@ pub async fn reserve_continuation(
     recovery_attempt_id: &str,
     context_digest: Option<&str>,
 ) -> Result<segment::Model, DbError> {
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let result = reserve_in_transaction(
         &txn,
         conversation_id,

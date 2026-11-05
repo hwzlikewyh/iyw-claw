@@ -110,6 +110,7 @@ fn handlers<'a>(
                 page.url = url;
                 page.loading = matches!(event, PageLoadEvent::Started);
                 if page.loading {
+                    page.navigation_download = false;
                     page.epoch = page.epoch.saturating_add(1);
                     page.errors = 0;
                 }

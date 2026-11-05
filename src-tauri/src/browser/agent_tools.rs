@@ -48,6 +48,7 @@ impl BrowserSessionManager {
                     browser_tab_id = tab_id,
                     tool = %call.tool,
                     error_code = ?error.code,
+                    error_message = %error.message,
                     retryable = error.retryable,
                     "Agent browser tool failed"
                 );

@@ -35,9 +35,13 @@ pub(super) async fn save_cursor(
         cursor: cursor.to_string(),
     })
     .map_err(|error| error.to_string())?;
-    app_metadata_service::upsert_value(db, &cursor_key(channel_id), &value)
-        .await
-        .map_err(|error| error.to_string())
+    crate::db::retry_sqlite_maintenance("weixin_cursor", || {
+        let key = cursor_key(channel_id);
+        let value = &value;
+        async move { app_metadata_service::upsert_value(db, &key, value).await }
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 fn cursor_key(channel_id: i32) -> String {

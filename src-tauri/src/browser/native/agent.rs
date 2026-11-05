@@ -29,6 +29,13 @@ impl NativeBrowser {
                     ),
                 )
                 .await?;
+            if state["downloadNavigation"] == true {
+                return Err(BrowserError::new(
+                    BrowserErrorCode::BrowserNavigationFailed,
+                    "The URL starts a file download instead of a page; browser preview requires an HTML page URL",
+                )
+                .effect_may_have_occurred(true));
+            }
             if state["loading"] != true && (url == "about:blank" || state["url"] != "about:blank") {
                 return Ok(state);
             }

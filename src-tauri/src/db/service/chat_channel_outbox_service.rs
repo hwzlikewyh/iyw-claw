@@ -215,7 +215,7 @@ pub async fn recover_deliveries(db: &DatabaseConnection) -> Result<(), DbError> 
 
 pub async fn expire_sending(db: &DatabaseConnection) -> Result<(), DbError> {
     use sea_orm::sea_query::Expr;
-    chat_channel_outbox::Entity::update_many()
+    let query = chat_channel_outbox::Entity::update_many()
         .col_expr(
             chat_channel_outbox::Column::State,
             Expr::value("delivery_unknown"),
@@ -227,9 +227,11 @@ pub async fn expire_sending(db: &DatabaseConnection) -> Result<(), DbError> {
         .filter(chat_channel_outbox::Column::State.eq("delivery_sending"))
         .filter(
             chat_channel_outbox::Column::UpdatedAt.lt(Utc::now() - chrono::Duration::seconds(180)),
-        )
-        .exec(db)
-        .await?;
+        );
+    crate::db::retry_sqlite_maintenance("channel_delivery_expiry", || async {
+        query.clone().exec(db).await.map_err(DbError::from)
+    })
+    .await?;
     Ok(())
 }
 
