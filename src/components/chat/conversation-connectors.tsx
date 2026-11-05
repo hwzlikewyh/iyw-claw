@@ -184,8 +184,10 @@ export function ConversationConnectorMenu({
               disabled={
                 busy || (!item.compatible && !data!.selected.includes(item.id))
               }
-              onSelect={(event) => event.preventDefault()}
-              onCheckedChange={(enabled) => void toggle(item.id, enabled)}
+              onSelect={(event) => {
+                event.preventDefault()
+                void toggle(item.id, !data!.selected.includes(item.id))
+              }}
             >
               <Link2 className="size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
