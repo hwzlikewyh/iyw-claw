@@ -32,7 +32,12 @@ pub(super) fn resolve_app_intent(
         .as_str()
         .filter(|value| !value.is_empty())
         .ok_or_else(|| contract_error("Plugin app resource URI is missing"))?;
-    let display_mode = resolve_display_mode(config, input.requested_mode)?;
+    let preferred = super::native_compat::preferred_mode(
+        std::path::Path::new(&input.plugin.install_root),
+        &input.route.connector_key,
+        resource_uri,
+    );
+    let display_mode = resolve_display_mode(config, input.requested_mode.or(preferred.as_deref()))?;
     validate_launch_payload(&input.launch_payload)?;
     Ok(Some(PluginAppIntent {
         connection_id: input.context.connection_id.clone(),
@@ -83,7 +88,7 @@ fn resolve_display_mode(
 }
 
 fn validate_launch_payload(value: &Value) -> Result<(), PluginInvokeError> {
-    const MAX_LAUNCH_PAYLOAD_BYTES: usize = 256 * 1024;
+    const MAX_LAUNCH_PAYLOAD_BYTES: usize = super::app_host::MAX_MESSAGE_BYTES;
     let size = serde_json::to_vec(value)
         .map_err(|error| contract_error(error.to_string()))?
         .len();

@@ -1,15 +1,23 @@
 ---
 name: plugin-creator
-description: Create and scaffold portable plugin directories for Codex and Claude Code with dual native manifests, an IYW component manifest, optional plugin folders/files, valid defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add shared skills or MCP connectors, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.
+description: Create portable Codex and Claude Code plugins, or import existing native Node.js stdio MCP plugins and MCP Apps into the iyw-claw plugin market. Use for plugin scaffolding, shared skills and connectors, native plugin import, marketplace entries, and local plugin updates.
 routing:
   capability: create or update portable Codex and Claude plugins
-  coreTriggers: [create a plugin or add plugin skills and MCP connectors]
+  coreTriggers: [create a plugin or add plugin skills and MCP connectors, import a native Codex or Claude plugin into iyw-claw]
   exclusions: [create only a standalone Skill]
   aliases: [plugin scaffold, portable plugin]
   invocation: Read SKILL.md and use its manifest and reinstall workflow.
 ---
 
 # Plugin Creator
+
+## Import an existing native plugin
+
+For an existing `.codex-plugin/plugin.json` or `.claude-plugin/plugin.json`
+package, read [references/native-plugin-import.md](references/native-plugin-import.md).
+Use the bundled `scripts/import-native-plugin.mjs`; it captures the real MCP
+contracts and creates a Plugin v2 directory for the existing iyw-claw market.
+Do not use the scaffold validator or Codex marketplace commands for this mode.
 
 ## Quick Start
 

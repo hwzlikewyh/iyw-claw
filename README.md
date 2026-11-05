@@ -10,6 +10,7 @@ iyw-claw 是一个多智能体编码工作台，用于在同一个工作区内�
 - 支持本地桌面运行，也支持浏览器访问的服务端模式。
 - 支持 SQLite 数据存储、WebSocket 实时事件和静态前端导出。
 - 支持自动化任务、消息渠道、模型供应商配置和运行日志查看。
+- 支持将带 Node.js stdio MCP 和 MCP Apps 的原生插件导入现有插件市场，见[原生插件兼容](docs/native-plugin-compatibility.md)。
 
 ## 技术栈
 

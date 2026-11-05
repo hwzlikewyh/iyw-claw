@@ -23,7 +23,9 @@ type PluginAppResponse = {
   error?: { code: number; message: string }
 }
 
-const MAX_MESSAGE_BYTES = 256 * 1024
+// 32 MB 模型经过 base64 编码后仍需完整传到应用，保持明确的传输上限。
+const MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+const MAX_RESOURCE_BYTES = 8 * 1024 * 1024
 const METHODS = new Set([
   "initialize",
   "ui/initialize",
@@ -83,13 +85,12 @@ export class PluginAppBridge {
     html: string,
     resourceMeta?: PluginAppResourceMeta
   ): boolean {
-    if (!this.port || byteLength(html) > 8 * 1024 * 1024) return false
+    if (!this.port || byteLength(html) > MAX_RESOURCE_BYTES) return false
     const message = {
       jsonrpc: "2.0",
       method: "ui/notifications/sandbox-resource-ready",
       params: { html, ...resourceMeta },
     }
-    if (!withinLimit(message)) return false
     this.port.postMessage(message)
     return true
   }
@@ -128,11 +129,21 @@ export class PluginAppBridge {
         this.onInitialized?.()
       }
       if (request.id === undefined) return
-      this.send(
+      const sent = this.send(
         response.error
           ? { jsonrpc: "2.0", id: request.id, error: response.error }
           : { jsonrpc: "2.0", id: request.id, result: response.result ?? {} }
       )
+      if (!sent) {
+        this.send({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {
+            code: -32000,
+            message: "Plugin app response exceeds the size limit",
+          },
+        })
+      }
     } catch (error) {
       if (request.id === undefined) return
       this.send({
@@ -185,9 +196,17 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength
 }
 
-export function buildPluginAppProxyDocument(): string {
+export function buildPluginAppProxyDocument(
+  resourceMeta?: PluginAppResourceMeta
+): string {
   const methods = JSON.stringify([...METHODS, ...HOST_METHODS])
-  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-src data: blob:; object-src 'none'; base-uri 'self';"><script>
+  const sources = (values?: string[]) =>
+    (values ?? [])
+      .filter((value) => /^https:\/\//i.test(value) && !/[\s<>"']/.test(value))
+      .join(" ")
+  const resources = sources(resourceMeta?.csp?.resourceDomains)
+  const policy = `default-src 'none'; style-src 'unsafe-inline' ${resources}; script-src 'unsafe-inline' ${resources}; img-src data: blob: ${resources}; font-src data: ${resources}; media-src data: blob: ${resources}; connect-src ${sources(resourceMeta?.csp?.connectDomains) || "'none'"}; frame-src data: blob: ${sources(resourceMeta?.csp?.frameDomains)}; object-src 'none'; base-uri 'self' ${sources(resourceMeta?.csp?.baseUriDomains)};`
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><script>
 const MAX=${MAX_MESSAGE_BYTES};
 const RESOURCE_MAX=8*1024*1024;
 const METHODS=new Set(${methods});
@@ -210,13 +229,14 @@ function loadFrame(html,meta){
   if(allow)frame.setAttribute("allow",allow);
   frame.style.cssText="border:0;width:100%;height:100%;display:block";
   const csp=meta?.csp&&typeof meta.csp==="object"?meta.csp:{};
-  const list=(key)=>Array.isArray(csp[key])?csp[key].filter(value=>typeof value==="string"&&/^https:\/\//i.test(value)&&!/[\s<>"']/.test(value)):[];
+  const list=(key)=>Array.isArray(csp[key])?csp[key].filter(value=>typeof value==="string"&&(/^https:\/\//i.test(value)||(key==="resourceDomains"&&(value==="data:"||value==="blob:")))&&!/[\s<>"']/.test(value)):[];
   const connect=list("connectDomains");
   const resources=list("resourceDomains");
   const frames=list("frameDomains");
   const base=list("baseUriDomains");
   const sources=(fallback,values)=>values.length?values.join(" "):fallback;
-  const policy=["default-src 'none'","script-src 'unsafe-inline' "+resources.join(" "),"style-src 'unsafe-inline' "+resources.join(" "),"img-src data: blob: "+resources.join(" "),"font-src data: "+resources.join(" "),"media-src data: blob: "+resources.join(" "),"connect-src "+sources("'none'",connect),"frame-src "+sources("'none'",frames),"object-src 'none'","base-uri 'self' "+base.join(" ")].join(";");
+  const remoteResources=resources.filter(value=>value!=="data:"&&value!=="blob:");
+  const policy=["default-src 'none'","script-src 'unsafe-inline' "+remoteResources.join(" "),"style-src 'unsafe-inline' "+remoteResources.join(" "),"img-src data: blob: "+remoteResources.join(" "),"font-src data: "+remoteResources.join(" "),"media-src data: blob: "+remoteResources.join(" "),"connect-src "+sources("'none'",connect),"frame-src "+sources("'none'",frames),"object-src 'none'","base-uri 'self' "+base.join(" ")].join(";");
   frame.srcdoc='<meta http-equiv="Content-Security-Policy" content="'+policy+'">'+html;
   document.body.style.margin="0";
   document.body.appendChild(frame);

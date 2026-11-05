@@ -3,7 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ReadResourceRequestParams, ReadResourceResult,
+    CallToolRequestParams, CallToolResult, ClientInfo, ReadResourceRequestParams,
+    ReadResourceResult,
 };
 use rmcp::service::{Peer, RoleClient, RunningService};
 use tokio::io::AsyncReadExt;
@@ -13,7 +14,6 @@ use tokio::sync::Mutex;
 use super::process;
 use super::types::{PluginInvokeError, RuntimeLaunchSpec};
 
-const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(15);
 const CONTRACT_TIMEOUT: Duration = Duration::from_secs(15);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(4);
 const STDERR_BUFFER_BYTES: usize = 4096;
@@ -21,13 +21,22 @@ const MAX_SCHEMA_BYTES: usize = 1 << 20;
 
 pub(super) struct PluginMcpClient {
     peer: Peer<RoleClient>,
-    service: Mutex<Option<RunningService<RoleClient, ()>>>,
+    service: Mutex<Option<RunningService<RoleClient, ClientInfo>>>,
     child: Mutex<Option<Child>>,
     stderr_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl PluginMcpClient {
     pub async fn start(spec: &RuntimeLaunchSpec) -> Result<Arc<Self>, PluginInvokeError> {
+        let initialize_timeout = super::native_compat::startup_timeout(spec)?;
+        let mut info = ClientInfo::default();
+        info.capabilities.extensions = Some(BTreeMap::from([(
+            "io.modelcontextprotocol/ui".to_string(),
+            serde_json::Map::from_iter([(
+                "mimeTypes".to_string(),
+                serde_json::json!(["text/html;profile=mcp-app"]),
+            )]),
+        )]));
         let mut process = process::spawn(spec)?;
         let stderr_task = consume_stderr(process.stderr, spec.key.clone());
         let stdin = match process.child.stdin.take() {
@@ -39,9 +48,9 @@ impl PluginMcpClient {
             None => return cleanup_spawn_failure(process.child, stderr_task, "stdout"),
         };
         let mut service = match tokio::time::timeout(
-            INITIALIZE_TIMEOUT,
+            initialize_timeout,
             rmcp::serve_client(
-                (),
+                info,
                 rmcp::transport::async_rw::AsyncRwTransport::new_client(stdout, stdin),
             ),
         )
@@ -146,6 +155,7 @@ async fn validate_contract(
         .into_iter()
         .map(|tool| (tool.name.to_string(), tool))
         .collect::<BTreeMap<_, _>>();
+    super::native_compat::validate_visibility(&tools, spec)?;
     for expected in &spec.expected_tools {
         let tool = tools.get(&expected.name).ok_or_else(|| {
             PluginInvokeError::before_effect(

@@ -1304,7 +1304,12 @@ pub fn build_router(
             post(handlers::skill_market::rebuild_artifact),
         )
         .route("/plugin_app_open", post(handlers::plugin_apps::open))
-        .route("/plugin_app_message", post(handlers::plugin_apps::message))
+        .route(
+            "/plugin_app_message",
+            post(handlers::plugin_apps::message).layer(DefaultBodyLimit::max(
+                crate::plugin_runtime::app_host::MAX_MESSAGE_BYTES + 64 * 1024,
+            )),
+        )
         .route(
             "/plugin_app_teardown",
             post(handlers::plugin_apps::teardown),

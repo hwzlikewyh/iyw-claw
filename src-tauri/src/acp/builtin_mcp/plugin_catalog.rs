@@ -95,7 +95,14 @@ fn capabilities(plugin: &PluginDescriptor, cwd: &Path, agent_type: AgentType) ->
             let config = component.config.as_ref()?;
             let id = config.get("id")?.as_str()?;
             let connector = config.get("connectorKey")?.as_str()?;
-            let _tool_name = config.get("toolName")?.as_str()?;
+            let tool_name = config.get("toolName")?.as_str()?;
+            if !crate::plugin_runtime::native_compat::model_tool_allowed(
+                Path::new(&plugin.install_root),
+                connector,
+                tool_name,
+            ) {
+                return None;
+            }
             let schema_path = config.get("schemaPath")?.as_str()?;
             let (input_schema, schema_digest) = load_schema(plugin, schema_path)?;
             let unavailable_reason = unavailable_reason(plugin, connector, cwd, agent_type);

@@ -8,7 +8,7 @@ use rand::RngCore;
 use super::types::PluginInvokeError;
 
 const LEASE_TTL: Duration = Duration::from_secs(10 * 60);
-const MAX_MESSAGE_BYTES: usize = 256 * 1024;
+pub const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,11 +134,11 @@ impl PluginAppRegistry {
                 "Plugin app message exceeds the size limit",
             ));
         }
-        let leases = self
+        let mut leases = self
             .leases
-            .read()
+            .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let lease = leases.get(instance_id).ok_or_else(|| {
+        let lease = leases.get_mut(instance_id).ok_or_else(|| {
             PluginInvokeError::before_effect("plugin_app_lease_invalid", "Plugin app lease expired")
         })?;
         if lease.expires_at <= Instant::now()
@@ -151,6 +151,14 @@ impl PluginAppRegistry {
                 "Plugin app message is not authorized",
             ));
         }
+        let ttl = if method == "tools/call" {
+            super::native_compat::app_call_timeout(&lease.launch.plugin_slug, &lease.launch.app_key)
+                .unwrap_or(LEASE_TTL)
+                .max(LEASE_TTL)
+        } else {
+            LEASE_TTL
+        };
+        lease.expires_at = lease.expires_at.max(Instant::now() + ttl);
         Ok(())
     }
 

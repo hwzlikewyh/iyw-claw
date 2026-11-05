@@ -4,6 +4,7 @@ pub mod app_launch_broker;
 pub mod global;
 mod lease;
 mod mcp_client;
+pub(crate) mod native_compat;
 mod process;
 mod reaper;
 mod recovery;

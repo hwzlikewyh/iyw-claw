@@ -48,11 +48,12 @@ pub fn from_resource(
 ) -> Option<PluginAppResourceMeta> {
     let raw = resource.contents.iter().find_map(content_meta)?;
     let ui = raw.get("ui")?;
+    let allow_local_sources = native_resource(plugin, resource);
     let ceiling = plugin.manifest.permissions.as_ref();
     let granted = granted_permissions(plugin, workspace_key)?;
     let csp = ui
         .get("csp")
-        .map(|value| csp_meta(value, ceiling, &granted));
+        .map(|value| csp_meta(value, ceiling, &granted, allow_local_sources));
     let permissions = ui
         .get("permissions")
         .map(|value| permission_meta(value, ceiling, &granted));
@@ -72,6 +73,7 @@ fn csp_meta(
     value: &serde_json::Value,
     ceiling: Option<&SkillPluginPermissions>,
     granted: &SkillPluginPermissions,
+    allow_local_sources: bool,
 ) -> PluginAppResourceCsp {
     let network = ceiling.map(|value| &value.network);
     let allowed = &granted.network;
@@ -81,24 +83,28 @@ fn csp_meta(
             "connectDomains",
             network.map(|value| &value.connect_domains),
             &allowed.connect_domains,
+            false,
         ),
         resource_domains: domains(
             value,
             "resourceDomains",
             network.map(|value| &value.resource_domains),
             &allowed.resource_domains,
+            allow_local_sources,
         ),
         frame_domains: domains(
             value,
             "frameDomains",
             network.map(|value| &value.frame_domains),
             &allowed.frame_domains,
+            false,
         ),
         base_uri_domains: domains(
             value,
             "baseUriDomains",
             network.map(|value| &value.base_uri_domains),
             &allowed.base_uri_domains,
+            false,
         ),
     }
 }
@@ -131,6 +137,7 @@ fn domains(
     key: &str,
     ceiling: Option<&Vec<String>>,
     granted: &[String],
+    allow_local_sources: bool,
 ) -> Option<Vec<String>> {
     let values = value.get(key)?.as_array()?;
     Some(
@@ -138,12 +145,38 @@ fn domains(
             .iter()
             .filter_map(serde_json::Value::as_str)
             .filter(|domain| {
-                ceiling.is_some_and(|items| items.iter().any(|item| item == *domain))
-                    && granted.iter().any(|item| item == *domain)
+                (allow_local_sources
+                    && key == "resourceDomains"
+                    && matches!(*domain, "data:" | "blob:"))
+                    || (ceiling.is_some_and(|items| items.iter().any(|item| item == *domain))
+                        && granted.iter().any(|item| item == *domain))
             })
             .map(str::to_string)
             .collect(),
     )
+}
+
+fn native_resource(plugin: &PluginDescriptor, resource: &rmcp::model::ReadResourceResult) -> bool {
+    let uri = resource.contents.iter().find_map(|content| match content {
+        rmcp::model::ResourceContents::TextResourceContents { uri, .. }
+        | rmcp::model::ResourceContents::BlobResourceContents { uri, .. } => Some(uri),
+    });
+    let Some(uri) = uri else { return false };
+    let connector = plugin
+        .manifest
+        .components
+        .iter()
+        .filter(|component| component.kind == "app")
+        .filter_map(|component| component.config.as_ref())
+        .find(|config| config["resourceUri"].as_str() == Some(uri))
+        .and_then(|config| config["connectorKey"].as_str());
+    connector.is_some_and(|key| {
+        crate::plugin_runtime::native_compat::connector(
+            std::path::Path::new(&plugin.install_root),
+            key,
+        )
+        .is_ok_and(|value| value.is_some())
+    })
 }
 
 fn granted_permissions(

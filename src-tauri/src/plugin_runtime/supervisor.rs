@@ -13,7 +13,7 @@ use rmcp::model::ReadResourceResult;
 const MAX_GLOBAL_CALLS: usize = 32;
 const MAX_INSTANCE_CALLS: usize = 4;
 const MAX_RUNTIME_INSTANCES: usize = 16;
-const CALL_TIMEOUT: Duration = Duration::from_secs(120);
+const RESOURCE_TIMEOUT: Duration = Duration::from_secs(120);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 const QUARANTINE_THRESHOLD: u32 = 3;
 
@@ -65,6 +65,7 @@ impl PluginRuntimeSupervisor {
         authority_cancellation: CancellationToken,
     ) -> PluginInvokeResult {
         self.ensure_accepting(&cancellation, &authority_cancellation)?;
+        let call_timeout = super::native_compat::tool_timeout(&spec)?;
         let instance = self.ensure_instance(&spec).await?;
         let permits = super::lease::acquire(&self.inner.global_calls, &instance).await?;
         self.ensure_accepting(&cancellation, &authority_cancellation)?;
@@ -76,7 +77,7 @@ impl PluginRuntimeSupervisor {
             _ = authority_cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
                 "plugin_authority_revoked", "Plugin authority was revoked after dispatch",
             )),
-            result = tokio::time::timeout(CALL_TIMEOUT, call) => match result {
+            result = tokio::time::timeout(call_timeout, call) => match result {
                 Ok(result) => result,
                 Err(_) => Err(PluginInvokeError::after_dispatch(
                     "plugin_call_timeout", "Plugin call timed out after dispatch",
@@ -117,7 +118,7 @@ impl PluginRuntimeSupervisor {
             _ = authority_cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
                 "plugin_authority_revoked", "Plugin authority was revoked",
             )),
-            result = tokio::time::timeout(CALL_TIMEOUT, instance.client.read_resource(uri)) =>
+            result = tokio::time::timeout(RESOURCE_TIMEOUT, instance.client.read_resource(uri)) =>
                 result.map_err(|_| PluginInvokeError::after_dispatch(
                     "plugin_resource_timeout", "Plugin resource read timed out",
                 ))?,

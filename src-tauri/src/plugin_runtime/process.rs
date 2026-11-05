@@ -21,6 +21,7 @@ pub(super) fn spawn(spec: &RuntimeLaunchSpec) -> Result<SpawnedPluginProcess, Pl
     let mut command = crate::process::tokio_command(&program);
     command.env_clear();
     apply_minimal_environment(&mut command, &root, &spec.plugin_data_dir, &workspace);
+    apply_native_environment(&mut command, spec, &program)?;
     command.current_dir(&workspace);
     if spec.runtime_kind != "binary" {
         command.arg(&entrypoint);
@@ -37,6 +38,49 @@ pub(super) fn spawn(spec: &RuntimeLaunchSpec) -> Result<SpawnedPluginProcess, Pl
         PluginInvokeError::before_effect("plugin_start_failed", "stderr pipe is unavailable")
     })?;
     Ok(SpawnedPluginProcess { child, stderr })
+}
+
+fn apply_native_environment(
+    command: &mut tokio::process::Command,
+    spec: &RuntimeLaunchSpec,
+    program: &Path,
+) -> Result<(), PluginInvokeError> {
+    let Some(options) = super::native_compat::options(spec)? else {
+        return Ok(());
+    };
+    for key in &options.env_vars {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    for key in &options.data_dir_env_vars {
+        if std::env::var_os(key).is_none() {
+            command.env(key, &spec.plugin_data_dir);
+        }
+    }
+    for key in [
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let paths = program.parent().into_iter().map(Path::to_path_buf).chain(
+        std::env::var_os("PATH")
+            .into_iter()
+            .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>()),
+    );
+    if let Ok(value) = std::env::join_paths(paths) {
+        command.env("PATH", value);
+    }
+    tracing::info!(plugin = %spec.key.plugin_slug, connector = %spec.key.connector_key,
+        declared_env_count = options.env_vars.len(), "[plugin-runtime] native runtime environment prepared");
+    Ok(())
 }
 
 fn runtime_program(kind: &str, entrypoint: &Path) -> Result<PathBuf, PluginInvokeError> {
