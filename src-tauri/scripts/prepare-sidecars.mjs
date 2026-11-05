@@ -22,6 +22,7 @@ import process from "node:process"
 
 import { prepareEnvironmentHelper } from "./prepare-environment-helper.mjs"
 import { resolveSignMode, signFiles } from "./sign-windows.mjs"
+import { prepareNativeShare } from "./prepare-native-share.mjs"
 
 const SRC_TAURI = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -93,6 +94,7 @@ async function main() {
 
   const hostTarget = resolveHostTriple()
   const target = configuredTarget || hostTarget
+  prepareNativeShare(target)
   log(`target triple: ${target}`)
   const helper = prepareEnvironmentHelper(target)
   if (

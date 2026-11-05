@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import { useSidebarAccount } from "./use-sidebar-account"
 import { SidebarAccountActions } from "./sidebar-account-actions"
 import { SidebarAccountDialogs } from "./sidebar-account-dialogs"
+import { NativeShareButton } from "@/components/native-share/native-share-button"
 
 export { normalizeAvatarUrl } from "@/components/account/account-profile-panel"
 
@@ -86,6 +87,7 @@ export function SidebarAccountSettings({
             )}
           </PopoverContent>
         </Popover>
+        <NativeShareButton />
         <Button
           variant="ghost"
           size="icon"

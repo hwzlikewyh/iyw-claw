@@ -34,7 +34,8 @@
     "resources": {
       "../out": "resources/bundle/",
       "resources/xinghe-worker": "xinghe-resources",
-      "resources/environment": "environment"
+      "resources/environment": "environment",
+      "native-share/resources/": "native-share/"
     },
     "windows": {
       "webviewInstallMode": {

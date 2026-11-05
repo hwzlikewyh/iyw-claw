@@ -19,6 +19,7 @@ Var IywClawPermissionError
 !include "${__FILEDIR__}\installer-install-root.nsh"
 !include "${__FILEDIR__}\installer-lock.nsh"
 !include "${__FILEDIR__}\installer-elevation.nsh"
+!include "${__FILEDIR__}\installer-native-share.nsh"
 
 Function IywClawIsMainProcessRunning
   ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
@@ -274,6 +275,7 @@ FunctionEnd
   ; isolated below root\app.
   WriteRegStr SHCTX "$IywClawInstallRegistryKey" "" "$IywClawRoot"
   Call IywClawEnsureDesktopShortcut
+  Call IywClawRegisterNativeShare
 
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
@@ -309,6 +311,7 @@ FunctionEnd
     Abort
 
   iyw_uninstall_processes_stopped:
+  Call un.IywClawUnregisterNativeShare
   Call un.IywClawRemoveShortcuts
 
   ${If} $UpdateMode = 1
@@ -345,6 +348,7 @@ FunctionEnd
     Goto iyw_uninstall_done
 
   iyw_purge_all_user_data:
+    Call un.IywClawPurgeNativeShare
     GetFullPathName $R8 "$IywClawRoot"
     StrCmp $R8 "" iyw_uninstall_done 0
     DetailPrint "彻底删除模式：正在移除全部安装内容..."

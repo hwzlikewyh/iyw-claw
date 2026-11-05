@@ -298,6 +298,19 @@ export function saveMessageInputDraftV2(
   scheduleDraftPersistence()
 }
 
+/** 外部分享交付必须先确认持久化成功，配额或权限错误直接交给调用方。 */
+export function persistMessageInputDraftV2Now(
+  draftKey: string,
+  doc: JSONContent
+): void {
+  const payload = JSON.stringify({ doc } satisfies PersistedDraftStateV2)
+  window.localStorage.setItem(storageKeyForDraftKeyV2(draftKey), payload)
+  draftDocCache.set(draftKey, doc)
+  pendingPersistDocs.delete(draftKey)
+  clearMessageInputDraft(draftKey)
+  notifyDraftPresence(draftKey)
+}
+
 export function clearMessageInputDraftV2(draftKey: string): void {
   draftDocCache.delete(draftKey)
   pendingPersistDocs.delete(draftKey)

@@ -36,6 +36,7 @@ export function createMacBuildPlan(tauriCli, options, target) {
   if (!target.endsWith("-apple-darwin"))
     throw new Error(`Unsupported macOS desktop target: ${target}`)
   const env = { ...process.env, TAURI_TARGET_TRIPLE: target }
+  if (options.noSign) env.IYW_SHARE_UNSIGNED = "1"
   if (options.jobs) env.CARGO_BUILD_JOBS = String(options.jobs)
   const args = [
     tauriCli,

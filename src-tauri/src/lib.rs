@@ -56,6 +56,8 @@ mod server_secret_store;
 pub mod shared_runtime;
 #[cfg(feature = "tauri-runtime")]
 mod share_deep_link;
+#[cfg(feature = "tauri-runtime")]
+mod native_share;
 pub mod supervise;
 pub mod system_skills;
 mod terminal;
@@ -381,6 +383,7 @@ mod tauri_app {
             .manage(crate::update::new_update_state_handle())
             .setup(move |app| {
                 crate::share_deep_link::setup(app.handle())?;
+                crate::native_share::setup(app.handle());
                 let setup_stage = crate::logging::emergency::StartupStage::new("tauri-setup");
                 let app_data_dir =
                     crate::logging::emergency::run_stage("resolve-app-data-dir", || {
@@ -1478,6 +1481,12 @@ mod tauri_app {
                 conversations::create_chat_conversation,
                 conversations::create_chat_dir,
                 chat_attachment_commands::stage_chat_attachment,
+                crate::commands::native_share::native_share_list,
+                crate::commands::native_share::native_share_prepare,
+                crate::commands::native_share::native_share_complete,
+                crate::commands::native_share::native_share_import,
+                crate::commands::native_share::native_share_status,
+                crate::commands::native_share::native_share_register,
                 chat_attachment_commands::stage_chat_attachment_bytes,
                 chat_image_commands::prepare_chat_image,
                 conversations::update_conversation_status,
