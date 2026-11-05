@@ -11,6 +11,7 @@ use codex_protocol::models::ImageReference;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::openai_models::InputModality;
 use codex_utils_image::data_url_from_bytes;
+use codex_utils_path_uri::PathUri;
 use serde::Deserialize;
 
 use crate::function_tool::FunctionCallError;
@@ -65,6 +66,12 @@ const VIEW_IMAGE_INVALID_MESSAGE: &str =
 struct ViewImageArgs {
     path: String,
     detail: Option<String>,
+}
+
+struct ImageLoadContext<'a> {
+    session: &'a crate::session::session::Session,
+    environments: &'a ToolEnvironments,
+    step_context: &'a crate::session::step_context::StepContext,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -155,39 +162,15 @@ impl ViewImageHandler {
             return Ok(boxed_tool_output(stored::load(&session, request).await?));
         }
 
-        let turn_environment = selected_executor(&environments, &step_context.environments)?;
-        let path_uri = turn_environment.cwd().join(&path).map_err(|err| {
-            FunctionCallError::RespondToModel(format!(
-                "unable to resolve image path `{path}` against environment cwd `{}`: {err}",
-                turn_environment.cwd(),
-            ))
-        })?;
-        let model_visible_path = path_uri.inferred_native_path_string();
-        let sandbox = turn_environment.sandbox_context(/*additional_permissions*/ None);
-        let fs = turn_environment.environment.get_filesystem();
-
-        let metadata = fs
-            .get_metadata(&path_uri, GetMetadataOptions::default(), Some(&sandbox))
-            .await
-            .map_err(|error| {
-                FunctionCallError::RespondToModel(format!(
-                    "unable to locate image at `{model_visible_path}`: {error}"
-                ))
-            })?;
-
-        if !metadata.is_file {
-            return Err(FunctionCallError::RespondToModel(format!(
-                "image path `{model_visible_path}` is not a file"
-            )));
-        }
-        let file_bytes = fs
-            .read_file(&path_uri, ReadFileOptions::default(), Some(&sandbox))
-            .await
-            .map_err(|error| {
-                FunctionCallError::RespondToModel(format!(
-                    "unable to read image at `{model_visible_path}`: {error}"
-                ))
-            })?;
+        let (file_bytes, image_view_path) = load_image_source(
+            ImageLoadContext {
+                session: &session,
+                environments: &environments,
+                step_context: &step_context,
+            },
+            &path,
+        )
+        .await?;
         // Reject non-images before their bytes can reach code mode without changing
         // valid image bytes, metadata, or centralized image preparation.
         image::load_from_memory(&file_bytes).map_err(|_| {
@@ -207,12 +190,11 @@ impl ViewImageHandler {
         // The history insertion path owns image preparation and resizing.
         let image_url = data_url_from_bytes("application/octet-stream", &file_bytes);
 
-        let item = TurnItem::ImageView(ImageViewItem {
-            id: call_id,
-            path: path_uri,
-        });
-        session.emit_turn_item_started(turn.as_ref(), &item).await;
-        session.emit_turn_item_completed(turn.as_ref(), item).await;
+        if let Some(path) = image_view_path {
+            let item = TurnItem::ImageView(ImageViewItem { id: call_id, path });
+            session.emit_turn_item_started(turn.as_ref(), &item).await;
+            session.emit_turn_item_completed(turn.as_ref(), item).await;
+        }
 
         Ok(boxed_tool_output(ViewImageOutput {
             image_url,
@@ -220,6 +202,61 @@ impl ViewImageHandler {
             unified_image_budget: self.options.unified_image_budget,
         }))
     }
+}
+
+fn has_http_scheme(value: &str) -> bool {
+    value.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+    })
+}
+
+async fn load_image_source(
+    context: ImageLoadContext<'_>,
+    path: &str,
+) -> Result<(Vec<u8>, Option<PathUri>), FunctionCallError> {
+    if has_http_scheme(path) {
+        let bytes = context
+            .session
+            .services
+            .model_client
+            .download_remote_image(path)
+            .await
+            .map_err(|error| FunctionCallError::RespondToModel(error.to_string()))?;
+        return Ok((bytes, None));
+    }
+    let turn_environment =
+        selected_executor(context.environments, &context.step_context.environments)?;
+    let path_uri = turn_environment.cwd().join(path).map_err(|err| {
+        FunctionCallError::RespondToModel(format!(
+            "unable to resolve image path `{path}` against environment cwd `{}`: {err}",
+            turn_environment.cwd(),
+        ))
+    })?;
+    let model_visible_path = path_uri.inferred_native_path_string();
+    let sandbox = turn_environment.sandbox_context(/*additional_permissions*/ None);
+    let fs = turn_environment.environment.get_filesystem();
+    let metadata = fs
+        .get_metadata(&path_uri, GetMetadataOptions::default(), Some(&sandbox))
+        .await
+        .map_err(|error| {
+            FunctionCallError::RespondToModel(format!(
+                "unable to locate image at `{model_visible_path}`: {error}"
+            ))
+        })?;
+    if !metadata.is_file {
+        return Err(FunctionCallError::RespondToModel(format!(
+            "image path `{model_visible_path}` is not a file"
+        )));
+    }
+    let bytes = fs
+        .read_file(&path_uri, ReadFileOptions::default(), Some(&sandbox))
+        .await
+        .map_err(|error| {
+            FunctionCallError::RespondToModel(format!(
+                "unable to read image at `{model_visible_path}`: {error}"
+            ))
+        })?;
+    Ok((bytes, Some(path_uri)))
 }
 
 impl CoreToolRuntime for ViewImageHandler {

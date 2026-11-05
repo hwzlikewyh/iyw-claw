@@ -30,6 +30,8 @@ use std::collections::HashMap;
 mod timing;
 #[path = "managed_image_store.rs"]
 pub(crate) mod managed_images;
+#[path = "client_remote_image.rs"]
+mod remote_image;
 #[path = "managed_image_references.rs"]
 pub(crate) mod image_references;
 use std::sync::Arc;
