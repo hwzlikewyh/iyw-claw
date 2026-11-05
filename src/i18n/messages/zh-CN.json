@@ -587,6 +587,9 @@
     "connecting": "正在连接浏览器",
     "streamDisconnected": "浏览器画面已断开",
     "newTab": "新建页签",
+    "newTabTitle": "新标签页",
+    "newTabHint": "输入网址或搜索，开始浏览",
+    "addressPlaceholder": "搜索或输入网址",
     "closeTab": "关闭页签",
     "downloads": "下载内容",
     "noDownloads": "暂无下载内容",
@@ -2776,8 +2779,13 @@
       }
     },
     "auxPanel": {
+      "openBrowser": "打开浏览器",
+      "viewWorkspace": "查看工作区",
+      "viewChanges": "查看变更",
+      "openTerminal": "打开终端",
       "tabs": {
         "label": "右侧面板",
+        "home": "总览",
         "files": "文件",
         "artifacts": "成果",
         "changes": "变更",

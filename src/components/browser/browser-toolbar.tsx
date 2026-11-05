@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { BrowserDownloads } from "./browser-downloads"
 import { BrowserNativeTools } from "./browser-native-tools"
 import { BrowserPageActions } from "./browser-page-actions"
+import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
 
 export function BrowserToolbar({
   host,
@@ -115,18 +116,23 @@ export function BrowserToolbar({
 function AddressInput({ tab }: { tab: BrowserTabSnapshot | null }) {
   const t = useTranslations("Browser")
   const { run } = useBrowser()
-  const [address, setAddress] = useState(tab?.url ?? "")
+  const initialAddress =
+    tab?.url === DEFAULT_BROWSER_HOME_URL ? "" : (tab?.url ?? "")
+  const [address, setAddress] = useState(initialAddress)
   return (
     <Input
       value={address}
+      placeholder={t("addressPlaceholder")}
+      disabled={!tab}
+      onFocus={(event) => event.target.select()}
       onChange={(event) => setAddress(event.target.value)}
       onKeyDown={(event) => {
         if (event.key === "Enter" && tab) {
           const url = normalizeAddress(address)
-          setAddress(url)
+          setAddress(url === DEFAULT_BROWSER_HOME_URL ? "" : url)
           void run(() => browserApi.navigate(tab.browserTabId, url))
         }
-        if (event.key === "Escape") setAddress(tab?.url ?? "")
+        if (event.key === "Escape") setAddress(initialAddress)
       }}
       className="h-7 min-w-0 flex-1 rounded-md bg-muted/50 px-3 text-xs"
       aria-label={t("address")}

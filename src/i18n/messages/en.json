@@ -587,6 +587,9 @@
     "connecting": "Connecting to browser",
     "streamDisconnected": "Browser view disconnected",
     "newTab": "New tab",
+    "newTabTitle": "New tab",
+    "newTabHint": "Enter a URL or search to start browsing",
+    "addressPlaceholder": "Search or enter a URL",
     "closeTab": "Close tab",
     "downloads": "Downloads",
     "noDownloads": "No downloads",
@@ -2776,8 +2779,13 @@
       }
     },
     "auxPanel": {
+      "openBrowser": "Open browser",
+      "viewWorkspace": "View workspace",
+      "viewChanges": "View changes",
+      "openTerminal": "Open terminal",
       "tabs": {
         "label": "Right panel",
+        "home": "Overview",
         "files": "Files",
         "artifacts": "Artifacts",
         "changes": "Changes",

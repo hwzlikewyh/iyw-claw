@@ -115,12 +115,19 @@ export function BrowserTabStrip({
               onClick={() => activate(tab.browserTabId)}
             >
               <Globe2 className="size-3.5 shrink-0" />
-              <span className="truncate">{tab.title || t("newTab")}</span>
+              <span className="truncate">
+                {tab.url === DEFAULT_BROWSER_HOME_URL
+                  ? t("newTabTitle")
+                  : tab.title || t("newTabTitle")}
+              </span>
             </button>
             <Button
               variant="ghost"
               size="icon"
-              className="size-5 shrink-0 opacity-0 group-hover:opacity-100"
+              className={cn(
+                "size-5 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100",
+                tab.browserTabId === activeTabId && "opacity-100"
+              )}
               title={t("closeTab")}
               aria-label={t("closeTab")}
               onClick={() =>

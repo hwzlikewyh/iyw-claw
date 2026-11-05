@@ -1,0 +1,140 @@
+"use client"
+
+import type { ReactNode } from "react"
+import { FileDiff, FolderOpen, Globe2, SquareTerminal } from "lucide-react"
+import { useTranslations } from "next-intl"
+import { useActiveFolder } from "@/contexts/active-folder-context"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
+import { useBrowser } from "@/contexts/browser-context"
+import { useInteractivePage } from "@/contexts/interactive-page-context"
+import { useTerminalContext } from "@/contexts/terminal-context"
+import { useWorkspaceActions } from "@/contexts/workspace-context"
+import { useBrowserVisibility } from "@/hooks/use-browser-visibility"
+import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
+import { isLocalDesktop } from "@/lib/platform"
+import { TaskArtifactsTab } from "./aux-panel-artifacts-tab"
+
+export function AuxPanelHome() {
+  const t = useTranslations("Folder.auxPanel")
+  const tArtifacts = useTranslations("Folder.taskArtifacts")
+  const { activeFolder } = useActiveFolder()
+  const isChatMode = useIsActiveChatMode()
+  const hasWorkspace = !!activeFolder && !isChatMode
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 px-3 py-4">
+        <BrowserHomeAction />
+        <WorkspaceHomeAction enabled={hasWorkspace} />
+        <ChangesHomeAction
+          enabled={hasWorkspace && !!activeFolder?.git_branch}
+        />
+        <TerminalHomeAction enabled={hasWorkspace} />
+        {!hasWorkspace && (
+          <p className="px-3 pt-2 text-xs text-muted-foreground">
+            {t("noFolderHint")}
+          </p>
+        )}
+      </div>
+      <h2 className="shrink-0 px-3 pb-2 text-xs font-medium text-muted-foreground">
+        {tArtifacts("title")}
+      </h2>
+      <TaskArtifactsTab />
+    </div>
+  )
+}
+
+function BrowserHomeAction() {
+  const t = useTranslations("Folder.auxPanel")
+  const { setOpen } = useAuxPanelContext()
+  const { state, openBrowser } = useBrowser()
+  const { closePanel } = useInteractivePage()
+  const browserVisible = useBrowserVisibility()
+  if (!browserVisible || !isLocalDesktop()) return null
+  return (
+    <HomeAction
+      label={t("openBrowser")}
+      icon={<Globe2 className="size-4" />}
+      disabled={!state?.capability.supported}
+      onClick={() => {
+        closePanel()
+        setOpen(false)
+        void openBrowser()
+      }}
+    />
+  )
+}
+
+function WorkspaceHomeAction({ enabled }: { enabled: boolean }) {
+  const t = useTranslations("Folder.auxPanel")
+  const { setActiveTab } = useAuxPanelContext()
+  return (
+    <HomeAction
+      label={t("viewWorkspace")}
+      icon={<FolderOpen className="size-4" />}
+      disabled={!enabled}
+      onClick={() => setActiveTab("file_tree")}
+    />
+  )
+}
+
+function ChangesHomeAction({ enabled }: { enabled: boolean }) {
+  const t = useTranslations("Folder.auxPanel")
+  const { setOpen } = useAuxPanelContext()
+  const { closeBrowser } = useBrowser()
+  const { closePanel } = useInteractivePage()
+  const { openWorkingTreeDiff } = useWorkspaceActions()
+  return (
+    <HomeAction
+      label={t("viewChanges")}
+      icon={<FileDiff className="size-4" />}
+      disabled={!enabled}
+      onClick={() => {
+        closePanel()
+        void closeBrowser()
+        setOpen(false)
+        void openWorkingTreeDiff()
+      }}
+    />
+  )
+}
+
+function TerminalHomeAction({ enabled }: { enabled: boolean }) {
+  const t = useTranslations("Folder.auxPanel")
+  const { isOpen, toggle } = useTerminalContext()
+  return (
+    <HomeAction
+      label={t("openTerminal")}
+      icon={<SquareTerminal className="size-4" />}
+      disabled={!enabled}
+      onClick={() => {
+        if (!isOpen) toggle()
+      }}
+    />
+  )
+}
+
+function HomeAction({
+  label,
+  icon,
+  disabled,
+  onClick,
+}: {
+  label: string
+  icon: ReactNode
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-sidebar-accent focus-visible:outline focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+        {icon}
+      </span>
+      {label}
+    </button>
+  )
+}
