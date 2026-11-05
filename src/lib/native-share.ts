@@ -71,19 +71,7 @@ export const registerNativeShare = () =>
   getShellTransport().call<void>("native_share_register")
 
 export async function openNativeShareInbox(): Promise<void> {
-  const { getCurrentWindow } = await import("@tauri-apps/api/window")
-  if (getCurrentWindow().label === "main") {
-    window.dispatchEvent(new Event(OPEN_NATIVE_SHARE))
-    return
-  }
-  const { emitTo } = await import("@tauri-apps/api/event")
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow")
-  const main = await WebviewWindow.getByLabel("main")
-  if (!main) throw new Error("Main workspace is unavailable")
-  await emitTo("main", "native-share://open")
-  await main.unminimize()
-  await main.show()
-  await main.setFocus()
+  await getShellTransport().call<void>("native_share_open")
 }
 
 export function addNativeShareToDraft(

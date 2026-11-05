@@ -1487,6 +1487,7 @@ mod tauri_app {
                 crate::commands::native_share::native_share_import,
                 crate::commands::native_share::native_share_status,
                 crate::commands::native_share::native_share_register,
+                crate::commands::native_share::native_share_open,
                 chat_attachment_commands::stage_chat_attachment_bytes,
                 chat_image_commands::prepare_chat_image,
                 conversations::update_conversation_status,

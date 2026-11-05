@@ -1,7 +1,7 @@
 use crate::{app_error::AppCommandError, native_share};
 use iyw_share_core::{Inbox, PreparedShare, ShareBatch, ShareSummary};
 use std::sync::Mutex;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 static INBOX_WORK: Mutex<()> = Mutex::new(());
 
@@ -110,4 +110,11 @@ pub async fn native_share_status(
 #[tauri::command]
 pub async fn native_share_register(app: AppHandle) -> Result<(), AppCommandError> {
     native_share::register(&app).await.map_err(command_error)
+}
+
+#[tauri::command]
+pub fn native_share_open(app: AppHandle) -> Result<(), AppCommandError> {
+    crate::commands::windows::show_main_window(&app);
+    app.emit_to("main", "native-share://open", ())
+        .map_err(|error| AppCommandError::window("无法打开聊天导入窗口", error.to_string()))
 }
