@@ -32,7 +32,8 @@
 - 首轮桌面库 cargo check --lib --locked --offline --jobs 2 通过，应用库报告 89 条既有警告。独立工作区缺少生成资源时先复用本机构建资源，并通过正常 prepare-xinghe-worker 入口生成 manifest；没有修改项目构建配置。
 - Rust 定向格式、git diff --check、原生页面脚本语法、生成安装脚本的 PowerShell 5.1 语法、.NET Framework C# 编译及真实 uv Junction 只读解析均通过。
 - 安装器 process-control 模块 NSIS 编译通过；只编译不执行安装，临时编译文件已清理。
-- 最终增量 cargo check 正在等待共享构建目录锁；完成后提交验证记录并合并，两个远程 main 均需核对提交身份。
+- 最终增量 cargo check 因另一项构建持续占用共享 target 锁而停止排队，未取得最终版本的完整重跑结果。改以现有真实依赖的编译元数据，直接对最后调整的 SeaORM 写事务辅助函数、账户重试函数和 HTML MIME 函数原文运行 rustc 类型检查，全部通过；未运行代码或生成测试文件，临时编译输出已清理。
+- 合并前再次检查源码 diff、格式、依赖调用、取消与并发分支；原工作区的未提交修改保持独立。提交、推送与两个远程 main 的最终身份记录在本机交付文档。
 
 ## 实际运行边界
 
