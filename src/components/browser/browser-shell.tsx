@@ -23,6 +23,7 @@ import { BrowserPrompts } from "./browser-prompts"
 import { BrowserStatus } from "./browser-status"
 import { BrowserTabStrip } from "./browser-tab-strip"
 import { BrowserToolbar } from "./browser-toolbar"
+import { BrowserStartPage } from "./browser-start-page"
 import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
 
 export function BrowserShell({
@@ -210,7 +211,11 @@ export function BrowserShell({
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">
-        {state.capability.engine?.kind === "webview" && activeTab ? (
+        {activeTab?.url === DEFAULT_BROWSER_HOME_URL &&
+        activeTab.status === "live" &&
+        !claim ? (
+          <BrowserStartPage />
+        ) : state.capability.engine?.kind === "webview" && activeTab ? (
           <BrowserNativeSurface
             key={`${activeTab.browserTabId}:${activeTab.documentEpoch}`}
             tab={activeTab}

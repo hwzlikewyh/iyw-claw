@@ -10,7 +10,7 @@ import {
 } from "react"
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
-import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
+import { useNewConversationBrowser } from "@/hooks/use-new-conversation-browser"
 import { Sidebar } from "@/components/layout/sidebar"
 import {
   AppWorkspaceProvider,
@@ -200,23 +200,6 @@ function TabKeysSync() {
   useEffect(() => {
     registerVisibleTabKeys(keys)
   }, [keys, registerVisibleTabKeys])
-  return null
-}
-
-/**
- * Auto-hides the right (aux) panel whenever a folderless chat conversation
- * becomes active. Effect fires only on the `isChatMode` rising edge (it does NOT
- * depend on `isOpen`), so it won't fight a user who reopens the panel — though in
- * practice the toggle button and shortcut are also hidden in chat mode, making
- * the hide effectively sticky for the chat session. Leaving chat mode does not
- * auto-restore (kept simple); the user reopens it on a normal folder.
- */
-function ChatModeAuxAutoHide() {
-  const isChatMode = useIsActiveChatMode()
-  const { setOpen } = useAuxPanelContext()
-  useEffect(() => {
-    if (isChatMode) setOpen(false)
-  }, [isChatMode, setOpen])
   return null
 }
 
@@ -1030,10 +1013,10 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 
 function FolderLayoutShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile()
+  useNewConversationBrowser()
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
-      <ChatModeAuxAutoHide />
       <FolderTitleBar />
       {isMobile ? (
         <MobileFolderWorkspaceShell>{children}</MobileFolderWorkspaceShell>
