@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { verifyArtifacts } from "./verify-signatures.mjs"
 import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
+import { verifyInstalledNativeShare } from "./verify-native-share.mjs"
 import { isWin7Target } from "./build-desktop-windows.mjs"
 import {
   computerSourceFingerprint,
@@ -185,6 +186,7 @@ function resolveInstalledApp(directory) {
 }
 
 function verifyInstalledSidecars(appDirectory, target, version) {
+  verifyInstalledNativeShare({ appDirectory, target, version })
   const resourceRoot = target.includes("apple-darwin")
     ? join(appDirectory, "../Resources")
     : appDirectory

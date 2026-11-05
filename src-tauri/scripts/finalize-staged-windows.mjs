@@ -271,6 +271,21 @@ function main() {
   restoreStaging(includesFrontend)
   preflightToken()
   signEnvironmentHelper()
+  // hosted 编译阶段没有发布证书，分享 EXE 的嵌入身份必须在签名阶段生成。
+  execFileSync(
+    process.execPath,
+    [
+      join(ROOT, "src-tauri/scripts/prepare-native-share.mjs"),
+      "--target",
+      TARGET,
+    ],
+    {
+      cwd: ROOT,
+      stdio: "inherit",
+      windowsHide: true,
+      env: { ...process.env, IYW_SHARE_UNSIGNED: "0" },
+    }
+  )
   verify(bundle(version))
 }
 

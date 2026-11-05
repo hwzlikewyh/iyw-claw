@@ -8,19 +8,32 @@ import {
   writeFileSync,
 } from "node:fs"
 import { dirname, join, resolve } from "node:path"
-import {
-  discoverSigntool,
-  resolveSignMode,
-  signFiles,
-} from "./sign-windows.mjs"
+import { discoverSigntool, resolveSignMode } from "./sign-windows.mjs"
+import { verifyWindowsShare } from "./verify-native-share.mjs"
 
 const DEVELOPMENT_PUBLISHER = "CN=IywAssistant Development"
 
+function signShareFile(root, file) {
+  // 复用正式发布的硬件签名入口，避免绕过 token/PIN 与签名后校验。
+  run(process.execPath, [
+    join(root, "../scripts/sign-staged-windows.mjs"),
+    file,
+  ])
+}
+
 function run(tool, args, options = {}) {
+  const environment = options.env || process.env
   return execFileSync(tool, args, {
     windowsHide: true,
     stdio: "inherit",
     ...options,
+    env: tool.toLowerCase().endsWith("powershell.exe")
+      ? Object.fromEntries(
+          Object.entries(environment).filter(
+            ([name]) => name.toUpperCase() !== "PSMODULEPATH"
+          )
+        )
+      : environment,
   })
 }
 
@@ -66,6 +79,8 @@ function buildReceiver({ target, root, subject, output }) {
       join(root, "../share-target/Cargo.toml"),
       "--target",
       target,
+      "--target-dir",
+      join(root, "../share-target/target"),
     ],
     { env: { ...process.env, IYW_SHARE_PUBLISHER: subject } }
   )
@@ -161,7 +176,12 @@ export function prepareWindowsShare(target, root) {
     )
     return
   }
-  signFiles([join(output, "iyw-share-target.exe")])
-  signFiles([packWindowsShare(context)])
+  signShareFile(root, join(output, "iyw-share-target.exe"))
+  signShareFile(root, packWindowsShare(context))
+  verifyWindowsShare({
+    root: output,
+    version: version.replace(/\.0$/, ""),
+    requireSigned: true,
+  })
   console.log(`[native-share] signed Share Target prepared for ${target}`)
 }

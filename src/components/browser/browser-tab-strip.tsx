@@ -21,11 +21,13 @@ export function BrowserTabStrip({
   tabs,
   activeTabId,
   claim,
+  onOpenOverview,
 }: {
   host: BrowserHostSnapshot
   tabs: BrowserTabSnapshot[]
   activeTabId?: string
   claim?: BrowserViewClaimSnapshot
+  onOpenOverview?: () => void
 }) {
   const t = useTranslations("Browser")
   const { acceptState, run, busy, detachTab, refresh } = useBrowser()
@@ -143,13 +145,15 @@ export function BrowserTabStrip({
         variant="ghost"
         size="icon"
         className="h-9 w-9 shrink-0 rounded-none"
-        title={t("newTab")}
-        aria-label={t("newTab")}
+        title={onOpenOverview ? t("openOverview") : t("newTab")}
+        aria-label={onOpenOverview ? t("openOverview") : t("newTab")}
         disabled={busy || Boolean(claim)}
-        onClick={() =>
-          void run(() =>
-            browserApi.createTab(DEFAULT_BROWSER_HOME_URL, host.hostId)
-          )
+        onClick={
+          onOpenOverview ??
+          (() =>
+            void run(() =>
+              browserApi.createTab(DEFAULT_BROWSER_HOME_URL, host.hostId)
+            ))
         }
       >
         <Plus className="size-4" />

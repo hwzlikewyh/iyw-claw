@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useTabStore } from "@/stores/tab-store"
 import { getShellTransport, isDesktop } from "@/lib/transport"
 import {
   listNativeShares,
@@ -20,7 +19,6 @@ export interface ShareInboxState {
   items: ShareBatch[]
   selected: string | null
   preview: SharePreview | null
-  targetTab: string
   status: ShareStatus | null
   busy: boolean
   loading: boolean
@@ -39,7 +37,6 @@ export function useShareState() {
     items: [],
     selected: null,
     preview: null,
-    targetTab: "",
     status: null,
     busy: false,
     loading: false,
@@ -58,7 +55,6 @@ export function useShareState() {
 }
 
 export function useShareRefresh(patch: PatchShareState) {
-  const seen = useRef(new Set<string>())
   const generation = useRef(0)
   return useCallback(async () => {
     const request = ++generation.current
@@ -66,23 +62,12 @@ export function useShareRefresh(patch: PatchShareState) {
     if (request !== generation.current) return
     const pending = items.filter((item) => !item.imported)
     updateNativeShareCount(pending.length)
-    const fresh = pending.find((item) => !seen.current.has(item.id))
-    items.forEach((item) => seen.current.add(item.id))
     patch((previous) => {
-      const selected = previous.selected || fresh?.id || items[0]?.id || null
-      const reveal = fresh && !previous.open && !previous.busy
+      const selected =
+        previous.selected || pending[0]?.id || items[0]?.id || null
       return {
         items,
         selected,
-        ...(reveal
-          ? {
-              open: true,
-              selected: fresh.id,
-              loading: true,
-              preview: null,
-              targetTab: useTabStore.getState().activeTabId || "",
-            }
-          : {}),
       }
     })
   }, [patch])
@@ -95,30 +80,35 @@ export function useShareEvents(
   useEffect(() => {
     if (!isDesktop()) return
     let disposed = false
-    let unlisten: (() => void) | undefined
+    const listeners: Array<() => void> = []
     const reload = () => {
       void refresh().catch((error) => {
         if (!disposed) patch({ error: shareError(error) })
       })
     }
     const show = () => {
-      patch({ open: true, targetTab: useTabStore.getState().activeTabId || "" })
+      patch({ open: true })
       reload()
     }
     window.addEventListener(OPEN_NATIVE_SHARE, show)
-    void getShellTransport()
-      .subscribe("native-share://changed", reload)
-      .then((off) => {
-        if (disposed) off()
-        else unlisten = off
-      })
-      .catch((error) => {
-        if (!disposed) patch({ error: shareError(error) })
-      })
+    for (const [event, handler] of [
+      ["native-share://changed", reload],
+      ["native-share://open", show],
+    ] as const) {
+      void getShellTransport()
+        .subscribe(event, handler)
+        .then((off) => {
+          if (disposed) off()
+          else listeners.push(off)
+        })
+        .catch((error) => {
+          if (!disposed) patch({ error: shareError(error) })
+        })
+    }
     reload()
     return () => {
       disposed = true
-      unlisten?.()
+      listeners.forEach((off) => off())
       window.removeEventListener(OPEN_NATIVE_SHARE, show)
     }
   }, [refresh, patch])

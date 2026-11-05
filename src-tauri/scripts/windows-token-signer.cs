@@ -7,7 +7,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 // PIN 认证和 Authenticode 签名共用证书缓存的密钥句柄，禁止交互式回退。
-public static class IywWindowsTokenSigner
+public static partial class IywWindowsTokenSigner
 {
     const uint CertKeyProviderInfo = 2;
     const uint CacheKeyContext = 0x00000001;

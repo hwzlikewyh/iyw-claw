@@ -23,6 +23,7 @@ import {
   type TaskArtifactGroup,
 } from "@/components/layout/task-artifacts-list"
 import { useTaskArtifacts } from "@/components/layout/use-task-artifacts"
+import { useDeleteTaskArtifacts } from "@/components/layout/use-delete-task-artifacts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useActiveFolder } from "@/contexts/active-folder-context"
@@ -64,6 +65,10 @@ export function TaskArtifactsTab({
   )
   const query = useTaskArtifacts(filters)
   const selection = useArtifactSelection(query.items, displayMode)
+  const deleteArtifacts = useDeleteTaskArtifacts(async () => {
+    selection.closeDialog()
+    await query.refresh()
+  })
   const groups = useMemo(
     () => groupArtifacts(query.items, effectiveScope, conversationId),
     [conversationId, effectiveScope, query.items]
@@ -100,6 +105,7 @@ export function TaskArtifactsTab({
         selection={selection}
         onPageChange={setPage}
         onRequestClose={onRequestClose}
+        onDelete={deleteArtifacts}
       />
       {displayMode === "panel" && <PanelArtifactDialog selection={selection} />}
     </div>
@@ -253,6 +259,7 @@ function ArtifactToolbar({
 }
 
 interface ArtifactContentProps {
+  onDelete: (items: TaskArtifactInfo[]) => Promise<void>
   items: TaskArtifactInfo[]
   total: number
   page: number
@@ -270,6 +277,7 @@ interface ArtifactContentProps {
 }
 
 function ArtifactContent({
+  onDelete,
   items,
   total,
   page,
@@ -328,7 +336,11 @@ function ArtifactContent({
         pageSize={pageSize}
         onPageChange={onPageChange}
       >
-        <TaskArtifactsList groups={groups} onSelect={selection.select} />
+        <TaskArtifactsList
+          groups={groups}
+          onSelect={selection.select}
+          onDelete={onDelete}
+        />
       </ArtifactResults>
     )
   }

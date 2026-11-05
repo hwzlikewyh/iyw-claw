@@ -16,11 +16,11 @@ import {
   ResourceHeader,
   ResourceHeading,
 } from "@/components/resources/resource-overview"
-import { deleteTaskArtifacts, type TaskArtifactInfo } from "@/lib/api"
+import type { TaskArtifactInfo } from "@/lib/api"
+import { useDeleteTaskArtifacts } from "@/components/layout/use-delete-task-artifacts"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import type { DbConversationSummary } from "@/lib/types"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { toast } from "sonner"
 
 const RESOURCE_PAGE_SIZE = 24
 
@@ -107,6 +107,11 @@ function useResourcePageModel(): ResourcePageModel {
 }
 
 function ResourcePageContent({ model }: { model: ResourcePageModel }) {
+  const deleteArtifacts = useDeleteTaskArtifacts(async () => {
+    model.setSelectedIds(new Set())
+    model.setSelected(null)
+    await model.query.refresh()
+  })
   const {
     filters,
     setFilters,
@@ -139,24 +144,15 @@ function ResourcePageContent({ model }: { model: ResourcePageModel }) {
         filteredItems={filteredItems}
         onSelect={setSelected}
         selectedIds={selectedIds}
-        onToggleSelect={(id) => setSelectedIds((current) => {
-          const next = new Set(current)
-          if (next.has(id)) next.delete(id)
-          else next.add(id)
-          return next
-        })}
-        onDelete={async (items) => {
-          if (!items.length || !window.confirm(`删除选中的 ${items.length} 项成果？`)) return
-          const conversations = new Set(items.map((item) => item.conversationId))
-          if (conversations.size !== 1) {
-            toast.error("只能批量删除同一会话中的成果")
-            return
-          }
-          await deleteTaskArtifacts(items[0].conversationId, items.map((item) => item.id))
-          setSelectedIds(new Set())
-          await query.refresh()
-          toast.success("成果已删除")
-        }}
+        onToggleSelect={(id) =>
+          setSelectedIds((current) => {
+            const next = new Set(current)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+          })
+        }
+        onDelete={deleteArtifacts}
       />
       <ResourcePreview artifact={selected} onClose={() => setSelected(null)} />
     </section>
@@ -225,7 +221,15 @@ function ResourcePageBody({
       {selectedIds.size > 0 && (
         <div className="flex items-center justify-between border-b py-2 text-sm">
           <span>已选择 {selectedIds.size} 项</span>
-          <button type="button" className="text-destructive hover:underline" onClick={() => void onDelete(filteredItems.filter((item) => selectedIds.has(item.id)))}>
+          <button
+            type="button"
+            className="text-destructive hover:underline"
+            onClick={() =>
+              void onDelete(
+                filteredItems.filter((item) => selectedIds.has(item.id))
+              )
+            }
+          >
             删除选中
           </button>
         </div>

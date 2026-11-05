@@ -12,11 +12,9 @@ import { useWorkspaceActions } from "@/contexts/workspace-context"
 import { useBrowserVisibility } from "@/hooks/use-browser-visibility"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { isLocalDesktop } from "@/lib/platform"
-import { TaskArtifactsTab } from "./aux-panel-artifacts-tab"
 
 export function AuxPanelHome() {
   const t = useTranslations("Folder.auxPanel")
-  const tArtifacts = useTranslations("Folder.taskArtifacts")
   const { activeFolder } = useActiveFolder()
   const isChatMode = useIsActiveChatMode()
   const hasWorkspace = !!activeFolder && !isChatMode
@@ -35,10 +33,6 @@ export function AuxPanelHome() {
           </p>
         )}
       </div>
-      <h2 className="shrink-0 px-3 pb-2 text-xs font-medium text-muted-foreground">
-        {tArtifacts("title")}
-      </h2>
-      <TaskArtifactsTab />
     </div>
   )
 }

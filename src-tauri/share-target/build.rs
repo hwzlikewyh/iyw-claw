@@ -5,6 +5,7 @@ fn main() {
     }
     let publisher = std::env::var("IYW_SHARE_PUBLISHER")
         .unwrap_or_else(|_| "CN=IywAssistant Development".into());
+    println!("cargo:rustc-env=IYW_SHARE_PUBLISHER={publisher}");
     let escaped = publisher
         .replace('&', "&amp;")
         .replace('"', "&quot;")
@@ -18,7 +19,8 @@ fn main() {
     #[cfg(windows)]
     tauri_winres::WindowsResource::new()
         .set_icon("../icons/icon.ico")
-        .set_manifest(&std::fs::read_to_string(path).unwrap())
+        // 保留 UTF-8 原始字节；RC 内联字符串会破坏中文证书 Publisher。
+        .set_manifest_file(&path.to_string_lossy())
         .set("ProductName", "原助理")
         .set("FileDescription", "原助理系统分享接收程序")
         .compile()

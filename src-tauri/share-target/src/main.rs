@@ -6,7 +6,9 @@ mod receiver;
 fn main() {
     #[cfg(windows)]
     if let Err(error) = receiver::run() {
-        if !std::env::args().any(|arg| arg == "--registration-check") {
+        if std::env::args().any(|arg| arg == "--registration-check") {
+            eprintln!("native share identity check failed: {error}");
+        } else {
             receiver::log(&format!("share reception failed: {error}"));
         }
         std::process::exit(1);
