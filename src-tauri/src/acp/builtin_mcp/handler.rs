@@ -342,6 +342,21 @@ impl BuiltinMcpHandler {
                 log_direct_result(&trace, &result);
                 result
             }
+            GatewayAction::ConnectorManagement(arguments) => {
+                let request_id = serde_json::to_value(&context.id)
+                    .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+                let result = super::connector_management::execute(
+                    self,
+                    authority,
+                    delivery,
+                    arguments,
+                    request_id,
+                    request_cancel,
+                )
+                .await;
+                log_direct_result(&trace, &result);
+                result
+            }
         }
     }
     async fn invoke_plugin(
@@ -380,6 +395,10 @@ impl BuiltinMcpHandler {
             receipts: &self.receipts,
             lifecycle: &self.lifecycle,
         }
+    }
+
+    pub(super) fn gateway_service(&self) -> &Arc<IywGatewayService> {
+        &self.iyw
     }
 }
 

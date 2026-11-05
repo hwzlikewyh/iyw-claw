@@ -33,6 +33,7 @@ pub(super) enum GatewayAction {
     Upload(Value),
     Knowledge(Value),
     MemoryGroup(MemoryGroupRequest),
+    ConnectorManagement(Value),
     RemoteRead(String),
     RemoteInvoke(ResolvedCapability),
 }
@@ -116,6 +117,7 @@ pub(super) fn dispatch(
         GatewayTool::Upload => direct_request(arguments, GatewayDirectRequest::Upload),
         GatewayTool::Knowledge => direct_request(arguments, GatewayDirectRequest::Knowledge),
         GatewayTool::Memory => memory_group(arguments, &catalog, session),
+        GatewayTool::Connectors => direct_request(arguments, GatewayDirectRequest::Connectors),
     }
 }
 
@@ -125,6 +127,7 @@ enum GatewayDirectRequest {
     FetchUrl,
     Upload,
     Knowledge,
+    Connectors,
 }
 
 fn direct_request(
@@ -138,6 +141,7 @@ fn direct_request(
         GatewayDirectRequest::FetchUrl => Ok(GatewayAction::FetchUrl(value)),
         GatewayDirectRequest::Upload => Ok(GatewayAction::Upload(value)),
         GatewayDirectRequest::Knowledge => Ok(GatewayAction::Knowledge(value)),
+        GatewayDirectRequest::Connectors => Ok(GatewayAction::ConnectorManagement(value)),
     }
 }
 

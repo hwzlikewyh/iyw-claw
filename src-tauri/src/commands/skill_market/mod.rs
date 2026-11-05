@@ -34,8 +34,8 @@ use types::{parse_id, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,
     SkillMarketListParams, SkillMarketListResult, SkillMarketMetadataRequest,
-    SkillMarketPublishRequest, SkillMarketVersion, SkillPackageType, SkillUpdateCandidate,
-    SkillUpdateCheckItem, SkillUpdateCheckResult,
+    SkillMarketPublishRequest, SkillMarketUploadFile, SkillMarketVersion, SkillPackageType,
+    SkillUpdateCandidate, SkillUpdateCheckItem, SkillUpdateCheckResult,
 };
 
 #[derive(Debug, Clone, serde::Deserialize)]

@@ -63,6 +63,8 @@ pub mod logging;
 pub mod managed_skills;
 pub mod mcp;
 pub mod mcp_conversation;
+pub(crate) mod mcp_conversation_compatibility;
+pub(crate) mod mcp_conversation_migration;
 pub mod mcp_oauth;
 pub(crate) mod mcp_oauth_runtime;
 pub(crate) mod mcp_conversation_applied;
