@@ -13,6 +13,7 @@ pub(super) const FETCH_URL_TOOL: &str = "fetch_iyw_url";
 pub(super) const UPLOAD_TOOL: &str = "upload_iyw_file";
 pub(super) const KNOWLEDGE_TOOL: &str = "search_iyw_knowledge";
 pub(super) const MEMORY_TOOL: &str = "manage_iyw_memory";
+pub(super) const CONNECTOR_TOOL: &str = "manage_iyw_connectors";
 pub(super) const ARTIFACTS_TOOL: &str = "present_task_files";
 pub(super) const CAPABILITY_ID_MAX_CHARS: usize = 128;
 
@@ -32,6 +33,7 @@ pub(super) enum GatewayTool {
     Upload,
     Knowledge,
     Memory,
+    Connectors,
 }
 
 impl GatewayTool {
@@ -49,6 +51,7 @@ impl GatewayTool {
             Self::Upload => UPLOAD_TOOL,
             Self::Knowledge => KNOWLEDGE_TOOL,
             Self::Memory => MEMORY_TOOL,
+            Self::Connectors => CONNECTOR_TOOL,
         }
     }
 }
@@ -176,6 +179,7 @@ fn bare_gateway_tool(name: &str) -> Option<GatewayTool> {
         UPLOAD_TOOL => Some(GatewayTool::Upload),
         KNOWLEDGE_TOOL => Some(GatewayTool::Knowledge),
         MEMORY_TOOL => Some(GatewayTool::Memory),
+        CONNECTOR_TOOL => Some(GatewayTool::Connectors),
         _ => None,
     }
 }

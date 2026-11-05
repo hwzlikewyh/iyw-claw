@@ -10,6 +10,7 @@ export interface ConversationConnectorChoice {
   protocol: string
   compatible: boolean
   reason: string | null
+  requires_migration: boolean
 }
 
 export interface ConversationConnectors {
@@ -17,6 +18,7 @@ export interface ConversationConnectors {
   selected: string[]
   connectors: ConversationConnectorChoice[]
   reconnect_required: boolean
+  migrated: string[]
 }
 
 export function getConversationConnectors(

@@ -23,6 +23,7 @@ import {
 import { mcpRemoveServer } from "@/lib/api"
 import type { LocalMcpServer } from "@/lib/types"
 import { ConnectorOAuthDialog } from "./connector-oauth-dialog"
+import { ConnectorMigrationDialog } from "@/components/connectors/connector-migration-dialog"
 
 export function ConnectorInstalledList({
   items,
@@ -34,10 +35,13 @@ export function ConnectorInstalledList({
   const t = useTranslations("ConnectorMarket")
   const [removing, setRemoving] = useState<string | null>(null)
   const [oauth, setOAuth] = useState<string | null>(null)
+  const [migration, setMigration] = useState<{
+    targetId: string
+  } | null>(null)
   const [busy, setBusy] = useState(false)
   const activeTabId = useTabStore((state) => state.activeTabId)
   const route = useWorkbenchRoute()
-  const enableConnector = async (id: string) => {
+  const enableConnector = async (id: string, migrationConfirmed = false) => {
     const tab = useTabStore
       .getState()
       .tabs.find((value) => value.id === activeTabId)
@@ -50,19 +54,33 @@ export function ConnectorInstalledList({
       )
       const choice = current.connectors.find((value) => value.id === id)
       if (!choice?.compatible)
-        throw new Error(choice?.reason ?? t("incompatible"))
+        throw new Error(choice?.reason ?? t("unavailableCurrent"))
+      const migrationId = [...current.selected, id].find((selectedId) =>
+        current.connectors.some(
+          (candidate) =>
+            candidate.id === selectedId && candidate.requires_migration
+        )
+      )
+      if (migrationId && !migrationConfirmed) {
+        setMigration({ targetId: id })
+        return
+      }
       const prepared = await prepareConnectorConversation(
         tab.id,
         t("newConversation")
       )
-      await setConversationConnectors({
+      const result = await setConversationConnectors({
         conversationId: prepared.id,
         revision: current.revision,
         selected: [...new Set([...current.selected, id])],
       })
       prepared.bind()
       route.openConversations()
-      toast.success(t("conversationEnabled"))
+      toast.success(
+        result.migrated.length
+          ? t("conversationMigrated")
+          : t("conversationEnabled")
+      )
     } catch (cause) {
       toast.error(String(cause))
     } finally {
@@ -133,6 +151,16 @@ export function ConnectorInstalledList({
       {oauth && (
         <ConnectorOAuthDialog id={oauth} onClose={() => setOAuth(null)} />
       )}
+      <ConnectorMigrationDialog
+        open={migration !== null}
+        busy={busy}
+        onCancel={() => setMigration(null)}
+        onConfirm={() => {
+          const pending = migration
+          setMigration(null)
+          if (pending) void enableConnector(pending.targetId, true)
+        }}
+      />
       <Dialog
         open={removing !== null}
         onOpenChange={(open) => {

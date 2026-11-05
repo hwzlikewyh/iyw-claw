@@ -2422,19 +2422,7 @@ fn remove_cline_server(id: &str) -> Result<bool, AppCommandError> {
 
 fn scan_local_servers() -> Vec<LocalMcpServer> {
     let mut merged: BTreeMap<String, (Value, BTreeSet<McpAppType>)> = BTreeMap::new();
-    let scans = [
-        (McpAppType::ClaudeCode, read_claude_servers()),
-        (McpAppType::Codex, read_codex_servers()),
-        (McpAppType::OpenCode, read_opencode_servers()),
-        (McpAppType::Gemini, read_gemini_servers()),
-        (McpAppType::OpenClaw, read_openclaw_servers()),
-        (McpAppType::Cline, read_cline_servers()),
-        (McpAppType::Hermes, read_hermes_servers()),
-        (McpAppType::CodeBuddy, read_codebuddy_servers()),
-        (McpAppType::KimiCode, read_kimi_code_servers()),
-        (McpAppType::Grok, grok::read_servers()),
-    ];
-    for (app, scan) in scans {
+    for (app, scan) in legacy_server_scans() {
         merge_local_server_scan(&mut merged, app, scan);
     }
     merged
@@ -2450,6 +2438,43 @@ fn scan_local_servers() -> Vec<LocalMcpServer> {
             sources: Vec::new(),
         })
         .collect()
+}
+
+fn legacy_server_scans() -> Vec<(McpAppType, Result<BTreeMap<String, Value>, AppCommandError>)> {
+    vec![
+        (McpAppType::ClaudeCode, read_claude_servers()),
+        (McpAppType::Codex, read_codex_servers()),
+        (McpAppType::OpenCode, read_opencode_servers()),
+        (McpAppType::Gemini, read_gemini_servers()),
+        (McpAppType::OpenClaw, read_openclaw_servers()),
+        (McpAppType::Cline, read_cline_servers()),
+        (McpAppType::Hermes, read_hermes_servers()),
+        (McpAppType::CodeBuddy, read_codebuddy_servers()),
+        (McpAppType::KimiCode, read_kimi_code_servers()),
+        (McpAppType::Grok, grok::read_servers()),
+    ]
+}
+
+pub(crate) fn legacy_server_spec_matches(
+    server_id: &str,
+    expected: &Value,
+) -> Result<bool, AppCommandError> {
+    let mut found = false;
+    for (app, scan) in legacy_server_scans() {
+        let servers = scan.map_err(|error| {
+            mcp_configuration_invalid(format!(
+                "无法安全迁移连接器：读取 {app:?} MCP 配置失败"
+            ))
+            .with_detail(error.message)
+        })?;
+        if let Some(spec) = servers.get(server_id) {
+            found = true;
+            if spec != expected {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(found)
 }
 
 fn merge_local_server_scan(

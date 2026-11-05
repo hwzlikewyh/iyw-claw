@@ -11,6 +11,7 @@ const REMOTE_INVOKE_TIMEOUT: Duration = Duration::from_secs(120);
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(600);
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const CONNECTOR_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const FETCH_MAX_TIMEOUT_SECONDS: u64 = 900;
 
 pub(super) fn timeout_for(tool_name: &str, arguments: Option<&Map<String, Value>>) -> Duration {
@@ -26,6 +27,9 @@ pub(super) fn timeout_for(tool_name: &str, arguments: Option<&Map<String, Value>
     }
     if name.ends_with("upload_iyw_file") {
         return UPLOAD_TIMEOUT;
+    }
+    if name.ends_with("manage_iyw_connectors") {
+        return CONNECTOR_TIMEOUT;
     }
     if name.ends_with("fetch_iyw_url") {
         return fetch_timeout(arguments);

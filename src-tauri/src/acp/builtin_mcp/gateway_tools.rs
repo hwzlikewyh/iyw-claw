@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
 
 use super::tool_identity::{
-    ARTIFACTS_TOOL, CAPABILITY_ID_MAX_CHARS, INVOKE_TOOL, KNOWLEDGE_TOOL, MEMORY_TOOL, READ_TOOL,
-    SEARCH_TOOL,
+    ARTIFACTS_TOOL, CAPABILITY_ID_MAX_CHARS, CONNECTOR_TOOL, INVOKE_TOOL, KNOWLEDGE_TOOL,
+    MEMORY_TOOL, READ_TOOL, SEARCH_TOOL,
 };
 
 pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 17] = [
@@ -28,7 +28,7 @@ pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 17] = [
     ("documents.correct", "iyw.memory.documents.correct.v1"),
 ];
 
-pub(super) fn values() -> [Value; 12] {
+pub(super) fn values() -> [Value; 13] {
     [
         super::interaction_tools::embedded_tool(super::interaction_tools::ASK_TOOL),
         super::interaction_tools::html_tool(),
@@ -42,7 +42,65 @@ pub(super) fn values() -> [Value; 12] {
         super::iyw_upload::tool(),
         knowledge_tool(),
         memory_tool(),
+        connector_tool(),
     ]
+}
+
+fn connector_tool() -> Value {
+    json!({
+        "name": CONNECTOR_TOOL,
+        "annotations": {"readOnlyHint": false, "destructiveHint": true, "openWorldHint": true},
+        "description": "Manage this iyw-claw installation's MCP connectors. Read operations list installed connectors, search the connector market, and inspect a market entry. Mutations include market install, uninstall, current-conversation enable/disable, global enable/disable, and publishing a portable plugin package or version to the Skill/Plugin market. The host asks the user before install, uninstall, global changes, and market publication; selecting a legacy global connector also asks before migrating it out of Agent global configuration. Never pass credentials or OAuth tokens: configure secrets and authorization in the connector UI. Publishing requires a valid portable plugin package, not a raw MCP config. After changing session selection or global configuration, report that running sessions may need reconnecting.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["operation"],
+            "definitions": {
+                "plugin_files": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 512,
+                    "items": {
+                        "type": "object",
+                        "required": ["path", "contentBase64", "size"],
+                        "properties": {
+                            "path": {"type": "string", "maxLength": 1024},
+                            "contentBase64": {"type": "string", "description": "Base64 file bytes; total decoded size is limited to 25 MiB."},
+                            "size": {"type": "integer", "minimum": 0}
+                        },
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "properties": {
+                "operation": {"type": "string", "enum": ["installed_list", "market_search", "market_detail", "install_market", "uninstall", "set_current_conversation", "set_global_enabled", "publish_plugin", "publish_plugin_version", "update_market_metadata", "delete_market_item"]},
+                "query": {"type": "string", "maxLength": 256},
+                "provider_id": {"type": "string", "maxLength": 64},
+                "server_id": {"type": "string", "maxLength": 128},
+                "option_id": {"type": "string", "maxLength": 128},
+                "protocol": {"type": "string", "maxLength": 32},
+                "parameter_values": {"type": "object", "additionalProperties": true},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                "offset": {"type": "integer", "minimum": 0},
+                "enabled": {"type": "boolean"},
+                "request": {"type": "object", "additionalProperties": true},
+                "market_id": {"type": "string", "maxLength": 64}
+            },
+            "oneOf": [
+                {"properties": {"operation": {"const": "installed_list"}}, "additionalProperties": false},
+                {"properties": {"operation": {"const": "market_search"}, "query": {"type": "string", "maxLength": 256}, "provider_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}, "offset": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
+                {"required": ["provider_id", "server_id"], "properties": {"operation": {"const": "market_detail"}, "provider_id": {"type": "string"}, "server_id": {"type": "string"}}, "additionalProperties": false},
+                {"required": ["provider_id", "server_id", "option_id", "protocol"], "properties": {"operation": {"const": "install_market"}, "provider_id": {"type": "string"}, "server_id": {"type": "string"}, "option_id": {"type": "string"}, "protocol": {"type": "string"}, "parameter_values": {"type": "object"}}, "additionalProperties": false},
+                {"required": ["server_id"], "properties": {"operation": {"const": "uninstall"}, "server_id": {"type": "string"}}, "additionalProperties": false},
+                {"required": ["server_id", "enabled"], "properties": {"operation": {"const": "set_current_conversation"}, "server_id": {"type": "string"}, "enabled": {"type": "boolean"}}, "additionalProperties": false},
+                {"required": ["server_id", "enabled"], "properties": {"operation": {"const": "set_global_enabled"}, "server_id": {"type": "string"}, "enabled": {"type": "boolean"}}, "additionalProperties": false},
+                {"required": ["request"], "properties": {"operation": {"const": "publish_plugin"}, "request": {"type": "object", "required": ["slug", "displayName", "summary", "category", "tags", "visibility", "version", "changelog", "files"], "properties": {"slug": {"type": "string", "maxLength": 128}, "displayName": {"type": "string", "maxLength": 255}, "summary": {"type": "string", "maxLength": 4000}, "category": {"type": "string"}, "iconUrl": {"type": ["string", "null"]}, "tags": {"type": "array", "items": {"type": "string"}}, "visibility": {"type": "string", "enum": ["public", "private"]}, "version": {"type": "string", "maxLength": 64}, "changelog": {"type": "string", "maxLength": 10000}, "dependencies": {"type": "array", "items": {"type": "object", "required": ["slug", "version"], "properties": {"slug": {"type": "string"}, "version": {"type": "string"}}}}, "files": {"$ref": "#/definitions/plugin_files"}}, "additionalProperties": false}}, "additionalProperties": false},
+                {"required": ["request"], "properties": {"operation": {"const": "publish_plugin_version"}, "request": {"type": "object", "required": ["id", "version", "changelog", "files"], "properties": {"id": {"type": "string"}, "version": {"type": "string", "maxLength": 64}, "changelog": {"type": "string", "maxLength": 10000}, "dependencies": {"type": "array", "items": {"type": "object", "required": ["slug", "version"], "properties": {"slug": {"type": "string"}, "version": {"type": "string"}}}}, "files": {"$ref": "#/definitions/plugin_files"}}, "additionalProperties": false}}, "additionalProperties": false},
+                {"required": ["request"], "properties": {"operation": {"const": "update_market_metadata"}, "request": {"type": "object", "required": ["id", "displayName", "summary", "category", "tags", "visibility", "audience"], "properties": {"id": {"type": "string"}, "displayName": {"type": "string"}, "summary": {"type": "string"}, "category": {"type": "string"}, "iconUrl": {"type": ["string", "null"]}, "tags": {"type": "array", "items": {"type": "string"}}, "visibility": {"type": "string", "enum": ["public", "private"]}, "audience": {"type": "string", "enum": ["global_market", "organization", "owner_private"]}}, "additionalProperties": false}}, "additionalProperties": false},
+                {"required": ["market_id"], "properties": {"operation": {"const": "delete_market_item"}, "market_id": {"type": "string"}}, "additionalProperties": false}
+            ],
+            "additionalProperties": false
+        }
+    })
 }
 
 fn search_tool() -> Value {

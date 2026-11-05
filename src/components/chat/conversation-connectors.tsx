@@ -22,6 +22,8 @@ import {
 } from "@/lib/conversation-connectors"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useConnection } from "@/hooks/use-connection"
+import { toast } from "sonner"
+import { ConnectorMigrationDialog } from "@/components/connectors/connector-migration-dialog"
 
 export function ConversationConnectorMenu({
   tabId,
@@ -41,6 +43,10 @@ export function ConversationConnectorMenu({
   const [data, setData] = useState<ConversationConnectors | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const [pendingMigration, setPendingMigration] = useState<{
+    targetId: string
+    enabled: boolean
+  } | null>(null)
   const generation = useRef(0)
   const route = useWorkbenchRoute()
   const connection = useConnection(tabId ?? "")
@@ -82,7 +88,7 @@ export function ConversationConnectorMenu({
       generation.current = request + 1
     }
   }, [conversationId, agentType, open])
-  const toggle = async (id: string, enabled: boolean) => {
+  const applyToggle = async (id: string, enabled: boolean) => {
     if (!data || !tabId || busy) return
     const request = ++generation.current
     const selected = enabled
@@ -100,13 +106,31 @@ export function ConversationConnectorMenu({
         revision: data.revision,
         selected,
       })
-      if (generation.current === request) setData(next)
+      if (next.migrated.length) toast.success(t("migrated"))
+      const refreshed = await getConversationConnectors(
+        conversationId ?? prepared!.id,
+        agentType
+      )
+      if (generation.current === request) setData(refreshed)
       prepared?.bind()
     } catch (cause) {
       if (generation.current === request) setError(String(cause))
     } finally {
       if (generation.current === request) setBusy(false)
     }
+  }
+  const toggle = (id: string, enabled: boolean) => {
+    const selected = enabled
+      ? [...(data?.selected ?? []), id]
+      : (data?.selected ?? []).filter((item) => item !== id)
+    const connector = data?.connectors.find(
+      (item) => selected.includes(item.id) && item.requires_migration
+    )
+    if (connector) {
+      setPendingMigration({ targetId: id, enabled })
+      return
+    }
+    void applyToggle(id, enabled)
   }
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleConnectors =
@@ -185,7 +209,7 @@ export function ConversationConnectorMenu({
                 busy || (!item.compatible && !data!.selected.includes(item.id))
               }
               onSelect={(event) => event.preventDefault()}
-              onCheckedChange={(enabled) => void toggle(item.id, enabled)}
+              onCheckedChange={(enabled) => toggle(item.id, enabled)}
             >
               <Link2 className="size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
@@ -254,6 +278,16 @@ export function ConversationConnectorMenu({
           {t("market")}
         </DropdownMenuItem>
       </DropdownMenuSubContent>
+      <ConnectorMigrationDialog
+        open={pendingMigration !== null}
+        busy={busy}
+        onCancel={() => setPendingMigration(null)}
+        onConfirm={() => {
+          const pending = pendingMigration
+          setPendingMigration(null)
+          if (pending) void applyToggle(pending.targetId, pending.enabled)
+        }}
+      />
     </DropdownMenuSub>
   )
 }

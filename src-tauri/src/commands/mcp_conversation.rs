@@ -25,6 +25,7 @@ pub struct ConnectorChoice {
     pub protocol: String,
     pub compatible: bool,
     pub reason: Option<String>,
+    pub requires_migration: bool,
 }
 
 #[derive(Serialize)]
@@ -33,6 +34,7 @@ pub struct ConversationConnectors {
     pub selected: BTreeSet<String>,
     pub connectors: Vec<ConnectorChoice>,
     pub reconnect_required: bool,
+    pub migrated: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -77,14 +79,14 @@ async fn choices(
         .servers
         .iter()
         .filter(|(id, entry)| {
-            entry.managed
-                && entry.spec.get("iyw_builtin").is_none()
-                && id.as_str() != "iyw-capability-gateway"
+            entry.spec.get("iyw_builtin").is_none() && id.as_str() != "iyw-capability-gateway"
         })
         .map(|(key, entry)| {
-            let reason = incompatibility(context.1, &entry.spec).or_else(|| {
-                (!entry.missing_config.is_empty()).then(|| "连接器仍需补充参数".to_string())
-            });
+            let reason =
+                super::mcp_conversation_compatibility::incompatibility(context.1, &entry.spec)
+                    .or_else(|| {
+                        (!entry.missing_config.is_empty()).then(|| "连接器仍需补充参数".to_string())
+                    });
             ConnectorChoice {
                 id: key.clone(),
                 name: entry
@@ -95,6 +97,8 @@ async fn choices(
                 protocol: entry.spec["type"].as_str().unwrap_or("stdio").to_string(),
                 compatible: reason.is_none(),
                 reason,
+                requires_migration: !entry.managed
+                    || (entry.enabled && entry.spec.get("iyw_market").is_none()),
             }
         })
         .collect();
@@ -109,6 +113,7 @@ async fn choices(
             protocol: String::new(),
             compatible: false,
             reason: Some("此连接器已卸载，请重新添加或关闭本对话选择".into()),
+            requires_migration: false,
         });
     }
     Ok(ConversationConnectors {
@@ -119,6 +124,7 @@ async fn choices(
             context.0,
             selection.revision,
         ),
+        migrated: Vec::new(),
     })
 }
 
@@ -153,6 +159,14 @@ pub async fn update(
         revision: saved.revision + 1,
         ids: input.selected.clone(),
     };
+    let newly_selected = next
+        .ids
+        .difference(&current.selected)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let migrated =
+        super::mcp_conversation_migration::migrate_selected(conn, &newly_selected, &next.ids)
+            .await?;
     app_metadata_service::upsert_value(
         conn,
         &format!("{PREFIX}{}", input.conversation_id),
@@ -174,6 +188,7 @@ pub async fn update(
             Some(input.conversation_id),
             next.revision,
         ),
+        migrated,
         ..current
     })
 }
@@ -209,7 +224,9 @@ pub(crate) async fn specs(
             tracing::warn!(connector=%id, "[MCP] 对话所选连接器已卸载");
             continue;
         };
-        if let Some(reason) = incompatibility(context.1, &entry.spec) {
+        if let Some(reason) =
+            super::mcp_conversation_compatibility::incompatibility(context.1, &entry.spec)
+        {
             return Err(AppCommandError::configuration_invalid(reason));
         }
         let spec = super::mcp::hydrate_market_spec(&entry.spec)?;
@@ -217,47 +234,6 @@ pub(crate) async fn specs(
     }
     super::mcp_conversation_applied::record(context.0, selected.revision);
     Ok(specs)
-}
-
-pub(crate) fn incompatibility(agent: AgentType, spec: &Value) -> Option<String> {
-    if agent == AgentType::Codex && !crate::internal_xinghe_worker::is_desktop_agent(agent) {
-        return Some("服务端星河尚未提供对话级连接器隔离，请使用桌面内置星河".into());
-    }
-    if agent != AgentType::Codex && spec["cwd"].as_str().is_some_and(|cwd| !cwd.is_empty()) {
-        return Some(
-            "当前智能体的 ACP MCP 注入不能保留工作目录，请选用内置星河或无 cwd 的选项".into(),
-        );
-    }
-    if !matches!(
-        agent,
-        AgentType::Codex
-            | AgentType::ClaudeCode
-            | AgentType::OpenCode
-            | AgentType::Gemini
-            | AgentType::Cline
-            | AgentType::CodeBuddy
-    ) {
-        return Some("当前智能体尚未提供对话级连接器隔离，请切换到支持的智能体".into());
-    }
-    if agent == AgentType::Codex && spec["type"].as_str() == Some("sse") {
-        return Some("内置星河不支持旧版 HTTP+SSE，请选用 Streamable HTTP 或 STDIO".into());
-    }
-    if spec["iyw_market"]["auth_mode"].as_str() == Some("oauth") && agent != AgentType::Codex {
-        return Some("此 OAuth 连接器需要支持原生 MCP 授权的内置星河".into());
-    }
-    if let Some(agents) = spec["iyw_market"]["agents"]
-        .as_array()
-        .filter(|items| !items.is_empty())
-    {
-        let wire = agent.as_wire();
-        if !agents
-            .iter()
-            .any(|value| value.as_str() == Some(wire.as_ref()))
-        {
-            return Some("发布者未声明此连接器兼容当前智能体".into());
-        }
-    }
-    None
 }
 
 async fn require_conversation(
