@@ -1,29 +1,22 @@
 use std::ffi::OsStr;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::acp::delegation::image_format::detect_mime;
 use crate::acp::delegation::image_loader::MAX_IMAGE_BYTES;
+use crate::app_error::{AppCommandError, AppErrorCode};
 use sha2::{Digest, Sha256};
 
 const IMAGE_HEADER_BYTES: u64 = 1024;
 const COPY_BUFFER_BYTES: usize = 64 * 1024;
+const URL_DOWNLOAD_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 pub(super) async fn materialize_url(
     directory: &Path,
     source: &str,
 ) -> Result<Option<PathBuf>, &'static str> {
-    let downloaded = crate::remote_image::network::download(source, MAX_IMAGE_BYTES)
-        .await
-        .map_err(|error| {
-            tracing::warn!(
-                error_code = ?error.code,
-                error_message = %error.message,
-                error_detail = ?error.detail,
-                "[task-artifacts] URL download failed"
-            );
-            "image_download_failed"
-        })?;
+    let downloaded = download_url_with_retry(source).await?;
     let Some(mime) = detect_mime(&downloaded.bytes) else {
         return Ok(None);
     };
@@ -36,6 +29,40 @@ pub(super) async fn materialize_url(
     publish_image(directory, downloaded.bytes, mime)
         .await
         .map(Some)
+}
+
+async fn download_url_with_retry(
+    source: &str,
+) -> Result<crate::remote_image::network::DownloadedImage, &'static str> {
+    match crate::remote_image::network::download(source, MAX_IMAGE_BYTES).await {
+        Ok(downloaded) => Ok(downloaded),
+        Err(error) if is_retryable_download_error(&error) => {
+            tracing::warn!(
+                error_code = ?error.code,
+                error_detail = ?error.detail,
+                "[task-artifacts] URL download failed; retrying once"
+            );
+            tokio::time::sleep(URL_DOWNLOAD_RETRY_DELAY).await;
+            crate::remote_image::network::download(source, MAX_IMAGE_BYTES)
+                .await
+                .map_err(log_download_failure)
+        }
+        Err(error) => Err(log_download_failure(error)),
+    }
+}
+
+fn is_retryable_download_error(error: &AppCommandError) -> bool {
+    error.code == AppErrorCode::NetworkError && error.detail.is_some()
+}
+
+fn log_download_failure(error: AppCommandError) -> &'static str {
+    tracing::warn!(
+        error_code = ?error.code,
+        error_message = %error.message,
+        error_detail = ?error.detail,
+        "[task-artifacts] URL download failed"
+    );
+    "image_download_failed"
 }
 
 pub(super) async fn materialize_local(
