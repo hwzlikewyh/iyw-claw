@@ -5,13 +5,15 @@ import { FileDiff, FolderOpen, Globe2, SquareTerminal } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
-import { useBrowser } from "@/contexts/browser-context"
+import { useBrowser, waitForHost } from "@/contexts/browser-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
 import { useTerminalContext } from "@/contexts/terminal-context"
 import { useWorkspaceActions } from "@/contexts/workspace-context"
 import { useBrowserVisibility } from "@/hooks/use-browser-visibility"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { isLocalDesktop } from "@/lib/platform"
+import { browserApi } from "@/lib/browser-api"
+import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
 
 export function AuxPanelHome() {
   const t = useTranslations("Folder.auxPanel")
@@ -40,7 +42,7 @@ export function AuxPanelHome() {
 function BrowserHomeAction() {
   const t = useTranslations("Folder.auxPanel")
   const { setOpen } = useAuxPanelContext()
-  const { state, openBrowser } = useBrowser()
+  const { state, isOpen, openBrowser, refresh, run } = useBrowser()
   const { closePanel } = useInteractivePage()
   const browserVisible = useBrowserVisibility()
   if (!browserVisible || !isLocalDesktop()) return null
@@ -52,7 +54,23 @@ function BrowserHomeAction() {
       onClick={() => {
         closePanel()
         setOpen(false)
-        void openBrowser()
+        void openBrowser().then(() =>
+          run(async () => {
+            const host = await waitForHost("main", refresh)
+            const latest = await browserApi.state()
+            const current = latest.hosts.find(
+              (item) => item.hostId === host.hostId
+            )
+            if (!isOpen && current?.tabOrder.length) return latest
+            // 首次打开与 BrowserShell 的初始化共享后端互斥，避免多建空白页。
+            return !isOpen && latest.tabs.length === 0
+              ? browserApi.ensureInitialTab(
+                  DEFAULT_BROWSER_HOME_URL,
+                  host.hostId
+                )
+              : browserApi.createTab(DEFAULT_BROWSER_HOME_URL, host.hostId)
+          })
+        )
       }}
     />
   )

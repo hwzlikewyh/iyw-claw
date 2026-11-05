@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useTabStore } from "@/stores/tab-store"
@@ -29,7 +29,7 @@ function useBusyOperation(patch: PatchShareState) {
   const running = useRef(false)
   return useCallback(
     async (operation: () => Promise<void>) => {
-      if (running.current) return
+      if (running.current) return false
       running.current = true
       patch({ busy: true, error: null })
       try {
@@ -40,6 +40,7 @@ function useBusyOperation(patch: PatchShareState) {
         running.current = false
         patch({ busy: false })
       }
+      return true
     },
     [patch]
   )
@@ -155,16 +156,17 @@ function useAutomaticDelivery(
   context: {
     ready: boolean
     hasAgent: boolean
-    addToDraft: (id: string) => Promise<void>
+    addToDraft: (id: string) => Promise<boolean>
     noAgent: string
   }
 ) {
-  const attempted = useRef(new Set<string>())
+  // 完成记录使用 state，确保上一批结束后会重新检查等待中的批次。
+  const [attempted, setAttempted] = useState(() => new Set<string>())
   const delivering = useRef(false)
   useEffect(() => {
     if (delivering.current || !context.ready || state.busy || state.open) return
     const pending = state.items.find(
-      (item) => !item.imported && !attempted.current.has(item.id)
+      (item) => !item.imported && !attempted.has(item.id)
     )
     if (!pending) return
     if (!context.hasAgent) {
@@ -172,9 +174,16 @@ function useAutomaticDelivery(
       return
     }
     delivering.current = true
-    attempted.current.add(pending.id)
-    void context.addToDraft(pending.id).finally(() => {
-      delivering.current = false
-    })
-  }, [context, state.busy, state.items, state.open, patch])
+    void context.addToDraft(pending.id).then(
+      (didRun) => {
+        delivering.current = false
+        if (didRun)
+          setAttempted((previous) => new Set(previous).add(pending.id))
+      },
+      (error) => {
+        delivering.current = false
+        patch({ open: true, error: shareError(error) })
+      }
+    )
+  }, [attempted, context, state.busy, state.items, state.open, patch])
 }
