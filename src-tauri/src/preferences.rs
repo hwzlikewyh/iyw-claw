@@ -27,6 +27,7 @@ pub enum CloseBehavior {
 #[serde(default)]
 pub struct AppPreferences {
     pub disable_hardware_acceleration: bool,
+    pub keep_awake: bool,
     pub close_behavior: Option<CloseBehavior>,
     pub builtin_browser_enabled: Option<bool>,
     pub full_browser_enabled: bool,
