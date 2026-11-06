@@ -210,6 +210,7 @@ const EMPTY_DELEGATIONS: DelegationCardSource[] = []
 // Stable empty reference so the navigator memo / equality checks don't churn
 // when a conversation has no user messages.
 const EMPTY_NAV_ENTRIES: MessageNavEntry[] = []
+const MESSAGE_NAV_PREVIEW_LENGTH = 400
 
 // Collect the `delegate_to_agent` tool calls within a turn's adapted parts,
 // recursing through tool-groups and goal-runs (a delegate call is normally a
@@ -967,7 +968,7 @@ export function MessageListView({
   }, [threadItems])
 
   const renderThreadItem = useCallback(
-    (item: ThreadRenderItem) => {
+    (item: ThreadRenderItem, index: number) => {
       switch (item.kind) {
         case "turn": {
           const pt = item.isRoleTransition ? 16 : 0
@@ -979,7 +980,10 @@ export function MessageListView({
               phase={item.phase}
               enabled={animationEnabled}
             >
-              <div style={pt > 0 ? { paddingTop: pt } : undefined}>
+              <div
+                data-message-nav-index={index}
+                style={pt > 0 ? { paddingTop: pt } : undefined}
+              >
                 <HistoricalMessageGroup
                   group={item.group}
                   durationMs={item.durationMs}
@@ -1126,9 +1130,7 @@ export function MessageListView({
         : EMPTY_DELEGATIONS,
     [lastAssistantGroup]
   )
-  // --- Message navigator panel ------------------------------------------------
-  // Lifted scroll handle so the panel (which lives in the overlay stack, outside
-  // the MessageScrollProvider subtree) can drive scrollToIndex.
+  // 导航和返回当前回复按钮共用虚拟列表发布的滚动句柄。
   const scrollApiRef = useRef<MessageScrollContextValue | null>(null)
   const returnToActivity = useCallback(() => {
     const index = threadItems.findIndex(
@@ -1136,37 +1138,35 @@ export function MessageListView({
     )
     if (index >= 0) scrollApiRef.current?.scrollToIndex(index, { align: "end" })
   }, [threadItems, lastAssistantItem?.key])
-  // Collapse state is owned here so the navigator remains stable while the
-  // conversation streams.
-  const [navExpanded, setNavExpanded] = useState(false)
-
-  // Cheap user-message tally for the collapsed chip.
-  const userMessageCount = useMemo(() => {
-    if (!showMessageNav) return 0
-    let count = 0
-    for (const item of threadItems) {
-      if (item.kind === "turn" && item.group.role === "user") count += 1
-    }
-    return count
-  }, [showMessageNav, threadItems])
-
-  // One entry per user message, computed only while the panel is expanded.
+  // 短横线始终可见；提问与回复摘要共用现有的消息分组和虚拟列表索引。
   const navEntries = useMemo<MessageNavEntry[]>(() => {
-    if (!showMessageNav || !navExpanded) return EMPTY_NAV_ENTRIES
+    if (!showMessageNav) return EMPTY_NAV_ENTRIES
     const entries: MessageNavEntry[] = []
     for (let i = 0; i < threadItems.length; i++) {
       const item = threadItems[i]
-      if (item.kind === "turn" && item.group.role === "user") {
+      if (item.kind !== "turn") continue
+      if (item.group.role === "user") {
         entries.push({
           threadIndex: i,
           turnId: item.group.id,
           ordinal: entries.length + 1,
-          label: extractTextFromParts(item.group.parts),
+          label: extractTextFromParts(item.group.parts).slice(
+            0,
+            MESSAGE_NAV_PREVIEW_LENGTH
+          ),
+          preview: "",
         })
+      } else if (item.group.role === "assistant" && entries.length > 0) {
+        const entry = entries[entries.length - 1]
+        if (entry.preview.length >= MESSAGE_NAV_PREVIEW_LENGTH) continue
+        entry.preview = [entry.preview, extractTextFromParts(item.group.parts)]
+          .filter(Boolean)
+          .join("\n")
+          .slice(0, MESSAGE_NAV_PREVIEW_LENGTH)
       }
     }
     return entries.length > 0 ? entries : EMPTY_NAV_ENTRIES
-  }, [showMessageNav, navExpanded, threadItems])
+  }, [showMessageNav, threadItems])
 
   const hasRenderableContent = threadItems.length > 0 || Boolean(liveMessage)
 
@@ -1276,7 +1276,7 @@ export function MessageListView({
     >
       <BackgroundTaskStatusScope turns={timelineTurns}>
         <MessageThread
-          className="flex-1 min-h-0"
+          className="flex-1 min-h-0 @container/message-thread"
           resize={shouldUseSmoothResize ? "smooth" : undefined}
         >
           <AutoScrollOnSend signal={sendSignal} />
@@ -1288,7 +1288,17 @@ export function MessageListView({
             emptyState={emptyState}
             scrollApiRef={scrollApiRef}
             scrollPositionRef={scrollPositionRef}
+            className={
+              showMessageNav ? "@max-[930px]/message-thread:ps-12" : undefined
+            }
           />
+          {showMessageNav && (
+            <ConversationMessageNav
+              key={conversationId}
+              entries={navEntries}
+              scrollApiRef={scrollApiRef}
+            />
+          )}
           <ConversationProgressButton
             key={conversationId}
             version={liveMessage}
@@ -1318,19 +1328,8 @@ export function MessageListView({
           />
         )}
         {connStatus !== "prompting" && standaloneStatus}
-        {/* Message navigator pinned to the inline-start edge. Live plan and
-          sub-agent controls live in the
-          composer status row. */}
+        {/* 文件和产物入口保持在左上角；消息导航在滚动区中部独立显示。 */}
         <div className="pointer-events-none absolute start-0 top-4 z-20 flex max-w-[min(22rem,calc(100%-2rem))] flex-col items-start gap-2">
-          {showMessageNav && userMessageCount > 0 && (
-            <ConversationMessageNav
-              count={userMessageCount}
-              expanded={navExpanded}
-              onToggle={setNavExpanded}
-              entries={navEntries}
-              scrollApiRef={scrollApiRef}
-            />
-          )}
           {showMessageNav && <WorkspaceFilesDialog />}
           {showMessageNav && (
             <TaskArtifactsDialog

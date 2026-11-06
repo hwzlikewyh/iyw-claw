@@ -1,135 +1,182 @@
 "use client"
 
-import { memo, useCallback, useEffect, useRef, type RefObject } from "react"
-import { ChevronDownIcon, MessageCircle } from "lucide-react"
+import { memo, useEffect, useRef, useState, type RefObject } from "react"
+import { Tooltip } from "radix-ui"
 import { useTranslations } from "next-intl"
-import type { MessageScrollContextValue } from "@/components/message/message-scroll-context"
-import { CollapsedOverlayChip } from "@/components/chat/collapsed-overlay-chip"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { useStickToBottomContext } from "use-stick-to-bottom"
+import type { MessageScrollContextValue } from "./message-scroll-context"
+import { cn } from "@/lib/utils"
 
-/** One navigable user message. */
+const BOTTOM_THRESHOLD_PX = 8
+const READING_OFFSET_PX = 32
+const PREVIEW_DELAY_MS = 120
+const PREVIEW_SKIP_DELAY_MS = 100
+
+/** 一条用户消息及其回复摘要，索引与虚拟列表保持一致。 */
 export interface MessageNavEntry {
-  /** Index into the rendered `threadItems` array — fed to `scrollToIndex`. */
   threadIndex: number
   turnId: string
-  /** 1-based position among shown entries. */
   ordinal: number
   label: string
+  preview: string
 }
 
 interface ConversationMessageNavProps {
-  /** Number of user messages shown in the collapsed chip. */
-  count: number
-  /** Whether the panel is expanded. Owned by the parent so it can compute
-   *  `entries` lazily — only while open. */
-  expanded: boolean
-  onToggle: (next: boolean) => void
-  /** Per-message rows. Only populated while expanded. */
   entries: MessageNavEntry[]
   scrollApiRef: RefObject<MessageScrollContextValue | null>
 }
 
-/**
- * Per-conversation message navigator. Lives in the inline-start overlay stack
- * as the first chip (above the plan and sub-agent panels).
- *
- * Collapsed (default): a bullet-shaped chip showing the message count. Expanded:
- * a compact list that jumps to each user message.
- */
+function getCurrentTurn(viewport: HTMLElement, entries: MessageNavEntry[]) {
+  const latest = entries[entries.length - 1]?.turnId
+  const remaining =
+    viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+  if (remaining <= BOTTOM_THRESHOLD_PX) return latest
+
+  const readingTop = viewport.getBoundingClientRect().top + READING_OFFSET_PX
+  const rows = viewport.querySelectorAll<HTMLElement>(
+    "[data-message-nav-index]"
+  )
+  for (const row of rows) {
+    if (row.getBoundingClientRect().bottom <= readingTop) continue
+    const threadIndex = Number(row.dataset.messageNavIndex)
+    let current = entries[0]?.turnId
+    for (const entry of entries) {
+      if (entry.threadIndex > threadIndex) break
+      current = entry.turnId
+    }
+    return current
+  }
+  return latest
+}
+
+function useCurrentTurn(entries: MessageNavEntry[]) {
+  const { scrollRef } = useStickToBottomContext()
+  const [current, setCurrent] = useState(entries[entries.length - 1]?.turnId)
+
+  useEffect(() => {
+    const viewport = scrollRef.current
+    if (!viewport) return
+    let frame = 0
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() =>
+        setCurrent(getCurrentTurn(viewport, entries))
+      )
+    }
+    scheduleUpdate()
+    viewport.addEventListener("scroll", scheduleUpdate, { passive: true })
+    const observer = new ResizeObserver(scheduleUpdate)
+    observer.observe(viewport)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      viewport.removeEventListener("scroll", scheduleUpdate)
+    }
+  }, [entries, scrollRef])
+
+  return current
+}
+
+function MessageNavPreview({ entry }: { entry: MessageNavEntry }) {
+  return (
+    <Tooltip.Portal>
+      <Tooltip.Content
+        side="right"
+        align="start"
+        sideOffset={4}
+        alignOffset={-4}
+        collisionPadding={12}
+        className="z-50 w-80 max-w-[min(20rem,var(--radix-tooltip-content-available-width))] rounded-lg border bg-popover p-3 text-sm leading-5 text-popover-foreground shadow-md"
+      >
+        <p className="line-clamp-2 whitespace-pre-line wrap-anywhere font-medium">
+          {entry.label}
+        </p>
+        {entry.preview && (
+          <p className="mt-2 line-clamp-3 whitespace-pre-line wrap-anywhere text-muted-foreground">
+            {entry.preview}
+          </p>
+        )}
+      </Tooltip.Content>
+    </Tooltip.Portal>
+  )
+}
+
+function MessageNavMarker({
+  entry,
+  active,
+  scrollApiRef,
+}: {
+  entry: MessageNavEntry
+  active: boolean
+  scrollApiRef: ConversationMessageNavProps["scrollApiRef"]
+}) {
+  const t = useTranslations("Folder.chat.messageNav")
+  const label = entry.label || t("collapsedSummary", { count: entry.ordinal })
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-current={active ? "location" : undefined}
+          onClick={() =>
+            scrollApiRef.current?.scrollToIndex(entry.threadIndex, {
+              align: "start",
+              smooth: !window.matchMedia("(prefers-reduced-motion: reduce)")
+                .matches,
+            })
+          }
+          className="group flex h-2.5 w-10 shrink-0 items-center px-2 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:w-11"
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "h-0.5 w-3 shrink-0 rounded-full bg-muted-foreground/35 transition-[width,background-color] duration-150 group-hover:w-8 group-hover:bg-foreground/80 group-focus-visible:w-8 group-focus-visible:bg-foreground/80 group-data-[state=delayed-open]:w-8 group-data-[state=instant-open]:w-8 motion-reduce:transition-none",
+              active && "w-5 bg-foreground/70"
+            )}
+          />
+        </button>
+      </Tooltip.Trigger>
+      <MessageNavPreview entry={{ ...entry, label }} />
+    </Tooltip.Root>
+  )
+}
+
 export const ConversationMessageNav = memo(function ConversationMessageNav({
-  count,
-  expanded,
-  onToggle,
   entries,
   scrollApiRef,
 }: ConversationMessageNavProps) {
   const t = useTranslations("Folder.chat.messageNav")
-  const panelRef = useRef<HTMLDivElement>(null)
+  const current = useCurrentTurn(entries)
+  const railRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    if (!expanded) return
+    const rail = railRef.current
+    const marker = rail?.querySelector<HTMLElement>('[aria-current="location"]')
+    if (!rail || !marker) return
+    rail.scrollTop = marker.offsetTop - rail.clientHeight / 2
+  }, [current])
 
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Node) || panelRef.current?.contains(target))
-        return
-      onToggle(false)
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown, true)
-    return () =>
-      document.removeEventListener("pointerdown", handlePointerDown, true)
-  }, [expanded, onToggle])
-
-  const jump = useCallback(
-    (threadIndex: number) => {
-      scrollApiRef.current?.scrollToIndex(threadIndex, {
-        align: "start",
-        smooth: true,
-      })
-    },
-    [scrollApiRef]
-  )
-
-  if (count <= 0) return null
-
-  if (!expanded) {
-    // Positioning (absolute inline-start/top, column order) is owned by the shared
-    // overlay-stack container in MessageListView; the chip only declares its
-    // own layout + pointer behavior.
-    return (
-      <CollapsedOverlayChip
-        icon={<MessageCircle className="size-4 sm:size-[18px]" />}
-        summary={t("collapsedSummary", { count })}
-        onClick={() => onToggle(true)}
-      />
-    )
-  }
-
+  if (entries.length === 0) return null
   return (
-    <div
-      ref={panelRef}
-      className="pointer-events-none flex max-w-[min(22rem,calc(100%-2rem))]"
+    <Tooltip.Provider
+      delayDuration={PREVIEW_DELAY_MS}
+      skipDelayDuration={PREVIEW_SKIP_DELAY_MS}
     >
-      <div className="pointer-events-auto w-72 max-w-full rounded-xl border bg-card/60 hover:bg-card/95 shadow-lg backdrop-blur transition-colors supports-[backdrop-filter]:bg-card/50 supports-[backdrop-filter]:hover:bg-card/85">
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <MessageCircle className="h-4 w-4 text-muted-foreground" />
-            <span className="truncate text-sm font-medium">{t("title")}</span>
-            <Badge variant="secondary" className="h-5">
-              {count}
-            </Badge>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={t("collapse")}
-            onClick={() => onToggle(false)}
-          >
-            <ChevronDownIcon className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="max-h-96 space-y-1.5 overflow-y-auto p-2">
-          {entries.map((entry) => (
-            <button
-              key={entry.turnId}
-              type="button"
-              onClick={() => jump(entry.threadIndex)}
-              className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-border bg-transparent px-2.5 py-2 text-left text-card-foreground transition-colors hover:bg-accent/40"
-            >
-              <span className="mt-0.5 shrink-0 rounded-md border border-border bg-muted/40 px-1 text-[10px] tabular-nums text-muted-foreground">
-                #{entry.ordinal}
-              </span>
-              <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-foreground">
-                {entry.label}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+      <nav
+        ref={railRef}
+        aria-label={t("title")}
+        className="absolute start-1 top-1/2 z-20 flex max-h-[min(20rem,50%)] -translate-y-1/2 flex-col overflow-y-auto overscroll-contain py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {entries.map((entry) => (
+          <MessageNavMarker
+            key={entry.turnId}
+            entry={entry}
+            active={entry.turnId === current}
+            scrollApiRef={scrollApiRef}
+          />
+        ))}
+      </nav>
+    </Tooltip.Provider>
   )
 })
