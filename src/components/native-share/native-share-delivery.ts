@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore } from "@/stores/tab-store"
+import { conversationTabLimitMessage } from "@/lib/conversation-tab-preferences"
 import { getShellTransport, isRemoteDesktopMode } from "@/lib/transport"
 import { requireFileUploadCapability } from "@/lib/transport/capability-policy"
 import {
@@ -151,6 +152,15 @@ export async function deliverNativeShare(
       true,
       options.title
     )
+  const opened = useTabStore
+    .getState()
+    .rawTabs.some(
+      (tab) =>
+        tab.conversationId === receipt.conversationId &&
+        tab.folderId === receipt.folderId &&
+        tab.agentType === receipt.agentType
+    )
+  if (!opened) throw new Error(conversationTabLimitMessage())
   window.dispatchEvent(new Event(NATIVE_SHARE_OPENED))
   await completeNativeShare(preview.id)
   console.info("[NativeShare] delivered new conversation draft", {

@@ -20,6 +20,8 @@ mod tray_menu_icons;
 
 mod settings_window;
 
+pub mod conversation_window;
+
 #[cfg(feature = "tauri-runtime")]
 static TRAY_LOCALE_ZH_CN: AtomicBool = AtomicBool::new(false);
 

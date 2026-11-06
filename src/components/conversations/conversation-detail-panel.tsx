@@ -1,6 +1,7 @@
 "use client"
 
 import { PersistentTaskStrip } from "@/components/chat/persistent-task-strip"
+import { buildVirtualConversationId } from "@/lib/conversation-window-state"
 import type { RuntimeTask } from "@/lib/runtime-tasks"
 import { RuntimeTaskPanel } from "@/components/chat/runtime-task-panel"
 
@@ -441,13 +442,10 @@ function buildUserTurnFromMessageBlocks(
   }
 }
 
-function buildVirtualConversationId(seed: string): number {
-  let hash = 0
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) | 0
-  }
-  const normalized = Math.abs(hash) + 1
-  return -normalized
+function closeTabAfterDraftOpened(tabId: string) {
+  const state = useTabStore.getState()
+  const active = state.rawTabs.find((tab) => tab.id === state.activeTabId)
+  if (active?.conversationId === null) state.closeTab(tabId)
 }
 
 const ConversationTabView = memo(function ConversationTabView({
@@ -504,7 +502,6 @@ const ConversationTabView = memo(function ConversationTabView({
     setTabRuntimeConversationId,
     pinTab,
     openNewConversationTab,
-    closeTab,
     consumePendingComposerText,
     confirmDraftAgent,
     setDraftAgentFromFallback,
@@ -3208,8 +3205,8 @@ const ConversationTabView = memo(function ConversationTabView({
     openNewConversationTab(folder.id, workingDirForConnection ?? folder.path, {
       inheritFromActive: true,
     })
-    closeTab(tabId)
-  }, [closeTab, folder, openNewConversationTab, tabId, workingDirForConnection])
+    closeTabAfterDraftOpened(tabId)
+  }, [folder, openNewConversationTab, tabId, workingDirForConnection])
 
   const handleContinueWithContext = useCallback(async () => {
     if (dbConversationId == null || !folder || contextPrimerLoading) return
@@ -3226,14 +3223,13 @@ const ConversationTabView = memo(function ConversationTabView({
           initialComposerText: primer.text,
         }
       )
-      closeTab(tabId)
+      closeTabAfterDraftOpened(tabId)
     } catch (error) {
       console.error("[ConversationDetailPanel] build context primer:", error)
       toast.error(t("continueContextFailed"))
       setContextPrimerLoading(false)
     }
   }, [
-    closeTab,
     contextPrimerLoading,
     dbConversationId,
     folder,

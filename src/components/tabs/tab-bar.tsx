@@ -8,6 +8,7 @@ import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import type { TabItem as TabItemData } from "@/contexts/tab-context"
 import { useWorkspaceView } from "@/contexts/workspace-context"
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer"
+import { useConversationWindowDrag } from "@/hooks/use-conversation-window-drag"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
 import { matchShortcutEvent } from "@/lib/keyboard-shortcuts"
 import { groupOfTab } from "@/stores/tab-store"
@@ -178,6 +179,7 @@ interface TabBarItemsProps {
   setTouchSortingTabId: Dispatch<SetStateAction<string | null>>
   stripGroupId: string
   touchSortingTabId: string | null
+  onTabDragEnd: CrossGroupDrag["onDragEnd"]
 }
 
 function TabBarItems(props: TabBarItemsProps) {
@@ -203,7 +205,7 @@ function TabBarItems(props: TabBarItemsProps) {
         onTouchSortingStart={props.setTouchSortingTabId}
         onTouchSortingEnd={() => props.setTouchSortingTabId(null)}
         onTabDrag={crossGroupDrag ? props.drag.onDrag : undefined}
-        onTabDragEnd={crossGroupDrag ? props.drag.onDragEnd : undefined}
+        onTabDragEnd={props.onTabDragEnd}
       />
     )
   })
@@ -268,6 +270,7 @@ export function TabBar({ groupId }: TabBarProps) {
   const scroll = useTabStripScroll(model.displayActiveId)
   const reorder = useTabReorder(groupId, actions)
   const drag = useCrossGroupDrag(groupId, model.isSplit)
+  const onTabDragEnd = useConversationWindowDrag(drag.onDragEnd)
   const [isHovered, setIsHovered] = useState(false)
   useTabBarShortcuts({ groupId, ...model, ...actions })
   if (model.groupTabs.length === 0) return null
@@ -277,6 +280,7 @@ export function TabBar({ groupId }: TabBarProps) {
     actions,
     branches,
     drag,
+    onTabDragEnd,
     folderIndex,
     groupId,
     handleWheel: scroll.handleWheel,

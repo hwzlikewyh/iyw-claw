@@ -348,6 +348,7 @@ mod tauri_app {
             .manage(realtime_voice_commands::RealtimeVoiceState::default())
             .manage(crate::webview_memory::MainWebviewMemoryController::default())
             .manage(windows::SettingsWindowState::new())
+            .manage(windows::conversation_window::ConversationWindowState::default())
             .manage(windows::CommitWindowState::new())
             .manage(windows::MergeWindowState::new())
             .manage(web::WebServerState::new())
@@ -1421,6 +1422,7 @@ mod tauri_app {
                     }
                 }
                 if matches!(event, tauri::WindowEvent::Destroyed) {
+                    windows::conversation_window::window_destroyed(window.app_handle(), &label);
                     crate::native_page::close_owner(window.label());
                     let app = window.app_handle();
                     if let Some(state) = app.try_state::<realtime_voice_commands::RealtimeVoiceState>() {
@@ -1587,6 +1589,11 @@ mod tauri_app {
                 windows::open_folder_window,
                 windows::open_commit_window,
                 windows::open_settings_window,
+                windows::conversation_window::open_conversation_window,
+                windows::conversation_window::get_conversation_window_transfer,
+                windows::conversation_window::ready_conversation_window,
+                windows::conversation_window::commit_conversation_window,
+                windows::conversation_window::finish_conversation_window,
                 windows::open_merge_window,
                 windows::open_stash_window,
                 windows::open_push_window,

@@ -117,6 +117,8 @@ import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser-dialog"
 import { toast } from "sonner"
 import { preparePickedAttachmentPaths } from "./chat-attachment-staging"
+import { useConversationWindowDraft } from "@/hooks/use-conversation-window-draft"
+import { takeConversationWindowDraft } from "@/lib/conversation-window-draft"
 import { disposeTauriListener } from "@/lib/tauri-listener"
 import type {
   AgentSkillItem,
@@ -1022,6 +1024,14 @@ export function MessageInput({
     [effectiveDraftStorageKey, isEditingQueueItem, onEphemeralDraftChange]
   )
   const embeddedPayloadsRef = useRef<Map<string, PromptInputBlock>>(new Map())
+  useConversationWindowDraft({
+    tabId: attachmentTabId,
+    ready: composerHydrated,
+    editing: isEditingQueueItem,
+    editor: editorRef,
+    attachments: attachmentsRef,
+    embedded: embeddedPayloadsRef,
+  })
   const [isDragActive, setIsDragActive] = useState(false)
   // Collapsed (narrow) selectors live in a controlled Popover holding a
   // master–detail panel (`SessionSelectorsPanel`). It's controlled so a value
@@ -1328,6 +1338,23 @@ export function MessageInput({
     [setAttachments, updateInlineImage, uploadRestoredImages]
   )
 
+  const takeWindowDraft = useCallback(() => {
+    const draft = takeConversationWindowDraft(attachmentTabId)
+    if (!draft) return false
+    if (draft.doc) editorRef.current?.setDoc(draft.doc)
+    embeddedPayloadsRef.current = new Map(draft.embeddedPayloads)
+    setAttachments(draft.attachments)
+    for (const attachment of draft.attachments) {
+      if (attachment.type === "image") {
+        updateInlineImage(attachment.id, {
+          status: "ready",
+          previewUrl: imageAttachmentSrc(attachment),
+        })
+      }
+    }
+    return true
+  }, [attachmentTabId, setAttachments, updateInlineImage])
+
   // One-time hydration once the editor is ready: a queue-edit payload, else a v2
   // draft document (or a legacy v1 Markdown draft migrated forward). Guarded so
   // it never re-runs and clobbers later user edits.
@@ -1366,6 +1393,8 @@ export function MessageInput({
           } else if (editingDraftText != null) {
             ed.setText(editingDraftText)
           }
+        } else if (takeWindowDraft()) {
+          // 独立窗口交接保留未持久化的附件和嵌入引用。
         } else if (effectiveDraftStorageKey) {
           const loaded = loadMessageInputDraftV2(effectiveDraftStorageKey)
           if (loaded?.kind === "doc") {
@@ -1388,6 +1417,7 @@ export function MessageInput({
     return () => cancelAnimationFrame(raf)
   }, [
     composerReady,
+    takeWindowDraft,
     isEditingQueueItem,
     editingItemId,
     editingDraftText,

@@ -1,4 +1,15 @@
 {
+  "ConversationTabs": {
+    "title": "会话标签",
+    "limitLabel": "每个窗口的最大标签数",
+    "limitDescription": "默认 8 个，设为 0 表示不限制。达到上限后提示先关闭标签；调低上限不会关闭已打开的会话。",
+    "invalidLimit": "请输入大于或等于 0 的整数。",
+    "saveFailed": "保存标签数量设置失败，请重试。",
+    "detach": "移动到新窗口",
+    "moving": "正在移动会话到新窗口…",
+    "moveFailed": "移动会话失败：{message}",
+    "busyDraft": "请等待附件处理或消息发送完成，并保存消息编辑后再移动会话。"
+  },
   "Library": {
     "title": "资料库",
     "categories": "资料库分类",

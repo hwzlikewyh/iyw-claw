@@ -3,6 +3,8 @@
 import { useEffect, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import { useBrowserSessionBridge } from "@/hooks/use-browser-session-bridge"
+import { isConversationWindowPending } from "@/lib/conversation-window-state"
+import { ConversationWindowGate } from "@/components/workspace/conversation-window-gate"
 import { useShallow } from "zustand/react/shallow"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useAcpActions } from "@/contexts/acp-connections-context"
@@ -145,11 +147,12 @@ export function TabProvider({ children }: TabProviderProps) {
   // 初始化后保留一个新对话；手动打开的会话不受影响。
   useEffect(() => {
     if (!tabsHydrated || !foldersHydrated) return
+    if (isConversationWindowPending()) return
     if (rawTabs.length > 0) return
     runRecoveryOnce()
   }, [tabsHydrated, foldersHydrated, rawTabs])
 
-  return <>{children}</>
+  return <ConversationWindowGate>{children}</ConversationWindowGate>
 }
 
 export interface TabContextValue {

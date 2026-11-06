@@ -26,6 +26,7 @@ import { toErrorMessage } from "@/lib/app-error"
 import { AutostartSettingsSection } from "@/components/settings/autostart-settings-section"
 import { SilentAutoUpdateSettings } from "@/components/settings/silent-auto-update-settings"
 import { BrowserSettingsSection } from "@/components/settings/browser-settings-section"
+import { ConversationTabSettings } from "./conversation-tab-settings"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
 import {
   getTaskCompletionNotificationEnabled,
@@ -202,6 +203,8 @@ export function GeneralSettings() {
           />
         </SettingRow>
       </SettingSection>
+
+      <ConversationTabSettings />
 
       <SettingSection
         icon={Bell}

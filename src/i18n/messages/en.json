@@ -1,4 +1,15 @@
 {
+  "ConversationTabs": {
+    "title": "Conversation tabs",
+    "limitLabel": "Maximum tabs per window",
+    "limitDescription": "Defaults to 8. Set to 0 for unlimited tabs. At the limit, close a tab before opening another. Lowering the limit keeps existing tabs open.",
+    "invalidLimit": "Enter a whole number greater than or equal to 0.",
+    "saveFailed": "Could not save the tab limit. Please try again.",
+    "detach": "Move to new window",
+    "moving": "Moving conversation to a new window…",
+    "moveFailed": "Could not move conversation: {message}",
+    "busyDraft": "Wait for attachments or sending to finish, and save message edits before moving the conversation."
+  },
   "Library": {
     "title": "Library",
     "categories": "Library categories",
