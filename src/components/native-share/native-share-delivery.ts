@@ -1,10 +1,9 @@
 import type { JSONContent } from "@tiptap/core"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore } from "@/stores/tab-store"
-import { getShellTransport, isRemoteDesktopMode } from "@/lib/transport"
+import { isRemoteDesktopMode } from "@/lib/transport"
 import { requireFileUploadCapability } from "@/lib/transport/capability-policy"
 import {
-  buildConversationDraftStorageKey,
+  buildNewConversationDraftStorageKey,
   loadMessageInputDraftV2,
   persistMessageInputDraftV2Now,
 } from "@/lib/message-input-draft"
@@ -15,26 +14,19 @@ import {
   NATIVE_SHARE_OPENED,
   type SharePreview,
 } from "@/lib/native-share"
+import type { AgentType } from "@/lib/types"
 import {
-  isAgentType,
-  type AgentType,
-  type CreateChatConversationResult,
-  type FolderDetail,
-} from "@/lib/types"
-
-const RECEIPT_PREFIX = "iyw-claw:native-share-delivery:v1:"
-
-interface DeliveryReceipt {
-  conversationId: number
-  folderId: number
-  agentType: AgentType
-  saved: boolean
-}
+  hasNativeShareReference,
+  nativeShareDraftId,
+  readLegacyShareDraft,
+  readShareDraftReceipt,
+  saveShareDraftReceipt,
+  type ShareDraftReceipt,
+} from "./native-share-draft-receipt"
 
 interface DeliveryOptions {
   batchId: string
   agentType: AgentType
-  title: string
   prompt: string
   remoteUnsupported: string
 }
@@ -43,64 +35,23 @@ function requireLocal(message: string) {
   if (isRemoteDesktopMode()) throw new Error(message)
 }
 
-function readReceipt(key: string): DeliveryReceipt | null {
-  const raw = localStorage.getItem(key)
-  if (!raw) return null
-  const value = JSON.parse(raw) as DeliveryReceipt
-  if (
-    !Number.isSafeInteger(value.conversationId) ||
-    value.conversationId <= 0 ||
-    !Number.isSafeInteger(value.folderId) ||
-    value.folderId <= 0 ||
-    !isAgentType(value.agentType) ||
-    typeof value.saved !== "boolean"
-  ) {
-    throw new Error("Invalid native share delivery receipt")
-  }
-  return value
-}
-
-async function resolveReceipt(
-  options: DeliveryOptions
-): Promise<DeliveryReceipt> {
-  const key = `${RECEIPT_PREFIX}${options.batchId}`
-  const existing = readReceipt(key)
-  if (existing) return existing
-  const created = await getShellTransport().call<CreateChatConversationResult>(
-    "create_chat_conversation",
-    { agentType: options.agentType, title: options.title, existingDir: null }
-  )
-  const receipt: DeliveryReceipt = {
-    conversationId: created.conversationId,
-    folderId: created.folderId,
-    agentType: options.agentType,
-    saved: false,
-  }
-  localStorage.setItem(key, JSON.stringify(receipt))
-  return receipt
-}
-
-function containsBatch(node: JSONContent, id: string): boolean {
-  return (
-    (node.type === "reference" &&
-      String(node.attrs?.id).startsWith(`native-share:${id}:`)) ||
-    (node.content?.some((child) => containsBatch(child, id)) ?? false)
-  )
-}
-
 function saveDraft(
-  receipt: DeliveryReceipt,
+  receipt: ShareDraftReceipt,
   preview: SharePreview,
   prompt: string
 ) {
-  if (receipt.saved) return
-  const key = buildConversationDraftStorageKey(receipt.conversationId)
+  const key = buildNewConversationDraftStorageKey(receipt.tabId)
   const existing = loadMessageInputDraftV2(key)
+  // 已发送或被用户清空的草稿不能因确认回执重试而重新出现。
+  if (receipt.saved) return existing !== null
+  const legacy = readLegacyShareDraft(preview.id)
   const doc: JSONContent =
     existing?.kind === "doc"
       ? { ...existing.doc, content: [...(existing.doc.content ?? [])] }
-      : { type: "doc", content: [] }
-  if (!containsBatch(doc, preview.id)) {
+      : legacy
+        ? { ...legacy, content: [...(legacy.content ?? [])] }
+        : { type: "doc", content: [] }
+  if (!hasNativeShareReference(doc, preview.id)) {
     const content: JSONContent[] = [{ type: "text", text: prompt }]
     preview.paths.forEach((path, index) =>
       content.push(
@@ -121,10 +72,8 @@ function saveDraft(
   }
   persistMessageInputDraftV2Now(key, doc)
   receipt.saved = true
-  localStorage.setItem(
-    `${RECEIPT_PREFIX}${preview.id}`,
-    JSON.stringify(receipt)
-  )
+  saveShareDraftReceipt(preview.id, receipt)
+  return true
 }
 
 export async function deliverNativeShare(
@@ -134,27 +83,21 @@ export async function deliverNativeShare(
   await requireFileUploadCapability()
   const preview = await prepareNativeShare(options.batchId)
   requireLocal(options.remoteUnsupported)
-  const receipt = await resolveReceipt(options)
-  const folder = await getShellTransport().call<FolderDetail>("get_folder", {
-    folderId: receipt.folderId,
-  })
-  requireLocal(options.remoteUnsupported)
-  // 先持久化，再挂载会话；不依赖编辑器初始化时序，也不触碰当前输入框。
-  saveDraft(receipt, preview, options.prompt)
-  useAppWorkspaceStore.getState().upsertFolder(folder)
-  useTabStore
-    .getState()
-    .openTab(
-      receipt.folderId,
-      receipt.conversationId,
-      receipt.agentType,
-      true,
-      options.title
-    )
-  window.dispatchEvent(new Event(NATIVE_SHARE_OPENED))
+  const receipt = readShareDraftReceipt(preview.id) ?? {
+    tabId: nativeShareDraftId(preview.id),
+    agentType: options.agentType,
+    saved: false,
+  }
+  // 先保存，再打开首页草稿；由正常首次发送流程创建数据库会话与运行时。
+  if (saveDraft(receipt, preview, options.prompt)) {
+    useTabStore.getState().openChatModeTab({
+      independentDraft: { id: receipt.tabId, agentType: receipt.agentType },
+    })
+    window.dispatchEvent(new Event(NATIVE_SHARE_OPENED))
+  }
   await completeNativeShare(preview.id)
   console.info("[NativeShare] delivered new conversation draft", {
     batchId: preview.id,
-    conversationId: receipt.conversationId,
+    tabId: receipt.tabId,
   })
 }

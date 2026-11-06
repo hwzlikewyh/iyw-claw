@@ -1185,6 +1185,11 @@ mod tauri_app {
                     ));
                 }
 
+                // 防休眠跟随桌面进程，独立于调度引擎是否取得数据库所有权。
+                app.manage(crate::automation::keep_awake::spawn(
+                    app.state::<crate::db::AppDatabase>().conn.clone(),
+                ));
+
                 // Automation engine: drives manual + scheduled fires, settles
                 // runs off the event bus, reconciles, and recovers on boot. One
                 // per process; mirrored in `bin/iyw_claw_server.rs`.
@@ -1686,6 +1691,8 @@ mod tauri_app {
                 system_settings::update_system_language_settings,
                 system_settings::get_system_rendering_settings,
                 system_settings::update_system_rendering_settings,
+                system_settings::get_keep_awake_enabled,
+                system_settings::set_keep_awake_enabled,
                 system_settings::get_skill_auto_update_settings,
                 system_settings::update_skill_auto_update_settings,
                 desktop_commands::get_pending_main_close_request,

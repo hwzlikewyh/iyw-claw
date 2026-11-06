@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { useTabStore } from "@/stores/tab-store"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { deliverNativeShare } from "./native-share-delivery"
+import { hasRecoverableShareDraft } from "./native-share-draft-receipt"
 import type { AgentType } from "@/lib/types"
 import {
   importNativeShare,
@@ -92,7 +93,6 @@ function useShareCommands(
       await deliverNativeShare({
         batchId,
         agentType: context.agentType,
-        title: t("conversationTitle"),
         prompt: t("prompt"),
         remoteUnsupported: t("remoteUnsupported"),
       })
@@ -166,7 +166,9 @@ function useAutomaticDelivery(
   useEffect(() => {
     if (delivering.current || !context.ready || state.busy || state.open) return
     const pending = state.items.find(
-      (item) => !item.imported && !attempted.has(item.id)
+      (item) =>
+        !attempted.has(item.id) &&
+        (!item.imported || hasRecoverableShareDraft(item.id))
     )
     if (!pending) return
     if (!context.hasAgent) {
