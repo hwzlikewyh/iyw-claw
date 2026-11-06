@@ -2081,6 +2081,10 @@ mod tauri_app {
         drop(startup_gate);
         crate::logging::emergency::write_event("event_loop", "begin", "runtime", None);
         app.run(|app, event| match event {
+            tauri::RunEvent::Exit => {
+                // 系统结束会话时 Tao 会直接退出，同步记录避免异步日志来不及落盘。
+                crate::logging::emergency::write_event("event_loop_exit", "ok", "shutdown", None);
+            }
             tauri::RunEvent::ExitRequested { api, code, .. } => {
                 if code == Some(tauri::RESTART_EXIT_CODE) {
                     crate::desktop_shutdown::shutdown_blocking(
