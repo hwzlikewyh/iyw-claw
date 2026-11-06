@@ -52,7 +52,7 @@ fn inhibitor_command() -> io::Result<Command> {
     command.args([
         "--what=idle:sleep",
         "--who=iyw-claw",
-        "--why=Scheduled automations are enabled",
+        "--why=iyw-claw is keeping the computer awake",
         "--mode=block",
         "--no-ask-password",
         "/bin/cat",

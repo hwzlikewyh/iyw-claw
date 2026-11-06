@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use sea_orm::DatabaseConnection;
+use tauri::async_runtime::{spawn as spawn_task, JoinHandle};
 use tokio::sync::Notify;
-use tokio::task::JoinHandle;
 
 use crate::db::service::automation_service;
 
@@ -29,7 +29,7 @@ pub(crate) fn notify_changed() {
 }
 
 pub(crate) fn spawn(conn: DatabaseConnection) -> KeepAwakeTask {
-    KeepAwakeTask(tokio::spawn(async move {
+    KeepAwakeTask(spawn_task(async move {
         let mut controller = Controller::default();
         let mut interval = tokio::time::interval(SYNC_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -37,6 +37,10 @@ pub(crate) fn spawn(conn: DatabaseConnection) -> KeepAwakeTask {
             tokio::select! {
                 _ = interval.tick() => {},
                 _ = CHANGED.notified() => {},
+            }
+            if crate::preferences::load().keep_awake {
+                controller.sync(true);
+                continue;
             }
             match automation_service::has_enabled_schedule(&conn).await {
                 Ok(enabled) => controller.sync(enabled),
@@ -57,7 +61,7 @@ impl Controller {
     fn sync(&mut self, enabled: bool) {
         if !enabled {
             if self.guard.take().is_some() {
-                tracing::info!("[automation] released scheduled-task sleep inhibitor");
+                tracing::info!("[power] released desktop sleep inhibitor");
             }
             self.last_error = None;
             return;
@@ -66,7 +70,7 @@ impl Controller {
             match guard.refresh() {
                 Ok(()) => {
                     if self.last_error.take().is_some() {
-                        tracing::info!("[automation] scheduled-task sleep inhibitor recovered");
+                        tracing::info!("[power] desktop sleep inhibitor recovered");
                     }
                     return;
                 }
@@ -78,7 +82,7 @@ impl Controller {
             Ok(guard) => {
                 self.guard = Some(guard);
                 if self.last_error.is_none() {
-                    tracing::info!("[automation] requested scheduled-task sleep inhibitor");
+                    tracing::info!("[power] requested desktop sleep inhibitor");
                 }
             }
             Err(error) => self.report_error(error.to_string()),
@@ -87,7 +91,7 @@ impl Controller {
 
     fn report_error(&mut self, error: String) {
         if self.last_error.as_deref() != Some(error.as_str()) {
-            tracing::warn!(error = %error, "[automation] scheduled-task sleep inhibitor unavailable");
+            tracing::warn!(error = %error, "[power] desktop sleep inhibitor unavailable");
         }
         self.last_error = Some(error);
     }

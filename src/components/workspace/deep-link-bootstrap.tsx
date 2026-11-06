@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore, useTabActions } from "@/contexts/tab-context"
+import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { isAgentType, type AgentType } from "@/lib/types"
 
 /**
@@ -118,9 +119,9 @@ function hasLinkedConversation(
 }
 
 /**
- * Live counterpart to {@link DeepLinkBootstrap}: listens for the pet panel's
+ * Live counterpart to {@link DeepLinkBootstrap}: listens for a native window's
  * `workspace://focus-conversation` request (emitted by the `focus_conversation`
- * command after bringing the main window forward) and opens the conversation
+ * command after bringing its workspace forward) and opens the conversation
  * via `openTab` — no URL reload, so in-memory tab/session state survives.
  *
  * Latest workspace state is held in a ref so the single subscription always
@@ -131,13 +132,14 @@ export function PetFocusBridge() {
   const foldersHydrated = useAppWorkspaceStore((s) => s.foldersHydrated)
   const tabsHydrated = useTabStore((s) => s.tabsHydrated)
   const { openTab } = useTabActions()
+  const { openConversations } = useWorkbenchRoute()
 
   // Workspace state is read via getState() at attempt time; only the tab
   // half still needs a ref mirror (it lives in a context, not a store).
-  const stateRef = useRef({ tabsHydrated, openTab })
+  const stateRef = useRef({ tabsHydrated, openTab, openConversations })
   useEffect(() => {
-    stateRef.current = { tabsHydrated, openTab }
-  }, [tabsHydrated, openTab])
+    stateRef.current = { tabsHydrated, openTab, openConversations }
+  }, [tabsHydrated, openTab, openConversations])
 
   // Holds the latest focus request until the workspace has hydrated. The event
   // is one-shot, so a pet-panel click during startup/reload (before folders &
@@ -172,6 +174,7 @@ export function PetFocusBridge() {
         req.agent,
         true
       )
+      stateRef.current.openConversations()
     })()
   }, [])
 
@@ -186,8 +189,8 @@ export function PetFocusBridge() {
 
     void (async () => {
       try {
-        const { getTransport } = await import("@/lib/transport")
-        const off = await getTransport().subscribe<{
+        const { getShellTransport } = await import("@/lib/transport")
+        const off = await getShellTransport().subscribe<{
           folderId?: number
           conversationId?: number
           agent?: string
