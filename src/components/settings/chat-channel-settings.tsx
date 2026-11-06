@@ -3,7 +3,6 @@
 import { useTranslations } from "next-intl"
 
 import { ChannelListTab } from "./channel-list-tab"
-import { NativeShareSettings } from "@/components/native-share/native-share-settings"
 import { SendHorizontal } from "lucide-react"
 import {
   SettingsPageLayout,
@@ -21,7 +20,6 @@ export function ChatChannelSettings() {
         description={t("sectionDescription")}
       />
 
-      <NativeShareSettings />
       <ChannelListTab />
     </SettingsPageLayout>
   )
