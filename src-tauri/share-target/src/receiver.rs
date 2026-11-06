@@ -26,6 +26,7 @@ pub fn run() -> Result<()> {
     if std::env::args().any(|arg| arg == "--registration-check") {
         return check_identity();
     }
+    log("share activation: reading arguments");
     let activation = AppInstance::GetActivatedEventArgs()?;
     let arguments: ShareTargetActivatedEventArgs = activation.cast()?;
     let operation = arguments.ShareOperation()?;
@@ -72,12 +73,20 @@ fn receive(operation: &ShareOperation) -> Result<String> {
     if count == 0 || count as usize > iyw_share_core::MAX_FILES {
         return Err("分享文件数量无效".into());
     }
-    let mut writer = Inbox::new(iyw_share_core::default_root()?).begin()?;
+    log(&format!("share receive: files={count}"));
+    let mut writer = Inbox::new(iyw_share_core::default_root()?)
+        .begin()
+        .map_err(|error| format!("stage=create_batch: {error}"))?;
     for index in 0..count {
         let file: StorageFile = items.GetAt(index)?.cast()?;
-        copy_shared_file(&mut writer, &file)?;
+        copy_shared_file(&mut writer, &file)
+            .map_err(|error| format!("stage=copy_file index={index}: {error}"))?;
     }
-    Ok(writer.commit()?.id)
+    log("share receive: publishing batch");
+    Ok(writer
+        .commit()
+        .map_err(|error| format!("stage=commit_batch: {error}"))?
+        .id)
 }
 
 fn copy_shared_file(writer: &mut BatchWriter, source: &StorageFile) -> Result<()> {
@@ -131,6 +140,14 @@ pub fn log(message: &str) {
     let path: PathBuf = root.join("reception.log");
     // 只记录编号和错误，不记录分享正文或文件名。
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{message}");
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default();
+        let _ = writeln!(
+            file,
+            "unix_time={time} pid={} {message}",
+            std::process::id()
+        );
     }
 }
