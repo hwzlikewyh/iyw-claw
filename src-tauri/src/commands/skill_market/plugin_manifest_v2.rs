@@ -177,6 +177,13 @@ pub(super) fn validate_summary_v2(
     validate_permissions(permissions)?;
     let expected_digest = manifest_digest(value)?;
     if value.manifest_digest.as_deref() != Some(expected_digest.as_str()) {
+        tracing::warn!(
+            plugin = %value.name,
+            version = %value.version,
+            declared_digest = ?value.manifest_digest,
+            computed_digest = %expected_digest,
+            "[plugin-install] 安装计划清单摘要不匹配"
+        );
         return Err(invalid_plugin("Plugin v2 install plan digest is invalid"));
     }
     let mut kinds: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
@@ -217,9 +224,11 @@ fn sort_manifest(value: &mut SkillPluginManifest) {
 fn manifest_digest(value: &SkillPluginManifest) -> Result<String, AppCommandError> {
     let mut value = value.clone();
     value.manifest_digest = None;
-    let value = serde_json::to_value(value).map_err(|error| {
+    let mut value = serde_json::to_value(value).map_err(|error| {
         invalid_plugin("Plugin v2 manifest cannot be canonicalized").with_detail(error.to_string())
     })?;
+    // 依赖可能启用 preserve_order；显式递归排序以匹配服务端的规范化 JSON。
+    value.sort_all_objects();
     let bytes = serde_json::to_string(&value).map_err(|error| {
         invalid_plugin("Plugin v2 manifest cannot be canonicalized").with_detail(error.to_string())
     })?;
