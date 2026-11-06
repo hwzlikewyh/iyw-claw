@@ -234,3 +234,22 @@ pub async fn update_system_rendering_settings(
     })?;
     Ok(settings)
 }
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn get_keep_awake_enabled() -> Result<bool, AppCommandError> {
+    Ok(preferences::load().keep_awake)
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn set_keep_awake_enabled(enabled: bool) -> Result<bool, AppCommandError> {
+    preferences::update(|prefs| prefs.keep_awake = enabled).map_err(|error| {
+        tracing::error!(%error, enabled, "[power] failed to persist keep-awake preference");
+        AppCommandError::io_error("Failed to persist keep-awake setting")
+            .with_detail(error.to_string())
+    })?;
+    tracing::info!(enabled, "[power] keep-awake preference saved");
+    crate::automation::keep_awake::notify_changed();
+    Ok(enabled)
+}
