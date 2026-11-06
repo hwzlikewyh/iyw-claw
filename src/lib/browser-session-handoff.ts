@@ -126,9 +126,14 @@ async function requestMainSession(operation: BrowserSessionOperation) {
   }
 }
 
+function isConversationWorkspace(label: string): boolean {
+  return label === "main" || label.startsWith("conversation-")
+}
+
 export async function getBrowserSessionTarget(): Promise<string> {
   const current = isDesktop() ? await getCurrentWindow() : null
-  if (!current || current.label === "main") return resolveMainBrowserSession()
+  if (!current || isConversationWorkspace(current.label))
+    return resolveMainBrowserSession()
   const result = await requestMainSession({ kind: "target" })
   if (!result.target) throw new Error("The conversation input is unavailable")
   return result.target
@@ -139,7 +144,7 @@ export async function deliverBrowserSession(
   content: BrowserSessionContent
 ): Promise<boolean> {
   const current = isDesktop() ? await getCurrentWindow() : null
-  if (!current || current.label === "main")
+  if (!current || isConversationWorkspace(current.label))
     return deliverMainBrowserSession(target, content)
   const result = await requestMainSession({ kind: "deliver", target, content })
   return result.accepted

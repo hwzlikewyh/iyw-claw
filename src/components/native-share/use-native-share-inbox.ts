@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
+import { getCurrentWindow, isLocalDesktop } from "@/lib/platform"
 import { useTabStore } from "@/stores/tab-store"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { deliverNativeShare } from "./native-share-delivery"
@@ -120,8 +121,31 @@ function useShareCommands(
   }
 }
 
+function useAutomaticDeliveryOwner() {
+  const [owner, setOwner] = useState(false)
+  useEffect(() => {
+    if (!isLocalDesktop()) return
+    let active = true
+    void getCurrentWindow()
+      .then((current) => {
+        if (active) setOwner(current?.label === "main")
+      })
+      .catch((error) => {
+        console.warn(
+          "[NativeShare] automatic delivery owner lookup failed",
+          error
+        )
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+  return owner
+}
+
 export function useNativeShareInbox() {
   const t = useTranslations("NativeShare")
+  const automaticOwner = useAutomaticDeliveryOwner()
   const { sortedTypes, fresh } = useSortedAvailableAgents()
   const tabsHydrated = useTabStore((store) => store.tabsHydrated)
   const activeAgent = useTabStore(
@@ -142,7 +166,7 @@ export function useNativeShareInbox() {
         : sortedTypes[0],
   })
   useAutomaticDelivery(state, patch, {
-    ready: fresh && tabsHydrated,
+    ready: fresh && tabsHydrated && automaticOwner,
     hasAgent: sortedTypes.length > 0,
     addToDraft: commands.addToDraft,
     noAgent: t("noAvailableAgent"),

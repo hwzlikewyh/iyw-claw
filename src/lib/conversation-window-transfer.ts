@@ -172,6 +172,7 @@ function restoreTab(payload: ConversationWindowPayload) {
     groupOf: { [tab.id]: group },
     groupSelection: { [group]: tab.id },
   })
+  useTabStore.getState().switchTab(tab.id)
 }
 
 function isTransferredConnectionReady(
