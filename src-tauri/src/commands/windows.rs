@@ -1375,26 +1375,43 @@ pub async fn resize_pet_panel(app: AppHandle, height: f64) -> Result<(), AppComm
     Ok(())
 }
 
-/// Bring the main workspace to the foreground and ask it to focus a specific
+/// Bring the source workspace to the foreground and ask it to focus a specific
 /// conversation. Uses an event (not a URL reload) so the in-memory tab/session
 /// state survives — `PetFocusBridge` in the main window calls `openTab`.
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn focus_conversation(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     folder_id: i32,
     conversation_id: i32,
     agent: String,
 ) -> Result<(), AppCommandError> {
     use tauri::Emitter;
-    show_main_window(&app);
+    let target_label = window
+        .label()
+        .strip_prefix("remote-settings-")
+        .map(|id| format!("remote-workspace-{id}"))
+        .unwrap_or_else(|| "main".to_string());
+    let target = app
+        .get_webview_window(&target_label)
+        .ok_or_else(|| AppCommandError::not_found("Conversation workspace window not found"))?;
+    restore_main_window(&target);
     let payload = serde_json::json!({
         "folderId": folder_id,
         "conversationId": conversation_id,
         "agent": agent,
     });
-    app.emit_to("main", "workspace://focus-conversation", payload)
-        .map_err(|e| AppCommandError::window("Failed to signal main window", e.to_string()))?;
+    app.emit_to(&target_label, "workspace://focus-conversation", payload)
+        .map_err(|e| AppCommandError::window("Failed to signal workspace window", e.to_string()))?;
+    tracing::info!(
+        source_window = window.label(),
+        target_window = target_label,
+        folder_id,
+        conversation_id,
+        agent,
+        "[window] conversation focus requested"
+    );
     Ok(())
 }
 
