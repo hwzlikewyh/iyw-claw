@@ -3636,6 +3636,10 @@ impl Session {
         model_info: &ModelInfo,
         items: &'a [ResponseItem],
     ) -> (Cow<'a, [ResponseItem]>, Vec<ImagePreparationMetadata>) {
+        let _timing = crate::client::timing::PreparationTiming::new(
+            &self.thread_id,
+            "history_media_prepare",
+        );
         let mut items = items.to_vec();
         let image_preparation_mode =
             if unified_image_budget_enabled(&turn_context.config.features, model_info) {
@@ -3791,6 +3795,10 @@ impl Session {
         mut items: Vec<ResponseItemEnvelope>,
         image_preparations: Vec<ImagePreparationMetadata>,
     ) {
+        let _timing = crate::client::timing::PreparationTiming::new(
+            &self.thread_id,
+            "history_record",
+        );
         // Save the originating history budget for replay.
         // Preserve any existing tool-specific override.
         let policy: codex_utils_output_truncation::TruncationPolicy =

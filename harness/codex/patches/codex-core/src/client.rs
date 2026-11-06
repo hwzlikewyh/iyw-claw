@@ -27,7 +27,7 @@
 
 use std::collections::HashMap;
 #[path = "client_timing.rs"]
-mod timing;
+pub(crate) mod timing;
 #[path = "managed_image_store.rs"]
 pub(crate) mod managed_images;
 #[path = "client_remote_image.rs"]
@@ -1945,6 +1945,10 @@ impl ResponsesHttpExecutor<'_> {
         let mut provider_auth_recovery_attempted = false;
         let mut pending_retry = PendingUnauthorizedRetry::default();
         loop {
+            let request_preparation = timing::PreparationTiming::new(
+                &self.client.state.thread_id,
+                "request_build",
+            );
             let client_setup = self
                 .client
                 .current_client_setup(ClientRouting::Workspace)
@@ -2058,6 +2062,7 @@ impl ResponsesHttpExecutor<'_> {
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+            drop(request_preparation);
             let timing = timing::ModelRequestTiming::new(
                 self.client.state.thread_id.to_string(), "http",
             );

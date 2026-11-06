@@ -363,9 +363,11 @@ async fn prepare_image(
     let ImageReference::Inline { image_url } = image else {
         return Ok(None);
     };
+    let encoding = crate::client::timing::PreparationTiming::new(origin.thread_id, "image_encode");
     let Some(prepared) = resize_image(image_url, detail, mode)? else {
         return Ok(None);
     };
+    drop(encoding);
     metadata.push(prepared.metadata(origin));
     let resize = prepared.resize;
     let request = UploadRequest {

@@ -283,6 +283,10 @@ pub(crate) async fn run_turn(
     required_servers.dedup();
 
     // run_turn owns the step used to seed context and make the first sampling request.
+    let step_preparation = crate::client::timing::PreparationTiming::new(
+        &sess.thread_id,
+        "initial_step_context",
+    );
     let first_step_context = match sess
         .capture_step_context_with_required_mcp_servers(
             Arc::clone(&turn_context),
@@ -306,6 +310,7 @@ pub(crate) async fn run_turn(
         }
         Err(err) => return Err(err),
     };
+    drop(step_preparation);
     // Record initial context while preparing diff display roots.
     let (record_context, display_roots) = tokio::join!(
         sess.record_context_updates_and_set_reference_context_item(first_step_context.as_ref()),
@@ -590,6 +595,10 @@ pub(crate) async fn run_turn(
         let original_prepared_step = first_sampling;
         first_sampling = false;
         let sampling_request_result: CodexResult<_> = async {
+            let sampling_preparation = crate::client::timing::PreparationTiming::new(
+                &sess.thread_id,
+                "sampling_prepare",
+            );
             super::time_reminder::maybe_record_current_time_reminder(
                 sess.as_ref(),
                 turn_context.as_ref(),
@@ -630,6 +639,10 @@ pub(crate) async fn run_turn(
 
             // Construct the input that we will send to the model.
             let sampling_request_input: Vec<ResponseItem> = async {
+                let _timing = crate::client::timing::PreparationTiming::new(
+                    &sess.thread_id,
+                    "history_for_prompt",
+                );
                 sess.clone_history()
                     .await
                     .for_prompt(
@@ -640,6 +653,7 @@ pub(crate) async fn run_turn(
             }
             .instrument(trace_span!("run_turn.prepare_sampling_request_input"))
             .await;
+            drop(sampling_preparation);
 
             run_sampling_request(
                 Arc::clone(&sess),
@@ -2075,6 +2089,10 @@ async fn run_sampling_request(
         sess.services
             .executed_tool_calls
             .attach_to_prompt(&mut prompt_input, &mut executed_tool_calls_by_output);
+        let prompt_preparation = crate::client::timing::PreparationTiming::new(
+            &sess.thread_id,
+            "prompt_build",
+        );
         let mut prompt = build_prompt(
             prompt_input,
             step_context.as_ref(),
@@ -2096,6 +2114,7 @@ async fn run_sampling_request(
         if first_attempt && turn_context.config.notify.is_some() {
             notify_messages = legacy_notify_input_messages(&prompt.input);
         }
+        drop(prompt_preparation);
         let mut draining_for_mailbox = false;
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
