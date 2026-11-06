@@ -10,6 +10,8 @@ import {
 } from "react"
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
+import { DetachedConversationShell } from "@/components/workspace/detached-conversation-shell"
+import { isDetachedConversationWindow } from "@/lib/conversation-window-state"
 import { useNewConversationBrowser } from "@/hooks/use-new-conversation-browser"
 import { Sidebar } from "@/components/layout/sidebar"
 import {
@@ -1017,6 +1019,9 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 function FolderLayoutShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile()
   useNewConversationBrowser()
+  if (isDetachedConversationWindow()) {
+    return <DetachedConversationShell>{children}</DetachedConversationShell>
+  }
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">

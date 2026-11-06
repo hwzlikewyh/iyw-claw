@@ -6,6 +6,8 @@
     "invalidLimit": "请输入大于或等于 0 的整数。",
     "saveFailed": "保存标签数量设置失败，请重试。",
     "detach": "移动到新窗口",
+    "returnToWorkspace": "还原到主窗口",
+    "dragBackHint": "拖动此标题到原窗口的标签栏可还原；拖动顶部空白处可移动窗口。",
     "moving": "正在移动会话到新窗口…",
     "moveFailed": "移动会话失败：{message}",
     "busyDraft": "请等待附件处理或消息发送完成，并保存消息编辑后再移动会话。"

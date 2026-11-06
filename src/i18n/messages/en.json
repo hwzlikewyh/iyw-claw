@@ -6,6 +6,8 @@
     "invalidLimit": "Enter a whole number greater than or equal to 0.",
     "saveFailed": "Could not save the tab limit. Please try again.",
     "detach": "Move to new window",
+    "returnToWorkspace": "Return to workspace",
+    "dragBackHint": "Drag this title onto the original tab bar to return. Drag the empty title bar to move the window.",
     "moving": "Moving conversation to a new window…",
     "moveFailed": "Could not move conversation: {message}",
     "busyDraft": "Wait for attachments or sending to finish, and save message edits before moving the conversation."

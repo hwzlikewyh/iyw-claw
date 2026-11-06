@@ -1,12 +1,16 @@
+import {
+  assertReturnCapacity,
+  restoreRuntime,
+  restoreTab,
+  waitForConnectionSnapshot,
+} from "./conversation-window-restoration"
 import type {
   AcpActionsValue,
-  ConnectionState,
   ConnectionStoreApi,
 } from "@/contexts/acp-connections-context"
 import { useTabStore } from "@/stores/tab-store"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
-import { firstLeafId } from "./tab-group-layout"
 import {
   buildConversationDraftStorageKey,
   buildNewConversationDraftStorageKey,
@@ -16,6 +20,7 @@ import {
   buildVirtualConversationId,
   markConversationWindowInitialized,
   type ConversationWindowPayload,
+  type ConversationWindowRequest,
 } from "./conversation-window-state"
 import {
   captureConversationWindowDraft,
@@ -83,8 +88,7 @@ async function rollbackTransfer(label: string | null) {
   await getShellTransport().call("finish_conversation_window", { label })
 }
 
-interface MoveOptions {
-  tabId: string
+interface MoveOptions extends ConversationWindowRequest {
   connections: ConnectionStoreApi
   actions: AcpActionsValue
 }
@@ -118,15 +122,13 @@ export async function moveConversationWindow(options: MoveOptions) {
   let label: string | null = null
   let committed = false
   try {
-    label = await getShellTransport().call<string>("open_conversation_window", {
-      payload,
-      remoteConnectionId: getActiveRemoteConnectionId(),
-    })
+    label = await prepareWindow(options, payload)
+    if (!label) return
     await waitForPhase(label, "ready")
     await commitPreparedWindow(options, label, payload)
     committed = true
     actions.releaseWindowConnection(tabId)
-    useTabStore.getState().closeTab(tabId)
+    await releaseSourceWindow(options)
     console.info("[conversation-window] source released", { label, tabId })
   } catch (error) {
     if (!committed) {
@@ -142,107 +144,73 @@ export async function moveConversationWindow(options: MoveOptions) {
   }
 }
 
-function restoreRuntime(payload: ConversationWindowPayload) {
-  const session = payload.runtime
-  if (!session) return
-  useConversationRuntimeStore.setState((state) => {
-    const byConversationId = new Map(state.byConversationId)
-    byConversationId.set(session.conversationId, {
-      ...session,
-      detailLoading: false,
-      pendingCleanup: false,
-    })
-    const conversationIdByExternalId = new Map(state.conversationIdByExternalId)
-    if (session.externalId) {
-      conversationIdByExternalId.set(session.externalId, session.conversationId)
-    }
-    return { byConversationId, conversationIdByExternalId }
-  })
-}
-
-function restoreTab(payload: ConversationWindowPayload) {
-  const state = useTabStore.getState()
-  const group = firstLeafId(state.groupLayout)
-  const tab = { ...payload.tab, agentTypeProvisional: false }
-  useTabStore.setState({
-    rawTabs: [tab],
-    tabs: [tab],
-    activeTabId: tab.id,
-    tabsHydrated: true,
-    groupOf: { [tab.id]: group },
-    groupSelection: { [group]: tab.id },
-  })
-  useTabStore.getState().switchTab(tab.id)
-}
-
-function isTransferredConnectionReady(
-  current: ConnectionState,
-  expected: ConnectionState
+function prepareWindow(
+  options: MoveOptions,
+  payload: ConversationWindowPayload
 ) {
-  const metadataReady =
-    (!expected.sessionId || !!current.sessionId) &&
-    (!expected.selectorsReady || current.selectorsReady)
-  return (
-    metadataReady &&
-    (current.status === "connected" || current.status === "prompting")
-  )
+  return options.returnToWorkspace
+    ? getShellTransport().call<string | null>("return_conversation_window", {
+        payload,
+        dropOnly: options.dropOnly ?? false,
+      })
+    : getShellTransport().call<string>("open_conversation_window", {
+        payload,
+        remoteConnectionId: getActiveRemoteConnectionId(),
+      })
 }
 
-function waitForConnectionSnapshot(
-  store: ConnectionStoreApi,
-  expected: ConnectionState
-) {
-  return new Promise<void>((resolve, reject) => {
-    let unsubscribe = () => {}
-    const finish = (error?: Error) => {
-      clearTimeout(timer)
-      unsubscribe()
-      if (error) reject(error)
-      else resolve()
-    }
-    const timer = setTimeout(
-      () => finish(new Error("Conversation snapshot timed out")),
-      TRANSFER_TIMEOUT_MS
-    )
-    const check = () => {
-      const current = store.getConnection(expected.contextKey)
-      if (
-        !current ||
-        current.connectionId !== expected.connectionId ||
-        current.status === "disconnected"
-      ) {
-        finish(new Error("Conversation connection ended during transfer"))
-      } else if (isTransferredConnectionReady(current, expected)) {
-        finish()
-      }
-    }
-    unsubscribe = store.subscribeKey(expected.contextKey, check)
-    check()
-  })
+async function releaseSourceWindow(options: MoveOptions) {
+  if (!options.returnToWorkspace) {
+    useTabStore.getState().closeTab(options.tabId)
+    return
+  }
+  const { getCurrentWindow } = await import("@tauri-apps/api/window")
+  await getCurrentWindow().close()
 }
 
-export async function restoreConversationWindow(
-  label: string,
+async function prepareRestoration(
+  payload: ConversationWindowPayload,
   actions: AcpActionsValue,
-  connections: ConnectionStoreApi
+  target: { connections: ConnectionStoreApi; append?: boolean }
 ) {
-  const { payload } = await getWindowTransfer(label)
-  if (!payload?.tab?.id) throw new Error("Conversation window state is missing")
+  if (target.append) assertReturnCapacity(payload)
   const workspace = useAppWorkspaceStore.getState()
+  const folderId = payload.tab.folderId
   if (
-    payload.tab.folderId > 0 &&
-    !workspace.folders.some((folder) => folder.id === payload.tab.folderId)
+    folderId > 0 &&
+    !workspace.folders.some((folder) => folder.id === folderId)
   ) {
-    await workspace.addFolderToWorkspaceById(payload.tab.folderId)
+    await workspace.addFolderToWorkspaceById(folderId)
   }
   restoreRuntime(payload)
   seedConversationWindowDraft(payload.tab.id, payload.draft)
   if (payload.connection) {
     await actions.attachWindowConnection(payload.connection)
-    await waitForConnectionSnapshot(connections, payload.connection)
+    await waitForConnectionSnapshot(target.connections, payload.connection)
   }
-  await getShellTransport().call("ready_conversation_window")
-  const committed = await waitForPhase(label, "committed")
+}
+
+export async function restoreConversationWindow(
+  label: string,
+  actions: AcpActionsValue,
+  target: { connections: ConnectionStoreApi; append?: boolean }
+) {
+  const { payload } = await getWindowTransfer(label)
+  if (!payload?.tab?.id) throw new Error("Conversation window state is missing")
+  let committed: TransferStatus
+  try {
+    await prepareRestoration(payload, actions, target)
+    await getShellTransport().call("ready_conversation_window", { label })
+    committed = await waitForPhase(label, "committed")
+  } catch (error) {
+    seedConversationWindowDraft(payload.tab.id, null)
+    if (
+      !useTabStore.getState().rawTabs.some((tab) => tab.id === payload.tab.id)
+    ) {
+      actions.releaseWindowConnection(payload.tab.id)
+    }
+    throw error
+  }
   const restored = committed.payload ?? payload
   restoreRuntime(restored)
   seedConversationWindowDraft(restored.tab.id, restored.draft)
@@ -250,7 +218,7 @@ export async function restoreConversationWindow(
     restored.tab.id,
     !!(restored.connection?.isViewer || restored.connection?.isDelegationChild)
   )
-  restoreTab(restored)
+  restoreTab(restored, target.append ?? false)
   markConversationWindowInitialized()
   await finishRestoration(label, restored.tab.id)
 }
