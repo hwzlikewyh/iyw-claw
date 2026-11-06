@@ -69,7 +69,10 @@ import { ExternalConflictDialog } from "@/components/files/external-conflict-dia
 import { WebSettingsDialog } from "@/components/settings/web-settings-dialog"
 import { TrayActionBridge } from "@/components/layout/tray-action-bridge"
 import { AppToaster } from "@/components/ui/app-toaster"
-import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
+import {
+  DeepLinkBootstrap,
+  PetFocusBridge,
+} from "@/components/workspace/deep-link-bootstrap"
 import { NativeShareInbox } from "@/components/native-share/native-share-inbox"
 import { ModelCatalogBootstrap } from "@/components/workspace/model-catalog-bootstrap"
 import {
@@ -1094,6 +1097,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                             <AutomationsViewProvider>
                                               <WorkbenchRouteProvider>
                                                 <WorkbenchRouteConversationSync />
+                                                <PetFocusBridge />
                                                 <TrayActionBridge />
                                                 <FolderLayoutShell>
                                                   {children}

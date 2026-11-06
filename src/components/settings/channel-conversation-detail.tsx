@@ -2,7 +2,10 @@
 
 import { ArrowLeft, ExternalLink, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { toErrorMessage } from "@/lib/app-error"
+import { getShellTransport, isDesktop } from "@/lib/transport"
 import type {
   ChannelConversationInfo,
   ChannelConversationRuntime,
@@ -64,11 +67,6 @@ function ConversationHeader({
   children: React.ReactNode
 }) {
   const t = useTranslations("ChatChannelSettings.runtime")
-  const params = new URLSearchParams({
-    folderId: String(item.folderId),
-    conversationId: String(item.conversationId),
-    agent: item.agentType,
-  })
   return (
     <div className="space-y-3 border-b p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -86,16 +84,51 @@ function ConversationHeader({
             {t("back")}
           </Button>
           <RefreshConversation onRefresh={onRefresh} />
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/workspace?${params}`}>
-              <ExternalLink className="size-3.5" />
-              {t("openConversation")}
-            </a>
-          </Button>
+          <OpenConversationButton item={item} />
         </div>
       </div>
       {children}
     </div>
+  )
+}
+
+function OpenConversationButton({ item }: { item: ChannelConversationInfo }) {
+  const t = useTranslations("ChatChannelSettings.runtime")
+  const params = new URLSearchParams({
+    folderId: String(item.folderId),
+    conversationId: String(item.conversationId),
+    agent: item.agentType,
+  })
+  return (
+    <Button variant="outline" size="sm" asChild>
+      <a
+        href={`/workspace?${params}`}
+        onClick={(event) => {
+          if (!isDesktop()) return
+          event.preventDefault()
+          void getShellTransport()
+            .call("focus_conversation", {
+              folderId: item.folderId,
+              conversationId: item.conversationId,
+              agent: item.agentType,
+            })
+            .catch((error) => {
+              console.error(
+                "[ChannelConversation] failed to open conversation",
+                {
+                  folderId: item.folderId,
+                  conversationId: item.conversationId,
+                  error,
+                }
+              )
+              toast.error(toErrorMessage(error))
+            })
+        }}
+      >
+        <ExternalLink className="size-3.5" />
+        {t("openConversation")}
+      </a>
+    </Button>
   )
 }
 
