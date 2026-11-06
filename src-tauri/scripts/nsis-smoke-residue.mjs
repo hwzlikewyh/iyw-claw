@@ -9,9 +9,19 @@ const UNINSTALL_REGISTRY_KEY =
   "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
 
 function runPowerShell(lines) {
+  // Console output is code-page encoded (cp936 on this runner), so non-ASCII
+  // registry values and paths turn into "?" when decoded as UTF-8. Emit UTF-8
+  // explicitly before any output is written.
   const result = spawnSync(
     "powershell.exe",
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", lines.join("; ")],
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(); " +
+        lines.join("; "),
+    ],
     {
       encoding: "utf8",
       maxBuffer: COMMAND_MAX_BUFFER,
@@ -40,14 +50,15 @@ function registryResidue(options) {
   const testKey = `${TEST_REGISTRY_KEY_PREFIX}\\${options.testId}`
   return runPowerShell([
     "$ErrorActionPreference = 'Stop'",
-    `$root = ${literal(root)}`,
+    // Registry values may store the path with different casing.
+    `$root = ${literal(root.toLowerCase())}`,
     `$paths = @(${literal(`Registry::HKEY_CURRENT_USER\\${testKey}`)}, ${literal(`Registry::HKEY_CURRENT_USER\\${PRODUCT_REGISTRY_KEY}`)})`,
     `$uninstallRoot = ${literal(`Registry::HKEY_CURRENT_USER\\${UNINSTALL_REGISTRY_KEY}`)}`,
     "$residue = @($paths | Where-Object { Test-Path -LiteralPath $_ })",
     "if (Test-Path -LiteralPath $uninstallRoot) {",
     "  Get-ChildItem -LiteralPath $uninstallRoot | ForEach-Object {",
     "    $values = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue | Out-String",
-    '    if ($values -like "*$root*") { $residue += $_.PSPath }',
+    '    if ($values.ToLowerInvariant().Contains($root)) { $residue += $_.PSPath }',
     "  }",
     "}",
     "$residue | ForEach-Object { Write-Output $_ }",

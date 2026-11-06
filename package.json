@@ -1,9 +1,14 @@
 {
   "name": "iyw-claw",
   "private": true,
-  "version": "0.1.326",
+  "version": "0.1.328",
   "packageManager": "pnpm@11.9.0",
-  "browserslist": ["chrome 109", "edge 109", "firefox 111", "safari 16.4"],
+  "browserslist": [
+    "chrome 109",
+    "edge 109",
+    "firefox 111",
+    "safari 16.4"
+  ],
   "scripts": {
     "predev": "node scripts/prepare-preview-assets.mjs",
     "prebuild": "node scripts/prepare-preview-assets.mjs",
