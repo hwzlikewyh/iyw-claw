@@ -566,6 +566,7 @@ export interface SkillMarketV2CatalogPage {
 }
 
 export interface SkillMarketListQueryV2 {
+  packageType?: "skill" | "plugin"
   view: SkillMarketViewV2
   publisher: SkillMarketPublisher | "all"
   distribution: SkillMarketDistributionPolicy | "all"

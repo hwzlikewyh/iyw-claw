@@ -168,6 +168,7 @@ async function readPage(input: RequestInput, request: number) {
   try {
     const value = await source.list({
       ...query,
+      packageType: "skill",
       cursor:
         position.page === 1
           ? null

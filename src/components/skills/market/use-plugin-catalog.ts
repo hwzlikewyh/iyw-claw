@@ -7,6 +7,7 @@ import { getSkillMarketSource } from "@/lib/skill-market-source"
 
 async function loadPluginItems(view: "market" | "organization") {
   const result = await getSkillMarketSource().list({
+    packageType: "plugin",
     view,
     publisher: "all",
     distribution: "all",
