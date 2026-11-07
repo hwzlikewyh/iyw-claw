@@ -1300,15 +1300,11 @@ pub fn build_router(
         )
         .route(
             "/skill_market_publish",
-            post(handlers::skill_market::publish).layer(DefaultBodyLimit::max(
-                crate::commands::skill_market::MAX_SKILL_MARKET_REQUEST_BYTES,
-            )),
+            post(handlers::skill_market::publish).layer(DefaultBodyLimit::disable()),
         )
         .route(
             "/skill_market_add_version",
-            post(handlers::skill_market::add_version).layer(DefaultBodyLimit::max(
-                crate::commands::skill_market::MAX_SKILL_MARKET_REQUEST_BYTES,
-            )),
+            post(handlers::skill_market::add_version).layer(DefaultBodyLimit::disable()),
         )
         .route(
             "/skill_market_update_metadata",

@@ -108,7 +108,7 @@ fn confirmed(
     let size = files.iter().try_fold(0u64, |total, file| {
         total.checked_add(file.bytes.len() as u64)
     });
-    if size.is_none_or(|size| size > MAX_EXPANDED_BYTES) {
+    if size.is_none() {
         return Err(invalid_package(
             "Restored Skill exceeds the package size limit",
         ));
@@ -238,14 +238,8 @@ fn checked_size(
             "Installed Skill entry exceeds its compatibility size limit",
         ));
     }
-    let allowance = if state.skill {
-        MAX_COMPAT_ENTRY_GROWTH
-    } else {
-        0
-    };
     state
         .expanded
         .checked_add(length)
-        .filter(|size| *size <= MAX_EXPANDED_BYTES + allowance)
         .ok_or_else(|| invalid_package("Plugin recovery exceeds the size limit"))
 }

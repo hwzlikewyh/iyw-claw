@@ -2,12 +2,15 @@ import { preferenceStatus } from "./status.mjs"
 
 const MAX_CHANGES = 512
 
-export function managedPreferences(driver) {
+export function managedPreferences(
+  driver,
+  preferenceKey = "photocraft.preferences"
+) {
   const values = new Map(
     driver.read("preferences").map((entry) => [entry.key, entry.value])
   )
   const state = { values, pending: new Map(), ready: false, running: null }
-  const saved = values.get("photocraft.preferences")
+  const saved = values.get(preferenceKey)
   const status = preferenceStatus(() => void drain(state, driver, status))
   const storage = Object.create(Storage.prototype)
   Object.defineProperty(storage, "length", { get: () => values.size })
@@ -17,8 +20,8 @@ export function managedPreferences(driver) {
     saved,
     resume() {
       if (saved !== undefined) {
-        values.set("photocraft.preferences", saved)
-        state.pending.delete("photocraft.preferences")
+        values.set(preferenceKey, saved)
+        state.pending.delete(preferenceKey)
       }
       state.ready = true
       return drain(state, driver, status)

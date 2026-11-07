@@ -7,9 +7,7 @@ use crate::models::AgentType;
 use super::plugin_manifest::validate_plugin_summary;
 use super::types::{parse_id, SkillInstallPlan, SkillInstallPlanItem, SkillPackageType};
 
-pub(super) const MAX_PACKAGE_BYTES: u64 = 30 * 1024 * 1024;
 const MAX_INSTALL_PLAN_ITEMS: usize = 64;
-const MAX_INSTALL_PLAN_BYTES: u64 = 256 * 1024 * 1024;
 
 pub(super) fn validate_install_plan(
     plan: &SkillInstallPlan,
@@ -43,7 +41,6 @@ pub(super) fn validate_install_plan(
         }
         total_bytes = total_bytes
             .checked_add(transfer_size(&item.download))
-            .filter(|value| *value <= MAX_INSTALL_PLAN_BYTES)
             .ok_or_else(|| {
                 AppCommandError::invalid_input("Skill install plan is too large to install safely")
             })?;
@@ -107,13 +104,6 @@ fn validate_install_plan_item(
         ));
     }
     ensure_download_artifact_ready(&item.download)?;
-    if item.download.package_size > MAX_PACKAGE_BYTES
-        || item.download.artifact_size > MAX_PACKAGE_BYTES
-    {
-        return Err(AppCommandError::configuration_invalid(
-            "Skill install plan download metadata is inconsistent",
-        ));
-    }
     validate_package_metadata(item)?;
     if item.display_name.trim().is_empty()
         || !matches!(item.visibility.as_str(), "public" | "private")

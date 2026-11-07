@@ -1297,7 +1297,7 @@
           "metadata": "2. Add marketplace metadata",
           "review": "3. Review and publish"
         },
-        "folderHint": "The root must contain a non-empty UTF-8 SKILL.md. Up to 512 files and 25 MB are accepted.",
+        "folderHint": "The root must contain a non-empty UTF-8 SKILL.md. Up to 512 files are accepted, with no fixed package size limit.",
         "selectFolder": "Select Skill folder",
         "replaceFolder": "Choose another folder",
         "clearFolder": "Clear selected folder",
@@ -1314,7 +1314,7 @@
           "emptyFolder": "The selected folder is empty.",
           "tooManyFiles": "A Skill can contain at most 512 files.",
           "invalidFolder": "Could not read one complete folder.",
-          "folderTooLarge": "The folder cannot exceed 25 MB.",
+          "folderTooLarge": "The folder size is invalid. Select the files again.",
           "missingSkillFile": "The folder root must contain SKILL.md.",
           "skillFileTooLarge": "SKILL.md cannot exceed 1 MB.",
           "emptySkillFile": "SKILL.md cannot be empty.",
@@ -1403,7 +1403,7 @@
         "folderErrors": {
           "tooManyFiles": "The folder can contain at most 512 files.",
           "invalidFolder": "Could not read a valid folder structure.",
-          "folderTooLarge": "The folder cannot exceed 25 MB.",
+          "folderTooLarge": "The folder size is invalid. Select the files again.",
           "missingSkillFile": "The folder root must contain SKILL.md.",
           "readFailed": "Failed to read the selected folder."
         },

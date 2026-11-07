@@ -8,7 +8,6 @@ use crate::app_error::AppCommandError;
 
 const MAX_FILES: usize = 512;
 const MAX_ARCHIVE_ENTRIES: usize = 1024;
-const MAX_EXPANDED_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_SKILL_MD_BYTES: u64 = 1024 * 1024;
 const MAX_PATH_BYTES: usize = 512;
 const MARKET_MARKER: &str = ".iyw-claw-market-skill.json";
@@ -106,14 +105,13 @@ fn validate_zip_with_entry(
         }
         let path = validate_path(entry.name())?;
         register_path(&path, &mut seen_files, &mut seen_directories)?;
-        expanded = expanded.saturating_add(entry.size());
-        if expanded > MAX_EXPANDED_BYTES {
-            return Err(invalid_package("Expanded Skill exceeds the 50 MiB limit"));
-        }
-        let mut content = Vec::with_capacity(entry.size().min(usize::MAX as u64) as usize);
+        expanded = expanded.checked_add(entry.size())
+            .ok_or_else(|| invalid_package("Skill archive size overflow"))?;
+        let mut content = Vec::new();
+        let declared_size = entry.size();
         entry
             .by_ref()
-            .take(MAX_EXPANDED_BYTES + 1)
+            .take(declared_size.saturating_add(1))
             .read_to_end(&mut content)
             .map_err(|error| invalid_zip(error.to_string()))?;
         if content.len() as u64 != entry.size() {

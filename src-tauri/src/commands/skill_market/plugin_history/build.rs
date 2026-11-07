@@ -11,7 +11,6 @@ use crate::db::service::plugin_installation_service::PluginInstallationRecord;
 use crate::models::AgentType;
 use std::collections::BTreeMap;
 
-const MAX_LOCAL_BYTES: usize = 256 * 1024 * 1024;
 
 pub(super) struct Context {
     pub plan: ReleaseRecoveryPlan,
@@ -29,7 +28,6 @@ pub(super) struct Built {
     pub dependencies: Vec<DependencyChange>,
     pub issues: Vec<String>,
     pub scope_changed: bool,
-    bytes: usize,
 }
 
 pub(super) async fn build(context: &Context) -> Result<Built, AppCommandError> {
@@ -59,9 +57,6 @@ pub(super) async fn build(context: &Context) -> Result<Built, AppCommandError> {
                 installed_version: version,
                 ready,
             });
-        }
-        if built.bytes > MAX_LOCAL_BYTES {
-            return Err(super::invalid("本地版本依赖包总量超出安装预算"));
         }
     }
     Ok(built)
@@ -166,9 +161,6 @@ fn prepare_plugin(
     })
 }
 
-fn size(package: &crate::acp::skill_package::ValidatedSkillPackage) -> usize {
-    package.files.iter().map(|file| file.bytes.len()).sum()
-}
 
 async fn load_item(
     context: &Context,
@@ -179,7 +171,6 @@ async fn load_item(
         plugin(context, item).await.map(|plugin| {
             built.scope_changed |=
                 selected_scope(context, item).as_deref() != Some(context.scope.as_str());
-            built.bytes += size(&plugin.package);
             built.plugins.push(plugin);
         })
     } else if crate::commands::office_tools::is_officecli_skill_id(&item.slug) {
@@ -198,7 +189,6 @@ async fn load_item(
             .await
             .map_err(|_| super::invalid("技能依赖读取未完成"))?
             .map(|skill| {
-                built.bytes += size(&skill.package);
                 built.skills.push(skill);
             })
     }

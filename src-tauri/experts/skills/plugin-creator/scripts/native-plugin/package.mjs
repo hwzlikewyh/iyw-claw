@@ -2,7 +2,6 @@ import { readdir, stat } from "node:fs/promises"
 import path from "node:path"
 
 const MAX_FILES = 512
-const MAX_BYTES = 25 * 1024 * 1024
 const MAX_PATH_BYTES = 512
 
 export async function packageStats(root) {
@@ -21,7 +20,7 @@ export async function packageStats(root) {
       else if (entry.isFile()) {
         files++
         bytes += (await stat(file)).size
-        if (files > MAX_FILES || bytes > MAX_BYTES)
+        if (files > MAX_FILES)
           throw Error("Generated plugin exceeds market package limits")
       } else throw Error(`Unsupported package entry: ${relative}`)
     }

@@ -11,7 +11,7 @@ use crate::models::AgentType;
 
 use super::client;
 use super::install_plan::{
-    market_marker, validate_downloaded_artifact_size, validate_install_plan, MAX_PACKAGE_BYTES,
+    market_marker, validate_downloaded_artifact_size, validate_install_plan,
 };
 use super::plugin_install_context::{MarketInstallPlanExecution, PreparedPluginInstall};
 use super::plugin_manifest::{validate_plugin_package, ValidatedPluginPackage};
@@ -350,13 +350,13 @@ async fn download_package(
     } else {
         metadata.package_size
     };
-    if transfer_size == 0 || transfer_size > MAX_PACKAGE_BYTES {
+    if transfer_size == 0 {
         return Err(AppCommandError::invalid_input(
             "Skill package size is outside the allowed range",
         ));
     }
     for attempt in 1..=PACKAGE_DOWNLOAD_ATTEMPTS {
-        match download_package_once(conn, skill_id, version).await {
+        match download_package_once(conn, (skill_id, version), transfer_size).await {
             Ok(bytes) => return Ok(bytes),
             Err(PackageDownloadError::Retryable(error)) if attempt < PACKAGE_DOWNLOAD_ATTEMPTS => {
                 tracing::warn!(
@@ -377,9 +377,10 @@ async fn download_package(
 
 async fn download_package_once(
     conn: &DatabaseConnection,
-    skill_id: &str,
-    version: &str,
+    identity: (&str, &str),
+    transfer_size: u64,
 ) -> Result<Vec<u8>, PackageDownloadError> {
+    let (skill_id, version) = identity;
     let id = parse_id(skill_id).map_err(PackageDownloadError::permanent)?;
     let response = client::request(conn, Method::POST, "/skills/download")
         .await
@@ -399,9 +400,9 @@ async fn download_package_once(
         client::decode_response(response).await.map_err(PackageDownloadError::permanent)?;
         return Err(PackageDownloadError::permanent(AppCommandError::configuration_invalid("Skill package returned JSON instead of an archive")));
     }
-    validate_download_response(&response, MAX_PACKAGE_BYTES)
+    validate_download_response(&response, transfer_size)
         .map_err(PackageDownloadError::permanent)?;
-    read_download(response, MAX_PACKAGE_BYTES).await
+    read_download(response, transfer_size).await
 }
 
 fn validate_download_response(

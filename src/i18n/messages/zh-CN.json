@@ -1297,7 +1297,7 @@
           "metadata": "2. 填写市场元数据",
           "review": "3. 复核并发布"
         },
-        "folderHint": "根目录必须包含非空 UTF-8 SKILL.md，最多 512 个文件、25 MB。",
+        "folderHint": "根目录必须包含非空 UTF-8 SKILL.md，最多 512 个文件，包总大小不限。",
         "selectFolder": "选择 Skill 目录",
         "replaceFolder": "重新选择目录",
         "clearFolder": "清除所选目录",
@@ -1314,7 +1314,7 @@
           "emptyFolder": "所选目录为空。",
           "tooManyFiles": "一个 Skill 最多包含 512 个文件。",
           "invalidFolder": "无法读取一个完整的目录。",
-          "folderTooLarge": "目录总大小不能超过 25 MB。",
+          "folderTooLarge": "文件总大小无效，请重新选择文件。",
           "missingSkillFile": "根目录必须包含 SKILL.md。",
           "skillFileTooLarge": "SKILL.md 不能超过 1 MB。",
           "emptySkillFile": "SKILL.md 不能为空。",
@@ -1403,7 +1403,7 @@
         "folderErrors": {
           "tooManyFiles": "文件夹最多包含 512 个文件。",
           "invalidFolder": "无法读取有效的文件夹结构。",
-          "folderTooLarge": "文件夹不能超过 25 MB。",
+          "folderTooLarge": "文件总大小无效，请重新选择文件。",
           "missingSkillFile": "文件夹根目录必须包含 SKILL.md。",
           "readFailed": "读取所选文件夹失败。"
         },

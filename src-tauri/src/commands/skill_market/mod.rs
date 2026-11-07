@@ -33,7 +33,6 @@ pub use auto_update::task as auto_update_task;
 use availability::reconcile_market_skill_availability_batch;
 pub use install::{install_core, revalidate_artifact_core};
 
-pub const MAX_SKILL_MARKET_REQUEST_BYTES: usize = 36 * 1024 * 1024;
 
 use reqwest::Method;
 use sea_orm::DatabaseConnection;

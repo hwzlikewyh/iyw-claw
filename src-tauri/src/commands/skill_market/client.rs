@@ -13,8 +13,6 @@ use super::types::SkillMarketUploadFile;
 
 const BASE_URL_ENV: &str = "IYW_CLAW_FUSION_API_BASE_URL";
 const MAX_FILES: usize = 512;
-const MAX_RAW_BYTES: usize = 25 * 1024 * 1024;
-const MAX_BASE64_BYTES: usize = 36 * 1024 * 1024;
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 #[cfg(debug_assertions)]
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:6001";
@@ -128,16 +126,11 @@ fn decode_upload_files(
             "Skill upload must contain 1 to 512 files",
         ));
     }
-    let encoded_bytes = files.iter().try_fold(0_usize, |total, file| {
+    files.iter().try_fold(0_usize, |total, file| {
         total.checked_add(file.content_base64.len()).ok_or_else(|| {
             AppCommandError::invalid_input("Skill upload encoded payload is too large")
         })
     })?;
-    if encoded_bytes > MAX_BASE64_BYTES {
-        return Err(AppCommandError::invalid_input(
-            "Skill upload encoded payload exceeds the allowed size",
-        ));
-    }
 
     let mut decoded = Vec::with_capacity(files.len());
     let mut total = 0_usize;
@@ -155,11 +148,6 @@ fn decode_upload_files(
         total = total
             .checked_add(bytes.len())
             .ok_or_else(|| AppCommandError::invalid_input("Skill upload is too large"))?;
-        if total > MAX_RAW_BYTES {
-            return Err(AppCommandError::invalid_input(
-                "Skill upload exceeds 25 MiB",
-            ));
-        }
         decoded.push(DecodedUploadFile {
             path: file.path,
             bytes,

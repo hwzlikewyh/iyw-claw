@@ -7,10 +7,10 @@ import { createRequire } from "node:module"
 import { replaceBrandText } from "./wasm-brand.mjs"
 import { adaptEditorBridge } from "./bridge-adapter.mjs"
 import { adaptPanelLifecycle } from "./panel-adapter.mjs"
+import { craftConfig } from "./config.mjs"
+import { writeUsageFiles } from "./usage.mjs"
 
-const VERSION = "0.1.0",
-  NAME = "iyw-image-editor",
-  TITLE = "图像编辑"
+const VERSION = "0.1.0"
 const digest = (value) => createHash("sha256").update(value).digest("hex")
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`
 
@@ -18,8 +18,7 @@ export async function prepareCraft(source, output) {
   const upstream = JSON.parse(
     await readFile(path.join(source, ".zcode-plugin/plugin.json"), "utf8")
   )
-  if (upstream.name !== "photocraft" || upstream.version !== "0.2.4")
-    throw Error("Unexpected PhotoCraft source version")
+  const config = craftConfig(upstream)
   const dist = path.join(output, "dist")
   await mkdir(path.join(dist, "assets"), { recursive: true })
   await cp(path.join(source, "dist/licenses"), path.join(dist, "licenses"), {
@@ -30,14 +29,19 @@ export async function prepareCraft(source, output) {
   const assetFile = JSON.parse(
     await readFile(path.join(source, "dist/assets.json"), "utf8")
   )
-  const assets = await convertAssets(source, dist, assetFile)
+  const assets = await convertAssets({
+    source,
+    dist,
+    manifest: assetFile,
+    config,
+  })
   await writeFile(
     path.join(dist, "assets.json"),
     json({
       ...assetFile,
-      name: NAME,
+      name: config.name,
       version: VERSION,
-      title: TITLE,
+      title: config.title,
       assets: assets.map((asset) => asset.entry),
     })
   )
@@ -45,10 +49,16 @@ export async function prepareCraft(source, output) {
     path.join(source, "dist/server.mjs"),
     "utf8"
   )
-  await writeFile(path.join(dist, "server.mjs"), adaptServer(originalServer))
+  await writeFile(
+    path.join(dist, "server.mjs"),
+    adaptServer(originalServer, config)
+  )
   await writeFile(
     path.join(dist, "panel.html"),
-    adaptPanel(await readFile(path.join(source, "dist/panel.html"), "utf8"))
+    adaptPanel(
+      await readFile(path.join(source, "dist/panel.html"), "utf8"),
+      config
+    )
   )
   await writeRuntimeFiles({
     source,
@@ -57,6 +67,7 @@ export async function prepareCraft(source, output) {
     originalServer,
     assets,
     upstream,
+    config,
   })
 }
 
@@ -67,6 +78,7 @@ async function writeRuntimeFiles({
   originalServer,
   assets,
   upstream,
+  config,
 }) {
   await bundleStorage(dist)
   for (const file of ["tools.json", "BUILD.json"])
@@ -82,18 +94,22 @@ async function writeRuntimeFiles({
     fileURLToPath(new URL("./storage.mjs", import.meta.url)),
     path.join(dist, "iyw-storage.mjs")
   )
-  await writeAuthorFiles(output, {
-    upstream,
-    serverSha256: digest(originalServer),
-    assets: assets.map(({ originalSha256, entry, branding }) => ({
-      originalSha256,
-      sha256: entry.sha256,
-      branding,
-    })),
-  })
+  await writeAuthorFiles(
+    output,
+    {
+      upstream,
+      serverSha256: digest(originalServer),
+      assets: assets.map(({ originalSha256, entry, branding }) => ({
+        originalSha256,
+        sha256: entry.sha256,
+        branding,
+      })),
+    },
+    config
+  )
 }
 
-async function convertAssets(source, dist, manifest) {
+async function convertAssets({ source, dist, manifest, config }) {
   const result = []
   for (const entry of manifest.assets) {
     const original = gunzipSync(
@@ -103,12 +119,18 @@ async function convertAssets(source, dist, manifest) {
     if (original.length !== entry.bytes || digest(original) !== entry.sha256)
       throw Error("Upstream editor asset integrity mismatch")
     const modified =
-      entry.mime === "application/wasm"
+      config.photo && entry.mime === "application/wasm"
         ? replaceBrandText(original)
         : { bytes: original, changes: [] }
     const id = digest(modified.bytes)
     const compressed = brotliCompressSync(modified.bytes, {
-      params: { [constants.BROTLI_PARAM_QUALITY]: 8 },
+      params: config.photo
+        ? { [constants.BROTLI_PARAM_QUALITY]: 8 }
+        : {
+            [constants.BROTLI_PARAM_QUALITY]: 9,
+            [constants.BROTLI_PARAM_LGWIN]: 27,
+            [constants.BROTLI_PARAM_LARGE_WINDOW]: true,
+          },
     })
     await writeFile(path.join(dist, "assets", `${id}.br`), compressed)
     result.push({
@@ -126,7 +148,7 @@ function replaceOne(source, before, after) {
   return source.replace(before, after)
 }
 
-function adaptServer(source) {
+function adaptServer(source, config) {
   source = adaptEditorBridge(source, replaceOne)
   source = replaceOne(
     source,
@@ -139,7 +161,14 @@ function adaptServer(source) {
     'import { brotliDecompressSync as gunzipSync } from "node:zlib";'
   )
   source = replaceOne(source, "`${id}.gz`", "`${id}.br`")
-  source = source.replaceAll('=== "photocraft"', `=== "${NAME}"`)
+  if (config.photo)
+    source = source.replaceAll('=== "photocraft"', `=== "${config.name}"`)
+  if (!config.photo)
+    source = replaceOne(
+      source,
+      "maxOutputLength: Math.max(1, asset.bytes)",
+      "maxOutputLength: Math.max(1, asset.bytes), params: { 1: true }"
+    )
   source = replaceOne(
     source,
     'ui: { prefersBorder: false, backgroundRetention: true },\n  "zcode/csp": { wasmUnsafeEval: true }',
@@ -163,7 +192,7 @@ function adaptServer(source) {
   source = replaceOne(
     source,
     'server.registerResource("panel", panelUri, {\n  mimeType: "text/html;profile=mcp-app",',
-    `server.registerResource("panel", panelUri, {\n  title: "${TITLE}",\n  mimeType: "text/html;profile=mcp-app",`
+    `server.registerResource("panel", panelUri, {\n  title: "${config.title}",\n  mimeType: "text/html;profile=mcp-app",`
   )
   source = replaceOne(
     source,
@@ -176,13 +205,13 @@ function adaptServer(source) {
   )
 }
 
-function adaptPanel(source) {
-  source = source
-    .replaceAll(
-      'name:"photocraft",version:"0.2.4"',
-      `name:"${NAME}",version:"${VERSION}"`
-    )
-    .replaceAll('==="photocraft"', `==="${NAME}"`)
+function adaptPanel(source, config) {
+  source = source.replaceAll(
+    `name:"${config.source}",version:"0.2.4"`,
+    `name:"${config.name}",version:"${VERSION}"`
+  )
+  if (config.photo)
+    source = source.replaceAll('==="photocraft"', `==="${config.name}"`)
   source = source
     .replaceAll("PhotoCraft", "IYW Editor")
     .replaceAll("ZCode", "原助理")
@@ -194,6 +223,12 @@ function adaptPanel(source) {
     "bC();let e=await SC(",
     'bC();const iywStorageSource=(await tt.readServerResource({uri:`${bk}/storage-adapter.mjs`})).contents[0].text;const iywStorageUrl=URL.createObjectURL(new Blob([iywStorageSource],{type:"text/javascript"}));try{iywStorage=await (await import(iywStorageUrl)).installManagedStorage((request)=>tt.callServerTool(request,{timeout:request.name==="_iyw_user_menu"?32e4:3e4}))}finally{URL.revokeObjectURL(iywStorageUrl)}let e=await SC('
   )
+  if (!config.photo)
+    source = replaceOne(
+      source,
+      'timeout:request.name==="_iyw_user_menu"?32e4:3e4}))',
+      'timeout:request.name==="_iyw_user_menu"?32e4:3e4}),{presets:false,restoreInterface:false,compact:false,preferenceKey:"pdfcraft.preferences"})'
+    )
   return adaptPanelLifecycle(source, replaceOne)
 }
 
@@ -213,14 +248,14 @@ async function bundleStorage(dist) {
   })
 }
 
-async function writeAuthorFiles(output, provenance) {
+async function writeAuthorFiles(output, provenance, config) {
   await mkdir(path.join(output, ".codex-plugin"))
   await writeFile(
     path.join(output, ".codex-plugin/plugin.json"),
     json({
-      name: NAME,
+      name: config.name,
       version: VERSION,
-      description: "原助理图像编辑器，基于PhotoCraft修改，支持交互编辑与导出",
+      description: `${config.title} 原助理适配版，支持交互编辑与导出`,
       license: "MIT OR Apache-2.0",
       skills: "skills",
       mcpServers: ".mcp.json",
@@ -241,35 +276,5 @@ async function writeAuthorFiles(output, provenance) {
       },
     })
   )
-  await writeUsageFiles(output, provenance)
-}
-
-async function writeUsageFiles(output, provenance) {
-  await mkdir(path.join(output, "skills/image-editor"), { recursive: true })
-  await writeFile(
-    path.join(output, "skills/image-editor/SKILL.md"),
-    `---\nname: iyw-image-editor\ndescription: 在当前项目内打开、编辑和导出图像，通过原助理图像编辑插件与用户共用画布。\n---\n\n# 图像编辑\n\n通过search_iyw_capabilities发现插件能力，再用invoke_iyw_capability按capability_id调用。open_editor仅打开页面，不代表已经编辑。可选path必须是当前项目相对路径。页面就绪后才调用编辑工具；先读取文档状态，逐项核对结果，超时后查询实际状态，不自动重试写入。\n\n用户手动导出使用原助理保存确认，保存到当前设备。模型工具写项目文件前需要当前项目写入授权，已有路径保留原覆盖行为并须用户明确要求。不要把打开、发出下载或得到文件名当作落盘成功。\n\n此插件基于PhotoCraft 0.2.4修改，非ArtCraft官方产品；原许可及第三方声明在source/dist/licenses目录，修改记录见source/port-provenance.json。\n`
-  )
-  await writeFile(
-    path.join(output, "port-provenance.json"),
-    json({
-      name: NAME,
-      version: VERSION,
-      source: "photocraft@0.2.4",
-      ...provenance,
-      changes: [
-        "iyw-workspace-and-name",
-        "static-data-brand-text",
-        "conversation-editor-bridge",
-        "brotli-asset-integrity",
-        "host-confirmed-export",
-        "managed-private-editor-storage",
-        "restore-interface-after-upstream-bootstrap",
-      ],
-    })
-  )
-  await writeFile(
-    path.join(output, "README.md"),
-    `# 原助理图像编辑\n\n基于PhotoCraft修改的独立插件，非ArtCraft官方构建。MIT/Apache-2.0及第三方许可证完整保留在dist/licenses。受限ArtCraft文字标识从运行资产移除，PhotoCraft应用图标按其独立MIT/Apache-2.0许可证保留。WASM仅修改静态数据段的等长品牌文字并验证模块；Brotli压缩不删除任何许可，解压后仍按实际摘要校验。\n\n用户从云端自主选择安装和授权，不预置。当前为待验收制品，未发布；手动导出需原助理宿主保存能力。旧客户端须在发布端设置最低版本门禁。\n`
-  )
+  await writeUsageFiles(output, provenance, config)
 }

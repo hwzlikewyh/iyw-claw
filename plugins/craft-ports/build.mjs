@@ -1,8 +1,16 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, realpath, rename, rm } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+} from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { prepareCraft } from "./fork.mjs"
+import { craftConfig } from "./config.mjs"
 import { minimumClientVersion } from "../../src-tauri/experts/skills/plugin-creator/scripts/native-plugin/client-version.mjs"
 
 const values = process.argv.slice(2)
@@ -21,10 +29,17 @@ if (
     (key) => !["--source", "--output", "--min-client-version"].includes(key)
   )
 )
-  throw Error("Use --source <photocraft-0.2.4> --output <new-parent>")
+  throw Error(
+    "Use --source <photocraft-or-pdfcraft-0.2.4> --output <new-parent>"
+  )
 const source = await realpath(options["--source"]),
   output = path.resolve(options["--output"])
 minimumClientVersion(options["--min-client-version"])
+const config = craftConfig(
+  JSON.parse(
+    await readFile(path.join(source, ".zcode-plugin/plugin.json"), "utf8")
+  )
+)
 const relative = path.relative(source, output)
 if (!relative.startsWith("..") && !path.isAbsolute(relative))
   throw Error("Output must stay outside source cache")
@@ -33,7 +48,7 @@ const stage = await mkdtemp(path.join(output, ".craft-port-"))
 try {
   await prepareCraft(source, path.join(stage, "author"))
   const result = await capture(stage, options["--min-client-version"])
-  const target = path.join(output, "iyw-image-editor")
+  const target = path.join(output, config.name)
   await rename(path.join(stage, "package"), target)
   console.log(JSON.stringify({ ...result, output: target, published: false }))
 } finally {
