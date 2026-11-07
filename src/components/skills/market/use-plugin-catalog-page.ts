@@ -56,6 +56,7 @@ export function usePluginCatalogPage() {
       pageSize: position.pageSize,
       total: items.length,
       loading: catalog.loading,
+      unavailable: Boolean(catalog.error),
       onPageChange: (page: number) =>
         setPosition((current) => ({ ...current, page: marketPage(page) })),
       onPageSizeChange: (size: number) => {

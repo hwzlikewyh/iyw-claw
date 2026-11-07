@@ -12,25 +12,27 @@ export function MarketQuickPages(props: MarketPaginationProps) {
   return (
     <div className="ml-auto flex items-center gap-[7px] text-xs text-muted-foreground">
       <span role="status">
-        {props.loading
-          ? t("loading")
-          : pages == null
-            ? c("unknownPage", {
-                page: props.page,
-                count: props.itemCount ?? 0,
-              })
-            : c("quickPages", {
-                total: props.total ?? 0,
-                page: props.total ? props.page : 0,
-                pages: props.total ? pages : 0,
-              })}
+        {props.unavailable
+          ? c("unavailable")
+          : props.loading
+            ? t("loading")
+            : pages == null
+              ? c("unknownPage", {
+                  page: props.page,
+                  count: props.itemCount ?? 0,
+                })
+              : c("quickPages", {
+                  total: props.total ?? 0,
+                  page: props.total ? props.page : 0,
+                  pages: props.total ? pages : 0,
+                })}
       </span>
       <Button
         size="icon-sm"
         variant="ghost"
         className="rounded-md max-sm:min-h-11"
         aria-label={t("previous")}
-        disabled={props.loading || props.page <= 1}
+        disabled={props.unavailable || props.loading || props.page <= 1}
         onClick={() => props.onPageChange(props.page - 1)}
       >
         <ChevronLeft className="size-4" />
@@ -41,6 +43,7 @@ export function MarketQuickPages(props: MarketPaginationProps) {
         className="rounded-md max-sm:min-h-11"
         aria-label={t("next")}
         disabled={
+          props.unavailable ||
           props.loading ||
           (pages == null ? !props.hasMore : props.page >= pages)
         }

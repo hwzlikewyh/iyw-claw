@@ -60,6 +60,7 @@ export function useSkillMarketList(input: {
     reset,
     pagination: {
       ...position,
+      unavailable: Boolean(list.error),
       onPageChange: (page: number) => move(page, position.pageSize),
       onPageSizeChange: chooseSize,
       automaticPageSize: automatic,

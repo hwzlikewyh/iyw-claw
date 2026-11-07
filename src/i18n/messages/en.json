@@ -7166,6 +7166,8 @@
       "community": "Developer published",
       "organization": "Organization",
       "allSources": "All sources",
+      "empty": "No matching capabilities",
+      "unavailable": "Temporarily unavailable",
       "source": "Publisher source",
       "browse": "Browse market",
       "quickPages": "{total} items · {page} / {pages}",

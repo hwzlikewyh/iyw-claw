@@ -17,6 +17,7 @@ export interface MarketPaginationProps {
   itemCount?: number
   hasMore?: boolean
   loading: boolean
+  unavailable?: boolean
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
   automaticPageSize?: boolean

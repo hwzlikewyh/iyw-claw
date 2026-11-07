@@ -17,10 +17,11 @@ import {
   useCapabilityCatalog,
   type CatalogEntry,
 } from "./use-capability-catalog"
+import { useMarketPageFocus } from "./use-market-page-focus"
 
 export function CapabilityCatalogView() {
   const catalog = useCapabilityCatalog()
-  const market = useTranslations("SkillMarketV2")
+  const c = useTranslations("CapabilityMarket.catalog")
   const tasks = useConnectorInstallTasks()
   const [active, setActive] = useState<Extract<
     CatalogEntry,
@@ -28,8 +29,9 @@ export function CapabilityCatalogView() {
   > | null>(null)
   const { search, position, items, page, pagination, providers, change } =
     useCatalogPosition(catalog)
+  const root = useMarketPageFocus({ ...pagination, error: catalog.error })
   return (
-    <div className="@container">
+    <div ref={root} className="@container">
       <CatalogToolbar
         search={search}
         providers={providers}
@@ -46,10 +48,11 @@ export function CapabilityCatalogView() {
       />
       {!catalog.loading && !catalog.error && !items.length && (
         <p
+          data-market-result-state
           role="status"
           className="py-10 text-center text-sm text-muted-foreground"
         >
-          {market("list.empty")}
+          {c("empty")}
         </p>
       )}
       {!catalog.error && <MarketPagination {...pagination} />}
@@ -98,6 +101,7 @@ function useCatalogPosition(catalog: ReturnType<typeof useCapabilityCatalog>) {
       ),
     total: items.length,
     loading: catalog.loading,
+    unavailable: Boolean(catalog.error),
     onPageChange: (next: number) =>
       setPosition((value) => ({ ...value, page: next })),
     onPageSizeChange: (size: number) => {

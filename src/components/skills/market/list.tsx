@@ -3,7 +3,7 @@
 import { RotateCcw, SearchX } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import { useEffect, useRef } from "react"
+import { useMarketPageFocus } from "./use-market-page-focus"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SkillCard } from "@/components/skills/market/skill-card"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
@@ -39,7 +39,11 @@ function ListState({
     )
   }
   return (
-    <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 p-6 text-center">
+    <div
+      data-market-result-state
+      role={kind === "error" ? "alert" : "status"}
+      className="flex h-full min-h-64 flex-col items-center justify-center gap-2 p-6 text-center"
+    >
       {kind === "empty" ? (
         <SearchX className="size-6 text-muted-foreground" aria-hidden="true" />
       ) : null}
@@ -73,16 +77,7 @@ export interface SkillMarketListProps extends Omit<
 }
 
 export function SkillMarketList(props: SkillMarketListProps) {
-  const root = useRef<HTMLDivElement>(null)
-  const previous = useRef(props.page)
-  useEffect(() => {
-    if (props.loading || props.error || previous.current === props.page) return
-    previous.current = props.page
-    root.current?.closest("[data-market-scroll]")?.scrollTo({ top: 0 })
-    root.current
-      ?.querySelector<HTMLButtonElement>("[data-market-card-title]")
-      ?.focus({ preventScroll: true })
-  }, [props.page, props.loading, props.error])
+  const root = useMarketPageFocus(props)
   return (
     <div ref={root} className="@container min-w-0" aria-busy={props.loading}>
       <section>

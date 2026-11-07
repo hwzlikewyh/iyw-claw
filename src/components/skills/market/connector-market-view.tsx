@@ -22,6 +22,7 @@ import { useConnectorInstallTasks } from "./use-connector-install-tasks"
 import { ConnectorInstallTasks } from "./connector-install-tasks"
 import { connectorTaskActive } from "@/lib/connector-install-tasks"
 import { useIywAccount } from "@/contexts/iyw-account-context"
+import { useMarketPageFocus } from "./use-market-page-focus"
 
 export function ConnectorMarketView({ action }: { action?: MarketViewAction }) {
   const { profile, status } = useIywAccount()
@@ -58,6 +59,12 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
   } = useConnectorMarket(t("unavailable"))
   const [active, setActive] = useState<McpMarketplaceItem | null>(null)
   const [section, setSection] = useState("market")
+  const root = useMarketPageFocus({
+    page,
+    loading,
+    error,
+    enabled: section === "market",
+  })
   useMarketViewAction(action, (kind) => {
     if (kind === "installed" || kind === "market") setSection(kind)
     else toast.info(c("connectorManagement"))
@@ -71,6 +78,7 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
     itemCount: items.length,
     hasMore,
     loading,
+    unavailable: Boolean(error),
     onPageChange: (value: number) => setPage(value - 1),
     onPageSizeChange: setPageSize,
   }
@@ -96,7 +104,7 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
   }, [tasks.tasks, tasks.loaded, reload, t])
   const installedIds = new Set(installed.map((item) => item.id))
   return (
-    <div className="@container min-w-0">
+    <div ref={root} className="@container min-w-0">
       <div className="space-y-4">
         <div className="my-[18px] flex flex-wrap items-center gap-3">
           <div className="relative min-w-[170px] max-w-[330px] flex-1 max-sm:min-w-full max-sm:max-w-none">
@@ -212,7 +220,11 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
           <Loader2 className="size-5 animate-spin" aria-label={t("loading")} />
         )}
         {!loading && section === "market" && !items.length && !error && (
-          <p className="py-10 text-center text-sm text-muted-foreground">
+          <p
+            data-market-result-state
+            role="status"
+            className="py-10 text-center text-sm text-muted-foreground"
+          >
             {t("empty")}
           </p>
         )}

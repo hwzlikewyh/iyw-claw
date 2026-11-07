@@ -3,7 +3,7 @@
 import { CircleAlert, SearchX } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import { useEffect, useRef } from "react"
+import { useMarketPageFocus } from "./use-market-page-focus"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PluginMarketCard } from "./plugin-market-card"
 import { PluginMarketToolbar } from "./plugin-market-toolbar"
@@ -34,16 +34,7 @@ export function PluginMarketPreview({
     onQueryChange,
     onPublisherChange,
   } = usePluginCatalogPage()
-  const root = useRef<HTMLDivElement>(null)
-  const previousPage = useRef(pagination.page)
-  useEffect(() => {
-    if (catalog.loading || previousPage.current === pagination.page) return
-    previousPage.current = pagination.page
-    root.current?.closest("[data-market-scroll]")?.scrollTo({ top: 0 })
-    root.current
-      ?.querySelector<HTMLButtonElement>("[data-market-card-title]")
-      ?.focus({ preventScroll: true })
-  }, [catalog.loading, pagination.page])
+  const root = useMarketPageFocus({ ...pagination, error: catalog.error })
   return (
     <div ref={root} className="@container min-w-0 bg-background">
       <PluginMarketToolbar
@@ -117,6 +108,7 @@ function PluginCatalogState({
   const Icon = error ? CircleAlert : SearchX
   return (
     <div
+      data-market-result-state
       className="flex min-h-48 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
       role={error ? "alert" : "status"}
     >
