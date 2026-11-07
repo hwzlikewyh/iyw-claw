@@ -48,9 +48,13 @@ export function usePluginPanelTabs(
     )
     return () => clearTimeout(timer)
   }, [conversations])
-  const open = (app: PluginPanelChoice) =>
+  const open = (
+    app: PluginPanelChoice,
+    isCurrent: () => boolean = () => true
+  ) =>
     openPanel({
       app,
+      isCurrent,
       conversationId,
       tabs,
       transport,
@@ -118,6 +122,7 @@ function usePanelLifecycle(conversationId: number | null) {
 
 interface OpeningContext {
   app: PluginPanelChoice
+  isCurrent: () => boolean
   conversationId: number | null
   tabs: PluginPanelTab[]
   transport: ReturnType<typeof getTransport>
@@ -134,7 +139,11 @@ interface OpeningContext {
 
 async function openPanel(context: OpeningContext) {
   const { app, conversationId, lifecycle } = context
-  if (lifecycle.runningGeneration === lifecycle.generation || !conversationId)
+  if (
+    !context.isCurrent() ||
+    lifecycle.runningGeneration === lifecycle.generation ||
+    !conversationId
+  )
     return
   const existing = context.tabs.find(
     (tab) =>
@@ -160,7 +169,11 @@ async function openPanel(context: OpeningContext) {
       app,
       context.transport
     )
-    if (!lifecycle.alive || lifecycle.generation !== generation) {
+    if (
+      !context.isCurrent() ||
+      !lifecycle.alive ||
+      lifecycle.generation !== generation
+    ) {
       await context.transport.call("plugin_app_teardown", {
         request: { instanceId: response.launch.instanceId, conversationId },
       })

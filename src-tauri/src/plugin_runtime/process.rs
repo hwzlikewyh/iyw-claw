@@ -26,7 +26,7 @@ pub(super) fn spawn(spec: &RuntimeLaunchSpec) -> Result<SpawnedPluginProcess, Pl
     apply_account_environment(&mut command, &spec.plugin_data_dir)?;
     command.current_dir(&workspace);
     if spec.runtime_kind != "binary" {
-        command.arg(&entrypoint);
+        command.arg(script_entrypoint(&spec.runtime_kind, &entrypoint)?);
     }
     command
         .stdin(Stdio::piped())
@@ -129,6 +129,42 @@ fn runtime_program(kind: &str, entrypoint: &Path) -> Result<PathBuf, PluginInvok
         PluginInvokeError::before_effect("plugin_runtime_unavailable", "managed runtime missing")
     })?;
     canonical_file(&path, path.parent().unwrap_or(Path::new(".")), "runtime")
+}
+
+fn script_entrypoint(kind: &str, entrypoint: &Path) -> Result<PathBuf, PluginInvokeError> {
+    #[cfg(windows)]
+    if kind == "node" {
+        use std::path::{Component, Prefix};
+
+        let mut parts = entrypoint.components();
+        let mut argument = match parts.next() {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:", char::from(drive))),
+                Prefix::VerbatimUNC(server, share) => {
+                    let mut root = std::ffi::OsString::from(r"\\");
+                    root.push(server);
+                    root.push(r"\");
+                    root.push(share);
+                    PathBuf::from(root)
+                }
+                _ => return Ok(entrypoint.to_path_buf()),
+            },
+            _ => return Ok(entrypoint.to_path_buf()),
+        };
+        for part in parts {
+            argument.push(part.as_os_str());
+        }
+        // Node 的主入口解析不接受扩展路径；转换后仍须指向已经校验的同一文件。
+        if std::fs::canonicalize(&argument).ok().as_deref() != Some(entrypoint) {
+            return Err(PluginInvokeError::before_effect(
+                "plugin_path_invalid",
+                "Node entrypoint cannot be represented without changing its target",
+            ));
+        }
+        return Ok(argument);
+    }
+    let _ = kind;
+    Ok(entrypoint.to_path_buf())
 }
 
 fn canonical_directory(path: &Path, label: &str) -> Result<PathBuf, PluginInvokeError> {

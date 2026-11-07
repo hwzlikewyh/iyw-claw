@@ -6,9 +6,16 @@ import {
   mcpScanLocal,
   mcpSearchMarketplace,
 } from "@/lib/api"
-import type { LocalMcpServer, McpMarketplaceItem } from "@/lib/types"
+import type {
+  LocalMcpServer,
+  McpMarketplaceItem,
+  McpMarketplaceProvider,
+} from "@/lib/types"
+import {
+  DEFAULT_MARKET_PAGE_SIZE,
+  marketPageSize,
+} from "@/lib/market-pagination"
 
-const PAGE_SIZE = 20
 const SEARCH_DELAY_MS = 300
 
 interface PageResult {
@@ -16,19 +23,32 @@ interface PageResult {
   items: McpMarketplaceItem[]
   hasMore: boolean
   error: string
+  providers: McpMarketplaceProvider[]
 }
 
 export function useConnectorMarket(unavailable: string) {
-  const [search, setSearch] = useState({ query: "", page: 0 })
+  const [automaticPageSize, setAutomaticPageSize] = useState(true)
+  const [search, setSearch] = useState({
+    query: "",
+    page: 0,
+    pageSize: DEFAULT_MARKET_PAGE_SIZE as number,
+    providerId: "",
+  })
   const [revision, setRevision] = useState(0)
   const [installed, setInstalled] = useState<LocalMcpServer[]>([])
   const [result, setResult] = useState<PageResult | null>(null)
-  const key = JSON.stringify([search.query, search.page, revision])
+  const key = JSON.stringify([search, revision])
   useEffect(() => {
     let active = true
     const timer = setTimeout(
       async () => {
-        const next: PageResult = { key, items: [], hasMore: false, error: "" }
+        const next: PageResult = {
+          key,
+          items: [],
+          hasMore: false,
+          error: "",
+          providers: [],
+        }
         await loadPage({
           search,
           unavailable,
@@ -52,10 +72,32 @@ export function useConnectorMarket(unavailable: string) {
     installed,
     query: search.query,
     page: search.page,
+    pageSize: search.pageSize,
+    automaticPageSize,
+    setAutoPageSize: (size: number) =>
+      setSearch((value) =>
+        value.pageSize === size
+          ? value
+          : { ...value, page: 0, pageSize: marketPageSize(size) }
+      ),
+    providerId: search.providerId || current?.providers[0]?.id || "",
+    providers: current?.providers ?? [],
     loading: current == null,
     error: current?.error ?? "",
     hasMore: current?.hasMore ?? false,
-    setQuery: (query: string) => setSearch({ query, page: 0 }),
+    setQuery: (query: string) =>
+      setSearch((value) => ({ ...value, query, page: 0 })),
+    setPageSize: (size: number) => {
+      setAutomaticPageSize(size === 0)
+      if (size > 0)
+        setSearch((value) => ({
+          ...value,
+          page: 0,
+          pageSize: marketPageSize(size),
+        }))
+    },
+    setProviderId: (providerId: string) =>
+      setSearch((value) => ({ ...value, providerId, page: 0 })),
     setPage: (page: number) =>
       setSearch((current) => ({ ...current, page: Math.max(0, page) })),
     reload: async () => {
@@ -70,7 +112,7 @@ async function loadPage({
   next,
   updateInstalled,
 }: {
-  search: { query: string; page: number }
+  search: { query: string; page: number; pageSize: number; providerId: string }
   unavailable: string
   next: PageResult
   updateInstalled: (items: LocalMcpServer[]) => void
@@ -86,16 +128,27 @@ async function loadPage({
           item.spec.iyw_builtin == null && item.id !== "iyw-capability-gateway"
       )
     )
-    const provider = providers[0]
+    next.providers = providers
+    const provider = search.providerId
+      ? providers.find((item) => item.id === search.providerId)
+      : providers[0]
     if (!provider) throw new Error(unavailable)
-    const items = await mcpSearchMarketplace({
-      providerId: provider.id,
-      query: search.query.trim() || null,
-      offset: search.page * PAGE_SIZE,
-      limit: PAGE_SIZE + 1,
-    })
-    next.items = items.slice(0, PAGE_SIZE)
-    next.hasMore = items.length > PAGE_SIZE
+    const items: McpMarketplaceItem[] = []
+    const needed = search.pageSize + 1
+    const batchSize = 50
+    while (items.length < needed) {
+      const limit = Math.min(batchSize, needed - items.length)
+      const batch = await mcpSearchMarketplace({
+        providerId: provider.id,
+        query: search.query.trim() || null,
+        offset: search.page * search.pageSize + items.length,
+        limit,
+      })
+      items.push(...batch)
+      if (batch.length < limit) break
+    }
+    next.items = items.slice(0, search.pageSize)
+    next.hasMore = items.length > search.pageSize
   } catch (cause) {
     next.error = String(cause)
   }

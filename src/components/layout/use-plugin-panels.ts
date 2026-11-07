@@ -4,6 +4,7 @@ import { useTabStore } from "@/contexts/tab-context"
 import { usePluginPanelChoices } from "./use-plugin-panel-choices"
 import { usePluginPanelTabs } from "./use-plugin-panel-tabs"
 import { usePluginPanelUpdates } from "./use-plugin-panel-updates"
+import { usePluginPanelOpenIntent } from "./use-plugin-panel-open-intent"
 export type { PluginPanelTab } from "./use-plugin-panel-tabs"
 
 export function usePluginPanels() {
@@ -26,11 +27,18 @@ export function usePluginPanels() {
   const tabs = usePluginPanelTabs(conversationId, conversations)
   const catalog = usePluginPanelChoices(conversationId, tabs.transport)
   const updates = usePluginPanelUpdates(tabs.tabs, tabs.transport)
+  const intent = usePluginPanelOpenIntent({
+    conversationId,
+    transport: tabs.transport,
+    open: tabs.open,
+  })
   return {
     ...tabs,
     ...catalog,
     updates,
     conversationId,
-    error: tabs.error || catalog.catalogError,
+    open: intent.open,
+    busy: tabs.busy || intent.busy,
+    error: intent.error || tabs.error || catalog.catalogError,
   }
 }

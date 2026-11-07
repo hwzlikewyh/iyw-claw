@@ -7016,18 +7016,19 @@
   },
   "CapabilityMarket": {
     "title": "能力市场",
-    "subtitle": "为工作流扩展可复用能力",
+    "subtitle": "为当前任务添加技能、连接器和插件。",
     "navLabel": "能力类型",
     "preview": "预留",
     "sections": {
       "skills": "技能",
       "connectors": "连接器",
-      "plugins": "插件"
+      "plugins": "插件",
+      "all": "全部"
     },
     "sectionHints": {
       "skills": "发现并安装可复用的任务方法",
       "connectors": "连接外部服务，并管理全局启用状态",
-      "plugins": "组合技能、连接器与绑定关系"
+      "plugins": "安装独立插件，使用交互应用与扩展能力"
     },
     "featured": {
       "title": "精选工作流",
@@ -7093,7 +7094,7 @@
     "plugins": {
       "eyebrow": "插件市场",
       "title": "以能力包交付一整套工作方式",
-      "description": "插件是可版本化、可升级和可卸载的分发单元。它把多个技能、连接器及其绑定关系打包在一起，但不会复制技能实现。",
+      "description": "插件是独立、可版本化的扩展，可提供完整交互应用、运行时、工具、连接器或技能。用户按需下载安装与授权。",
       "parts": {
         "skills": "技能",
         "connectors": "连接器",
@@ -7147,7 +7148,32 @@
         }
       }
     },
-    "shortTitle": "能力市场"
+    "shortTitle": "能力市场",
+    "catalog": {
+      "skill": "技能",
+      "connector": "连接器",
+      "plugin": "插件",
+      "myUploads": "我的上传",
+      "createUpload": "创建 / 上传",
+      "installed": "已安装",
+      "details": "查看详情",
+      "manage": "管理",
+      "version": "版本 {version}",
+      "installedVersion": "已安装 · {version}",
+      "noDescription": "暂未提供说明",
+      "uncategorized": "未分类",
+      "official": "平台提供",
+      "community": "开发者发布",
+      "organization": "组织内部",
+      "allSources": "所有来源",
+      "source": "发布来源",
+      "browse": "浏览市场",
+      "quickPages": "{total} 项 · {page} / {pages} 页",
+      "unknownPage": "第 {page} 页 · 本页 {count} 项",
+      "connectorManagement": "连接器上传与发布由后台管理。用户在此选择安装、配置与用于当前对话。",
+      "chooseType": "选择能力类型",
+      "chooseTypeHint": "技能、连接器和插件分别管理，选择要操作的类型。"
+    }
   },
   "SkillMarketV2": {
     "title": "技能市场",
@@ -7307,6 +7333,7 @@
       "error": "无法加载详情",
       "retry": "重试",
       "about": "Skill 简介",
+      "aboutPlugin": "插件简介",
       "currentVersion": "当前版本",
       "fileCountLabel": "文件",
       "noReleaseNotes": "此版本没有发布说明。",
@@ -7321,12 +7348,12 @@
         "unavailable": "状态不可用",
         "inactive": "已停用",
         "partial": "部分启用",
-        "active": "正在使用",
+        "active": "配置已启用",
         "not_installedHint": "安装后将在所选 Agent 中默认启用。",
         "loadingHint": "正在扫描本机 Skill。",
         "connector_onlyHint": "此插件不包含 Skill，连接器安装后默认关闭，需单独配置。",
         "unavailableHint": "未找到可管理的本地 Skill 组件。",
-        "count": "{enabled}/{total} 个 Agent 已完全启用",
+        "count": "{enabled}/{total} 个智能体已启用组件；连接与界面需单独检查",
         "componentCount": "{enabled}/{total} 个组件",
         "toggle": "启用或停用这个 Skill",
         "targets": "启用目标",
@@ -8087,6 +8114,7 @@
     "previous": "上一页",
     "next": "下一页",
     "page": "第 {page} 页",
-    "range": "第 {start}–{end} 项，共 {total} 项"
+    "range": "第 {start}–{end} 项，共 {total} 项",
+    "automatic": "自动适应（{count} 项）"
   }
 }

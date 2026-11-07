@@ -7016,18 +7016,19 @@
   },
   "CapabilityMarket": {
     "title": "Capability Market",
-    "subtitle": "Extend workflows with reusable capabilities",
+    "subtitle": "Add skills, connectors, and plugins for the current task.",
     "navLabel": "Capability types",
     "preview": "Preview",
     "sections": {
       "skills": "Skills",
       "connectors": "Connectors",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "all": "All"
     },
     "sectionHints": {
       "skills": "Discover and install reusable task methods",
       "connectors": "Connect services and manage global availability",
-      "plugins": "Bundle skills, connectors, and bindings"
+      "plugins": "Install independent plugins with interactive apps and capabilities"
     },
     "featured": {
       "title": "Featured workflows",
@@ -7093,7 +7094,7 @@
     "plugins": {
       "eyebrow": "Plugin market",
       "title": "Deliver a complete way of working as one bundle",
-      "description": "A plugin is a versioned distribution unit that can be upgraded or uninstalled. It packages skills, connectors, and their bindings without copying skill implementations.",
+      "description": "Plugins are versioned extensions that can provide interactive apps, runtimes, tools, connectors, or skills. Download and authorize only what you choose.",
       "parts": {
         "skills": "Skills",
         "connectors": "Connectors",
@@ -7147,7 +7148,32 @@
         }
       }
     },
-    "shortTitle": "Market"
+    "shortTitle": "Market",
+    "catalog": {
+      "skill": "Skill",
+      "connector": "Connector",
+      "plugin": "Plugin",
+      "myUploads": "My uploads",
+      "createUpload": "Create / upload",
+      "installed": "Installed",
+      "details": "View details",
+      "manage": "Manage",
+      "version": "Version {version}",
+      "installedVersion": "Installed · {version}",
+      "noDescription": "No description provided",
+      "uncategorized": "Uncategorized",
+      "official": "Platform provided",
+      "community": "Developer published",
+      "organization": "Organization",
+      "allSources": "All sources",
+      "source": "Publisher source",
+      "browse": "Browse market",
+      "quickPages": "{total} items · {page} / {pages}",
+      "unknownPage": "Page {page} · {count} items",
+      "connectorManagement": "Connector uploads and publishing are managed in the admin console. Choose installation, configuration, and conversation use here.",
+      "chooseType": "Choose capability type",
+      "chooseTypeHint": "Skills, connectors, and plugins are managed separately. Choose a type."
+    }
   },
   "SkillMarketV2": {
     "title": "Skill Market",
@@ -7307,6 +7333,7 @@
       "error": "Failed to load details",
       "retry": "Retry",
       "about": "About this Skill",
+      "aboutPlugin": "About this plugin",
       "currentVersion": "Current version",
       "fileCountLabel": "Files",
       "noReleaseNotes": "No release notes are available for this version.",
@@ -7321,12 +7348,12 @@
         "unavailable": "State unavailable",
         "inactive": "Disabled",
         "partial": "Partially enabled",
-        "active": "In use",
+        "active": "Configuration enabled",
         "not_installedHint": "Installation enables the Skill for selected Agents by default.",
         "loadingHint": "Scanning local Skills.",
         "connector_onlyHint": "This plugin has no Skill components. Connectors remain off until configured separately.",
         "unavailableHint": "No manageable local Skill component was found.",
-        "count": "{enabled}/{total} Agents fully enabled",
+        "count": "Components enabled for {enabled}/{total} agents; connection and app readiness are checked separately",
         "componentCount": "{enabled}/{total} components",
         "toggle": "Enable or disable this Skill",
         "targets": "Enabled for",
@@ -8087,6 +8114,7 @@
     "previous": "Previous page",
     "next": "Next page",
     "page": "Page {page}",
-    "range": "{start}–{end} of {total}"
+    "range": "{start}–{end} of {total}",
+    "automatic": "Fit available space ({count})"
   }
 }

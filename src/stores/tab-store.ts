@@ -200,6 +200,7 @@ export interface TabStoreState {
     initialComposerText?: string
     targetGroup?: string
     independentDraft?: { id: string; agentType: AgentType }
+    intent?: "new" | "initialize"
   }) => void
   consumePendingComposerText: (tabId: string) => void
   setChatDraftWorkingDir: (tabId: string, workingDir: string) => void
@@ -280,6 +281,19 @@ const childSeedBuffer = new Map<
 >()
 let seedEpoch = 0
 const previewReplacedCallbacks = new Set<(tabId: string) => void>()
+const newConversationCallbacks = new Set<(tabId: string) => void>()
+
+export function onNewConversationOpened(callback: (tabId: string) => void) {
+  newConversationCallbacks.add(callback)
+  return () => {
+    newConversationCallbacks.delete(callback)
+  }
+}
+
+function notifyNewConversationOpened(tabId: string) {
+  if (useTabStore.getState().activeTabId !== tabId) return
+  for (const callback of newConversationCallbacks) callback(tabId)
+}
 let correctionRan = false
 let recoveryRan = false
 // Tracks the last `conversations` reference recomputeTabs derived against, so
@@ -891,6 +905,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       })
       recomputeTabs()
       runtime.activateConversationPane()
+      notifyNewConversationOpened(tabId)
       return
     }
 
@@ -951,6 +966,8 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     }
     focusTab(existingTab.id)
     runtime.activateConversationPane()
+    if (!folderChanged && !agentChanged)
+      notifyNewConversationOpened(existingTab.id)
   },
 
   openChatModeTab: (options) => {
@@ -1101,6 +1118,8 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     focusTab(existingTab?.id ?? tabId)
 
     runtime.activateConversationPane()
+    if (options?.intent !== "initialize")
+      notifyNewConversationOpened(existingTab?.id ?? tabId)
   },
 
   consumePendingComposerText: (tabId) => {
@@ -1238,7 +1257,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   hydrate: () => {
     if (get().tabsHydrated) return
     if (get().rawTabs.length === 0 && !isConversationWindowPending()) {
-      get().openChatModeTab()
+      get().openChatModeTab({ intent: "initialize" })
     }
     set({ tabsHydrated: true })
     applyGroupInvariants()
@@ -1430,7 +1449,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   },
 
   recoverActiveContext: () => {
-    get().openChatModeTab()
+    get().openChatModeTab({ intent: "initialize" })
   },
 
   consumePreviewReplaced: () => {
@@ -1472,6 +1491,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
           if (!replaced) return
         } catch (err) {
           console.error("[TabStore] disconnect draft tab:", err)
+          return
         }
 
         const rawTabs = get().rawTabs
@@ -1499,6 +1519,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
           ),
         })
         recomputeTabs()
+        notifyNewConversationOpened(request.tabId)
       })()
     }
   },

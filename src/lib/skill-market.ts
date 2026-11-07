@@ -466,6 +466,7 @@ export type SkillMarketInstallState =
 export type SkillMarketSort = "recommended" | "updated" | "name" | "installed"
 
 export type SkillMarketViewV2 =
+  | "all"
   | "market"
   | "organization"
   | "mine"

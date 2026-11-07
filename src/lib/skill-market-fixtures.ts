@@ -674,6 +674,8 @@ function matchesView(
   view: SkillMarketListQueryV2["view"]
 ): boolean {
   switch (view) {
+    case "all":
+      return true
     case "market":
       return item.audience === "global_market"
     case "organization":

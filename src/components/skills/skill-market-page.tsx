@@ -1,6 +1,7 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import type { MarketViewAction } from "./market/market-view-action"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { onTransportChange } from "@/lib/transport"
 import {
@@ -11,6 +12,15 @@ import { ConnectorMarketView } from "@/components/skills/market/connector-market
 import { SkillMarketView } from "@/components/skills/market/view"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn } from "@/lib/utils"
+import { CapabilityCatalogView } from "./market/capability-catalog-view"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { useTranslations } from "next-intl"
 
 export function SkillMarketPage() {
   const { profile, status } = useIywAccount()
@@ -33,6 +43,7 @@ export function SkillMarketPage() {
 }
 
 function SkillMarketContent() {
+  const t = useTranslations("CapabilityMarket")
   const {
     skillMarketTarget,
     consumeSkillMarketTarget,
@@ -41,9 +52,16 @@ function SkillMarketContent() {
     pluginMarketRequested,
     consumePluginMarket,
   } = useWorkbenchRoute()
-  const [section, setSection] = useState<CapabilityMarketSection>("skills")
+  const [section, setSection] = useState<CapabilityMarketSection>("all")
+  const [chooseAction, setChooseAction] = useState<
+    MarketViewAction["kind"] | null
+  >(null)
+  const sequence = useRef(0)
+  const [actions, setActions] = useState<
+    Partial<Record<CapabilityMarketSection, MarketViewAction>>
+  >({})
   const [visited, setVisited] = useState<Set<CapabilityMarketSection>>(
-    () => new Set(["skills"])
+    () => new Set(["all", "skills"])
   )
 
   const openSection = useCallback((next: CapabilityMarketSection) => {
@@ -89,9 +107,54 @@ function SkillMarketContent() {
       <CapabilityMarketShell
         activeSection={section}
         onSectionChange={openSection}
+        onAction={(kind) => {
+          if (section === "all") {
+            setChooseAction(kind)
+            return
+          }
+          setActions((current) => ({
+            ...current,
+            [section]: { id: ++sequence.current, kind },
+          }))
+        }}
       >
-        <div className={cn("h-full", section !== "skills" && "hidden")}>
+        <div className={cn(section !== "all" && "hidden")}>
+          <CapabilityCatalogView />
+        </div>
+        <Dialog
+          open={chooseAction != null}
+          onOpenChange={(open) => {
+            if (!open) setChooseAction(null)
+          }}
+        >
+          <DialogContent>
+            <DialogTitle>{t("catalog.chooseType")}</DialogTitle>
+            <DialogDescription>{t("catalog.chooseTypeHint")}</DialogDescription>
+            <div className="flex flex-wrap gap-3">
+              {(["skills", "connectors", "plugins"] as const).map((type) => (
+                <Button
+                  key={type}
+                  variant="outline"
+                  onClick={() => {
+                    const kind = chooseAction
+                    setChooseAction(null)
+                    openSection(type)
+                    if (kind)
+                      setActions((current) => ({
+                        ...current,
+                        [type]: { id: ++sequence.current, kind },
+                      }))
+                  }}
+                >
+                  {t(`sections.${type}`)}
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+        <div className={cn(section !== "skills" && "hidden")}>
           <SkillMarketView
+            action={actions.skills}
             navigationTarget={
               skillMarketTarget?.packageType === "plugin"
                 ? null
@@ -102,13 +165,14 @@ function SkillMarketContent() {
           />
         </div>
         {visited.has("connectors") ? (
-          <div className={cn("h-full", section !== "connectors" && "hidden")}>
-            <ConnectorMarketView />
+          <div className={cn(section !== "connectors" && "hidden")}>
+            <ConnectorMarketView action={actions.connectors} />
           </div>
         ) : null}
         {visited.has("plugins") ? (
-          <div className={cn("h-full", section !== "plugins" && "hidden")}>
+          <div className={cn(section !== "plugins" && "hidden")}>
             <SkillMarketView
+              action={actions.plugins}
               packageType="plugin"
               navigationTarget={
                 skillMarketTarget?.packageType === "plugin"

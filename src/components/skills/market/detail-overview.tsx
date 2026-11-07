@@ -35,7 +35,13 @@ export function DetailOverview({
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="text-sm font-semibold">{t("detail.about")}</h3>
+        <h3 className="text-sm font-semibold">
+          {t(
+            detail.packageType === "plugin"
+              ? "detail.aboutPlugin"
+              : "detail.about"
+          )}
+        </h3>
         <p className="mt-2 text-sm leading-7 text-muted-foreground">
           {detail.summary}
         </p>

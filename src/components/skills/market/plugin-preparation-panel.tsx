@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useTabStore } from "@/contexts/tab-context"
 import { onTransportChange } from "@/lib/transport"
+import { notifyPluginPreparation } from "@/lib/plugin-preparation-events"
 import type { PluginPreparation } from "@/lib/plugin-preparation"
 import { usePluginPreparation } from "./use-plugin-preparation"
 import { usePluginWorkspace } from "./use-plugin-workspace"
@@ -122,7 +123,14 @@ function PreparationContent(props: ContextProps) {
           enabled={review.enabled}
           busy={state.busy}
           error={state.error}
-          onClose={() => setReview(null)}
+          onClose={() => {
+            setReview(null)
+            notifyPluginPreparation({
+              pluginId: props.marketSkillId,
+              conversationId: props.conversationId,
+              canceled: true,
+            })
+          }}
           onConfirm={() =>
             void state.mutate(review.view, review.enabled).then((success) => {
               if (success) setReview(null)

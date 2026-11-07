@@ -1,18 +1,21 @@
 "use client"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { marketItemFallbackInitial } from "@/lib/skill-market"
+import { Box, Plug, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export function MarketItemIcon({
   name,
   src,
   className,
+  kind = "skill",
 }: {
   name: string
   src?: string | null
   className?: string
+  kind?: "skill" | "connector" | "plugin"
 }) {
+  const Icon = kind === "plugin" ? Box : kind === "connector" ? Plug : Sparkles
   return (
     <Avatar
       className={cn(
@@ -22,8 +25,11 @@ export function MarketItemIcon({
       aria-hidden="true"
     >
       {src ? <AvatarImage className="rounded-none" src={src} alt="" /> : null}
-      <AvatarFallback className="rounded-none bg-primary/10 text-base font-semibold text-primary">
-        {marketItemFallbackInitial(name)}
+      <AvatarFallback
+        className="rounded-none bg-transparent text-muted-foreground"
+        title={name}
+      >
+        <Icon className="size-full max-h-7 max-w-7" strokeWidth={1.5} />
       </AvatarFallback>
     </Avatar>
   )

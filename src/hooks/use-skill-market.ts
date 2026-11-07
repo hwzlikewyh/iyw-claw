@@ -77,6 +77,7 @@ export interface SkillMarketQueryState {
 }
 
 const VIEWS: SkillMarketViewV2[] = [
+  "all",
   "market",
   "organization",
   "mine",
@@ -125,7 +126,7 @@ function parseQuery(searchParams: URLSearchParams): SkillMarketQueryState {
   return {
     view: isView(searchParams.get("view"))
       ? (searchParams.get("view") as SkillMarketViewV2)
-      : "market",
+      : "all",
     publisher: isPublisher(searchParams.get("publisher"))
       ? (searchParams.get("publisher") as SkillMarketPublisher | "all")
       : "all",
@@ -177,7 +178,7 @@ function persistQuery(query: SkillMarketQueryState): void {
     "page",
   ])
     params.delete(key)
-  if (query.view !== "market") params.set("view", query.view)
+  if (query.view !== "all") params.set("view", query.view)
   if (query.publisher !== "all") params.set("publisher", query.publisher)
   if (query.distribution !== "all")
     params.set("distribution", query.distribution)

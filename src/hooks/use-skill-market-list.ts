@@ -31,8 +31,17 @@ export function useSkillMarketList(input: {
   const { query, source, metric, packageType } = input
   const [list, setList] = useState(INITIAL_LIST)
   const requestRef = useRef({ value: 0 })
-  const { position, setPosition, revision, refresh, reset, move } =
-    useListControls(input.initial, requestRef, setList)
+  const {
+    position,
+    setPosition,
+    revision,
+    refresh,
+    reset,
+    move,
+    automatic,
+    chooseSize,
+    autoSize,
+  } = useListControls(input.initial, requestRef, setList)
   useCatalogRequest({
     packageType,
     query,
@@ -52,7 +61,9 @@ export function useSkillMarketList(input: {
     pagination: {
       ...position,
       onPageChange: (page: number) => move(page, position.pageSize),
-      onPageSizeChange: (size: number) => move(1, size),
+      onPageSizeChange: chooseSize,
+      automaticPageSize: automatic,
+      onAutoPageSizeChange: autoSize,
     },
   }
 }
@@ -62,6 +73,9 @@ function useListControls(
   requestRef: React.RefObject<{ value: number }>,
   setList: React.Dispatch<React.SetStateAction<typeof INITIAL_LIST>>
 ) {
+  const [automatic, setAutomatic] = useState(
+    () => !initial.pageSize || initial.pageSize === "auto"
+  )
   const [position, setPosition] = useState(() => ({
     page: marketPage(initial.page),
     pageSize: marketPageSize(initial.pageSize),
@@ -86,11 +100,26 @@ function useListControls(
     setList(INITIAL_LIST)
     setPosition((value) => ({ ...value, page: 1 }))
   }, [requestRef, setList])
+  const chooseSize = (size: number) => {
+    setAutomatic(size === 0)
+    if (size > 0) move(1, size)
+  }
+  const autoSize = useCallback((size: number) => move(1, size), [move])
   useEffect(() => {
     if (initial.persist !== false)
-      persistMarketPage(position.page, position.pageSize)
-  }, [position, initial.persist])
-  return { position, setPosition, revision, refresh, reset, move }
+      persistMarketPage(position.page, position.pageSize, automatic)
+  }, [position, initial.persist, automatic])
+  return {
+    position,
+    setPosition,
+    revision,
+    refresh,
+    reset,
+    move,
+    automatic,
+    chooseSize,
+    autoSize,
+  }
 }
 
 function invalidateList(

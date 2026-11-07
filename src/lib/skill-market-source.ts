@@ -318,7 +318,9 @@ class TransportSkillMarketSource implements SkillMarketSource {
     const localInstallView =
       query.view === "installed" || query.view === "needs_update"
     const audienceView =
-      query.view === "market" || query.view === "organization"
+      query.view === "all" ||
+      query.view === "market" ||
+      query.view === "organization"
     const complete =
       query.packageType !== undefined ||
       localInstallView ||

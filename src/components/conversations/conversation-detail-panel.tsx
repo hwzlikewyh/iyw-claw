@@ -4065,7 +4065,7 @@ export function ConversationDetailPanel() {
     if (!folder) return
 
     if (hasNoTabs) {
-      openChatModeTab()
+      openChatModeTab({ intent: "initialize" })
     }
   }, [folder, hasNoTabs, openChatModeTab])
 

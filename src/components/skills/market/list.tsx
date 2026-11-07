@@ -3,7 +3,7 @@
 import { RotateCcw, SearchX } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { useEffect, useRef } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SkillCard } from "@/components/skills/market/skill-card"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
@@ -24,9 +24,16 @@ function ListState({
   const t = useTranslations("SkillMarketV2")
   if (kind === "loading") {
     return (
-      <div className="grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5">
+      <div
+        data-market-grid
+        className="grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
+      >
         {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-52 rounded-lg" />
+          <Skeleton
+            data-market-skeleton
+            key={index}
+            className="h-52 rounded-lg"
+          />
         ))}
       </div>
     )
@@ -66,15 +73,22 @@ export interface SkillMarketListProps extends Omit<
 }
 
 export function SkillMarketList(props: SkillMarketListProps) {
+  const root = useRef<HTMLDivElement>(null)
+  const previous = useRef(props.page)
+  useEffect(() => {
+    if (props.loading || props.error || previous.current === props.page) return
+    previous.current = props.page
+    root.current?.closest("[data-market-scroll]")?.scrollTo({ top: 0 })
+    root.current
+      ?.querySelector<HTMLButtonElement>("[data-market-card-title]")
+      ?.focus({ preventScroll: true })
+  }, [props.page, props.loading, props.error])
   return (
-    <div
-      className="@container flex h-full min-h-0 flex-col"
-      aria-busy={props.loading}
-    >
-      <section className="min-h-0 flex-1 overflow-hidden">
+    <div ref={root} className="@container min-w-0" aria-busy={props.loading}>
+      <section>
         <SkillPageContent {...props} />
       </section>
-      <MarketPagination {...props} />
+      {!props.error && <MarketPagination {...props} />}
     </div>
   )
 }
@@ -88,18 +102,19 @@ function SkillPageContent(props: SkillMarketListProps) {
   if (!props.items.length)
     return <ListState kind="empty" onRetry={props.onRetry} />
   return (
-    <ScrollArea key={`${props.page}:${props.pageSize}`} className="h-full">
-      <div className="grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5">
-        {props.items.map((item) => (
-          <SkillCard
-            key={item.id}
-            item={item}
-            selected={props.selectedId === item.id}
-            onSelect={props.onSelect}
-            onPrimaryAction={props.onPrimaryAction}
-          />
-        ))}
-      </div>
-    </ScrollArea>
+    <div
+      data-market-grid
+      className="grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
+    >
+      {props.items.map((item) => (
+        <SkillCard
+          key={item.id}
+          item={item}
+          selected={props.selectedId === item.id}
+          onSelect={props.onSelect}
+          onPrimaryAction={props.onPrimaryAction}
+        />
+      ))}
+    </div>
   )
 }

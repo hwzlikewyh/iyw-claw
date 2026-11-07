@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport"
 import { extractAppCommandError } from "@/lib/app-error"
+import { notifyPluginPreparation } from "@/lib/plugin-preparation-events"
 import {
   readPluginPreparation,
   changePluginPreparation,
@@ -47,11 +48,15 @@ export function usePluginPreparation(
     setError("")
     setRevision((value) => value + 1)
   }, [])
-  const applyView = useCallback((value: PluginPreparation) => {
-    if (token.current !== value.contextToken) setConnection(null)
-    token.current = value.contextToken
-    setView(value)
-  }, [])
+  const applyView = useCallback(
+    (value: PluginPreparation) => {
+      if (token.current !== value.contextToken) setConnection(null)
+      token.current = value.contextToken
+      setView(value)
+      notifyPluginPreparation({ pluginId: id, conversationId })
+    },
+    [id, conversationId]
+  )
   const lifecycle: Lifecycle = {
     id,
     conversationId,
@@ -72,7 +77,10 @@ export function usePluginPreparation(
     error,
     refresh,
     applyView,
-    clearConnection: () => setConnection(null),
+    clearConnection: () => {
+      setConnection(null)
+      notifyPluginPreparation({ pluginId: id, conversationId })
+    },
     ...actions,
   }
 }
