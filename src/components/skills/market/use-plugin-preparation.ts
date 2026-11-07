@@ -53,6 +53,7 @@ export function usePluginPreparation(
       if (token.current !== value.contextToken) setConnection(null)
       token.current = value.contextToken
       setView(value)
+      setError("")
       notifyPluginPreparation({ pluginId: id, conversationId })
     },
     [id, conversationId]
@@ -150,9 +151,9 @@ function usePreparationRead(input: Lifecycle, revision: number) {
     alive.current = true
     let timer: ReturnType<typeof setTimeout>
     const read = async () => {
+      const generation = callbacks.current.generation.current
       try {
         if (!running.current) {
-          const generation = callbacks.current.generation.current
           const value = await readPluginPreparation(
             { marketSkillId: input.id, conversationId: input.conversationId },
             input.transport
@@ -165,7 +166,11 @@ function usePreparationRead(input: Lifecycle, revision: number) {
             callbacks.current.onView(value)
         }
       } catch (cause) {
-        if (active) {
+        if (
+          active &&
+          !running.current &&
+          callbacks.current.generation.current === generation
+        ) {
           callbacks.current.onConnection(null)
           callbacks.current.onError(errorText(cause))
         }

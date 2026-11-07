@@ -7172,7 +7172,15 @@
       "unknownPage": "第 {page} 页 · 本页 {count} 项",
       "connectorManagement": "连接器上传与发布由后台管理。用户在此选择安装、配置与用于当前对话。",
       "chooseType": "选择能力类型",
-      "chooseTypeHint": "技能、连接器和插件分别管理，选择要操作的类型。"
+      "chooseTypeHint": "技能、连接器和插件分别管理，选择要操作的类型。",
+      "status": {
+        "building": "正在准备安装包",
+        "buildFailed": "安装包构建失败",
+        "incompatible": "当前客户端或平台不兼容",
+        "update": "有可用更新",
+        "blocked": "当前版本已阻止使用",
+        "preparing": "正在准备"
+      }
     }
   },
   "SkillMarketV2": {
@@ -7537,7 +7545,11 @@
       "reviewLine": "版本 {version} · {files} 个文件",
       "buildHint": "上传完成不等于可安装：制品构建完成后才会出现在可安装列表。",
       "publish": "发布",
-      "addVersionSubmit": "提交新版本"
+      "addVersionSubmit": "提交新版本",
+      "pluginTitle": "上传插件",
+      "pluginSelectFolder": "选择插件目录",
+      "pluginSubtitle": "发布独立插件包，保留交互应用、工具、运行时与组成声明。",
+      "pluginFolderHint": "选择包含 .iyw-plugin.json 的插件目录；插件不要求根目录存在 SKILL.md。"
     },
     "viewLabel": "浏览范围"
   },
@@ -7919,7 +7931,10 @@
       "dependency_required": "先完成依赖准备",
       "disabled": "需在当前项目启用",
       "unavailable": "请检查安装版本"
-    }
+    },
+    "openNamed": "打开 {name}",
+    "openUnavailable": "请返回对话工作区，再打开此插件。",
+    "retryOpen": "重新打开插件"
   },
   "PluginRemoval": {
     "recover": "恢复中断的安装",

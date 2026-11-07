@@ -5,7 +5,10 @@ import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { usePluginWorkspace } from "@/components/skills/market/use-plugin-workspace"
 import { getTransport } from "@/lib/transport"
 import { readPluginPanels, type PluginPanelChoice } from "@/lib/plugin-panel"
-import { onPluginPreparation } from "@/lib/plugin-preparation-events"
+import {
+  onPluginPreparation,
+  onPluginApplicationOpen,
+} from "@/lib/plugin-preparation-events"
 import { onNewConversationOpened } from "@/stores/tab-store"
 import { pluginPanelError } from "./use-plugin-panel-choices"
 import { usePluginMarketNavigation } from "./use-plugin-market-navigation"
@@ -28,7 +31,7 @@ export function usePluginPanelOpenIntent(options: Options) {
   const workspace = usePluginWorkspace(tabId)
   const route = useWorkbenchRoute()
   const navigation = usePluginMarketNavigation()
-  const { isOpen } = useAuxPanelContext()
+  const { isOpen, openTab } = useAuxPanelContext()
   const pending = useRef<OpenIntent | null>(null)
   const [revision, setRevision] = useState(0)
   const [error, setError] = useState("")
@@ -69,7 +72,28 @@ export function usePluginPanelOpenIntent(options: Options) {
   }
 
   useAdvanceIntent({ options, pending, latest, revision, setError, setBusy })
+  useApplicationOpenRequest((app) => {
+    route.openConversations()
+    openTab("home")
+    return open(app)
+  })
   return { open, busy: busy || workspace.busy, error: error || workspace.error }
+}
+
+function useApplicationOpenRequest(
+  open: (app: PluginPanelChoice) => Promise<void>
+) {
+  const openRef = useRef(open)
+  useEffect(() => {
+    openRef.current = open
+  })
+  useEffect(
+    () =>
+      onPluginApplicationOpen((app) => {
+        void openRef.current(app)
+      }),
+    []
+  )
 }
 
 function useHiddenIntentCancellation({

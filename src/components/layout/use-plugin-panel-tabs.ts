@@ -12,6 +12,7 @@ import { launchPluginPanel, type PluginPanelChoice } from "@/lib/plugin-panel"
 import type { PluginAppOpenResponse } from "@/lib/api"
 import { requestPluginAppTeardown } from "@/lib/plugin-app-teardown"
 import { pluginPanelError } from "./use-plugin-panel-choices"
+import { usePluginPanelRetry } from "./use-plugin-panel-retry"
 
 export interface PluginPanelTab {
   id: string
@@ -37,6 +38,12 @@ export function usePluginPanelTabs(
   const panel = useAuxPanelContext()
   const { openTab, setWidth, width } = panel
   const close = usePanelClose({ panel, setTabs, setError, lifecycle })
+  const retry = usePluginPanelRetry({
+    tabs,
+    close,
+    transport,
+    onError: setError,
+  })
   useEffect(() => {
     const ids = new Set(conversations.split(",").map(Number))
     const timer = setTimeout(
@@ -74,6 +81,7 @@ export function usePluginPanelTabs(
     error,
     open,
     close,
+    retry,
     transport,
   }
 }

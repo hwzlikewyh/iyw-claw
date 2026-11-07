@@ -2,6 +2,7 @@
 import { useTranslations } from "next-intl"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import { CapabilityCard } from "./capability-card"
+import { capabilityStatus } from "./capability-status"
 
 export function marketCardClass(selected: boolean): string {
   return (
@@ -20,6 +21,7 @@ export function SkillCard({
   onPrimaryAction: (item: SkillMarketV2Item) => void
 }) {
   const t = useTranslations("CapabilityMarket.catalog")
+  const status = capabilityStatus(item)
   const source =
     item.audience === "organization"
       ? t("organization")
@@ -35,6 +37,7 @@ export function SkillCard({
       version={item.installedVersion || item.currentVersion.version}
       icon={item.iconUrl}
       installed={item.installedVersion != null}
+      status={status ? t(`status.${status}`) : undefined}
       onOpen={() => onSelect(item)}
     />
   )

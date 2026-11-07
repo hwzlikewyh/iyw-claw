@@ -16,6 +16,7 @@ import { PluginConnectorPreparationList } from "./plugin-connector-preparation"
 import { PluginRecoveryDialog } from "./plugin-recovery-dialog"
 import { PluginVersionsDialog } from "./plugin-versions-dialog"
 import { Button } from "@/components/ui/button"
+import { PluginApplicationActions } from "./plugin-application-actions"
 
 interface Props {
   marketSkillId: string
@@ -75,6 +76,10 @@ function PreparationContent(props: ContextProps) {
     <section className="space-y-3 border-b pb-4">
       <h3 className="text-sm font-semibold">{t("title")}</h3>
       <PreparationSummary state={state} contextError={context.error} />
+      <PluginApplicationActions
+        pluginId={props.marketSkillId}
+        conversationId={props.conversationId}
+      />
       <PluginConnectorPreparationList
         id={props.marketSkillId}
         conversationId={props.conversationId}

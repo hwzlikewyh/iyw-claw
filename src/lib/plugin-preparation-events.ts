@@ -1,7 +1,25 @@
+import type { PluginPanelChoice } from "./plugin-panel"
+
 interface PreparationEvent {
   pluginId: string
   conversationId: number | null
   canceled?: boolean
+}
+
+const applicationListeners = new Set<(app: PluginPanelChoice) => void>()
+
+export function requestPluginApplicationOpen(app: PluginPanelChoice) {
+  for (const listener of applicationListeners) listener(app)
+  return applicationListeners.size > 0
+}
+
+export function onPluginApplicationOpen(
+  listener: (app: PluginPanelChoice) => void
+) {
+  applicationListeners.add(listener)
+  return () => {
+    applicationListeners.delete(listener)
+  }
 }
 
 const listeners = new Set<(event: PreparationEvent) => void>()

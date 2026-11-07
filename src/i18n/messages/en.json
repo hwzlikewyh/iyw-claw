@@ -7172,7 +7172,15 @@
       "unknownPage": "Page {page} · {count} items",
       "connectorManagement": "Connector uploads and publishing are managed in the admin console. Choose installation, configuration, and conversation use here.",
       "chooseType": "Choose capability type",
-      "chooseTypeHint": "Skills, connectors, and plugins are managed separately. Choose a type."
+      "chooseTypeHint": "Skills, connectors, and plugins are managed separately. Choose a type.",
+      "status": {
+        "building": "Preparing package",
+        "buildFailed": "Package build failed",
+        "incompatible": "Incompatible client or platform",
+        "update": "Update available",
+        "blocked": "Current version is blocked",
+        "preparing": "Preparing"
+      }
     }
   },
   "SkillMarketV2": {
@@ -7537,7 +7545,11 @@
       "reviewLine": "Version {version} · {files} files",
       "buildHint": "Uploaded does not mean installable: the artifact must finish building first.",
       "publish": "Publish",
-      "addVersionSubmit": "Submit version"
+      "addVersionSubmit": "Submit version",
+      "pluginTitle": "Upload plugin",
+      "pluginSelectFolder": "Select plugin folder",
+      "pluginSubtitle": "Publish an independent plugin package with its apps, tools, runtime, and component declarations.",
+      "pluginFolderHint": "Choose a plugin folder containing .iyw-plugin.json. A root SKILL.md is not required for plugins."
     },
     "viewLabel": "Catalog view"
   },
@@ -7919,7 +7931,10 @@
       "dependency_required": "Prepare dependencies first",
       "disabled": "Enable for this project",
       "unavailable": "Check installed version"
-    }
+    },
+    "openNamed": "Open {name}",
+    "openUnavailable": "Return to the conversation workspace to open this plugin.",
+    "retryOpen": "Reopen plugin"
   },
   "PluginRemoval": {
     "recover": "Restore interrupted removal",

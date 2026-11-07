@@ -2,7 +2,10 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useTabStore } from "@/contexts/tab-context"
 import { readPluginPanels, type PluginPanelChoice } from "@/lib/plugin-panel"
-import { notifyPluginPreparation } from "@/lib/plugin-preparation-events"
+import {
+  notifyPluginPreparation,
+  requestPluginApplicationOpen,
+} from "@/lib/plugin-preparation-events"
 import { usePluginPanelOpenIntent } from "./use-plugin-panel-open-intent"
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   ),
   showPreparation: vi.fn(),
   showConversation: vi.fn(),
+  showPanel: vi.fn(),
   transport: { onReconnect: vi.fn(() => () => {}) },
   isOpen: true,
   onNew: null as null | (() => void),
@@ -43,7 +47,10 @@ vi.mock("@/contexts/workbench-route-context", () => ({
   useWorkbenchRoute: () => ({ openConversations: mocks.showConversation }),
 }))
 vi.mock("@/contexts/aux-panel-context", () => ({
-  useAuxPanelContext: () => ({ isOpen: mocks.isOpen }),
+  useAuxPanelContext: () => ({
+    isOpen: mocks.isOpen,
+    openTab: mocks.showPanel,
+  }),
 }))
 vi.mock("@/components/skills/market/use-plugin-workspace", () => ({
   usePluginWorkspace: () => ({ bind: mocks.bind, busy: false, error: "" }),
@@ -85,6 +92,32 @@ afterEach(() => {
 })
 
 describe("plugin open intent", () => {
+  it("accepts an explicit request from the plugin detail page", async () => {
+    mocks.isOpen = false
+    mount(42)
+    act(() => {
+      expect(requestPluginApplicationOpen(available)).toBe(true)
+    })
+    await waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(1))
+    expect(mocks.showConversation).toHaveBeenCalled()
+    expect(mocks.showPanel).toHaveBeenCalledWith("home")
+  })
+  it("reveals the panel so a detail-page open failure is visible", async () => {
+    mocks.isOpen = false
+    vi.mocked(readPluginPanels).mockRejectedValueOnce(
+      Error("catalog unavailable")
+    )
+    const view = mount(42)
+    act(() => {
+      requestPluginApplicationOpen(available)
+    })
+    await waitFor(() =>
+      expect(view.result.current.error).toContain("catalog unavailable")
+    )
+    expect(mocks.showConversation).toHaveBeenCalled()
+    expect(mocks.showPanel).toHaveBeenCalledWith("home")
+    expect(mocks.open).not.toHaveBeenCalled()
+  })
   it("binds once, waits for the bound render, and opens the fresh app", async () => {
     const view = mount(null)
     await act(async () => {

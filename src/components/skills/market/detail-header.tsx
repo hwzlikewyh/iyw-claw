@@ -167,6 +167,7 @@ export function DetailHeader(props: DetailHeaderProps) {
         <div className="flex min-w-0 gap-3.5">
           <MarketItemIcon
             name={props.detail.displayName}
+            kind={props.detail.packageType === "plugin" ? "plugin" : "skill"}
             src={props.detail.iconUrl}
             className="size-12"
           />

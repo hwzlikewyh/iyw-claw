@@ -204,10 +204,22 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
       <DialogContent className="max-w-3xl rounded-lg">
         <DialogHeader>
           <DialogTitle>
-            {isPublish ? t("upload.title") : t("upload.addVersionTitle")}
+            {isPublish
+              ? t(
+                  props.packageType === "plugin"
+                    ? "upload.pluginTitle"
+                    : "upload.title"
+                )
+              : t("upload.addVersionTitle")}
           </DialogTitle>
           <DialogDescription>
-            {isPublish ? t("upload.subtitle") : t("upload.addVersionSubtitle")}
+            {isPublish
+              ? t(
+                  props.packageType === "plugin"
+                    ? "upload.pluginSubtitle"
+                    : "upload.subtitle"
+                )
+              : t("upload.addVersionSubtitle")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex gap-1" aria-label={t("upload.progressLabel")}>
@@ -226,11 +238,20 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
           <section className="space-y-3">
             <h3 className="text-sm font-semibold">{t("upload.folderStep")}</h3>
             <p className="text-xs leading-5 text-muted-foreground">
-              {t("upload.folderHint")}
+              {t(
+                props.packageType === "plugin"
+                  ? "upload.pluginFolderHint"
+                  : "upload.folderHint"
+              )}
             </p>
             <SkillMarketFolderPicker
               folder={folder}
               disabled={props.busy}
+              selectLabel={
+                props.packageType === "plugin"
+                  ? t("upload.pluginSelectFolder")
+                  : undefined
+              }
               onChange={setFolder}
             />
             {folderMismatch ? (
@@ -253,7 +274,9 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
                     className={cn(errors.slug && "border-destructive")}
                     value={form.slug}
                     onChange={(event) => update("slug", event.target.value)}
-                    placeholder="my-skill"
+                    placeholder={
+                      props.packageType === "plugin" ? "my-plugin" : "my-skill"
+                    }
                   />
                   <FieldError t={t} error={errors.slug} />
                 </div>

@@ -2,6 +2,7 @@
 import { useTranslations } from "next-intl"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import { CapabilityCard } from "./capability-card"
+import { capabilityStatus } from "./capability-status"
 
 export function PluginMarketCard({
   item,
@@ -11,6 +12,7 @@ export function PluginMarketCard({
   onOpen: () => void
 }) {
   const t = useTranslations("CapabilityMarket.catalog")
+  const status = capabilityStatus(item)
   const source =
     item.audience === "organization"
       ? t("organization")
@@ -26,6 +28,7 @@ export function PluginMarketCard({
       version={item.installedVersion || item.currentVersion.version}
       icon={item.iconUrl}
       installed={item.installedVersion != null}
+      status={status ? t(`status.${status}`) : undefined}
       onOpen={onOpen}
     />
   )
