@@ -26,26 +26,7 @@ export function usePluginWorkspace(tabId: string | null) {
       .getState()
       .rawTabs.find((tab) => tab.id === tabId)
     if (!original) return null
-    const transport = getTransport()
-    let canceled = false
-    const stop = onNewConversationOpened(() => {
-      canceled = true
-    })
-    const unsubscribe = useTabStore.subscribe((store) => {
-      const current = store.rawTabs.find((tab) => tab.id === tabId)
-      if (
-        store.activeTabId !== tabId ||
-        !current ||
-        store.draftRetargetRequests.some(
-          (request) => request.tabId === tabId
-        ) ||
-        (current.conversationId == null &&
-          (current.folderId !== original.folderId ||
-            current.agentType !== original.agentType ||
-            current.isChat !== original.isChat))
-      )
-        canceled = true
-    })
+    const scope = watchPreparedWorkspace(original)
     running.current = true
     setBusy(true)
     setError("")
@@ -54,20 +35,49 @@ export function usePluginWorkspace(tabId: string | null) {
         tabId,
         t("newConversation")
       )
-      if (!alive.current || canceled || getTransport() !== transport)
-        return null
+      if (!alive.current || !scope.current()) return null
       return bindPreparedContext(original, prepared)
     } catch (cause) {
-      if (alive.current) setError(String(cause))
+      if (alive.current && scope.current()) setError(String(cause))
       return null
     } finally {
-      stop()
-      unsubscribe()
+      scope.dispose()
       running.current = false
       if (alive.current) setBusy(false)
     }
   }
   return { busy, error, bind }
+}
+
+function watchPreparedWorkspace(original: TabItem) {
+  const transport = getTransport()
+  let canceled = false
+  const stop = onNewConversationOpened(() => {
+    canceled = true
+  })
+  const unsubscribe = useTabStore.subscribe((store) => {
+    const current = store.rawTabs.find((tab) => tab.id === original.id)
+    if (
+      store.activeTabId !== original.id ||
+      !current ||
+      store.draftRetargetRequests.some(
+        (request) => request.tabId === original.id
+      ) ||
+      (current.conversationId == null &&
+        (current.folderId !== original.folderId ||
+          current.agentType !== original.agentType ||
+          current.isChat !== original.isChat ||
+          current.workingDir !== original.workingDir))
+    )
+      canceled = true
+  })
+  return {
+    current: () => !canceled && getTransport() === transport,
+    dispose: () => {
+      stop()
+      unsubscribe()
+    },
+  }
 }
 
 function bindPreparedContext(
