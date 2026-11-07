@@ -13,7 +13,11 @@ export interface PluginVersionList {
   nextPage: number | null
 }
 export interface PluginVersionReview {
-  related: Array<{ id: string; slug: string }>
+  related: Array<{
+    id: string
+    slug: string
+    packageType: "skill" | "expert" | "plugin"
+  }>
   slug: string
   currentVersion: string
   version: string
@@ -25,6 +29,7 @@ export interface PluginVersionReview {
   listed: boolean | null
   issues: string[]
   dependencies: Array<{
+    packageType: "skill" | "expert" | "plugin"
     id: string
     slug: string
     version: string

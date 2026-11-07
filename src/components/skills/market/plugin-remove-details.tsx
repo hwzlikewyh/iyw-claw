@@ -68,7 +68,7 @@ function CapabilityLinks({ view, disabled, onNavigate }: Props) {
             className="h-auto whitespace-normal p-0 text-left"
             onClick={() => {
               onNavigate()
-              route.openSkillMarket(item.slug)
+              route.openPluginMarket(item.slug)
             }}
           >
             {item.slug}
@@ -95,7 +95,7 @@ function RetainedList({ view, disabled, onNavigate }: Props) {
             className="h-auto whitespace-normal p-0 text-left"
             onClick={() => {
               onNavigate()
-              route.openSkillMarket(item.slug)
+              route.openPluginMarket(item.slug)
             }}
           >
             {item.slug}

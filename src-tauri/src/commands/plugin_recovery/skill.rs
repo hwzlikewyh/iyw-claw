@@ -36,6 +36,7 @@ fn verify(item: &RecoveryItem) -> Result<DependencyView, AppCommandError> {
         && crate::acp::skill_package::validate_skill_directory(&source, &item.content_sha256)
             .is_ok();
     Ok(DependencyView {
+        package_type: item.package_type.clone(),
         id: item.skill_id.clone(),
         slug: item.slug.clone(),
         required_version: item.version.clone(),

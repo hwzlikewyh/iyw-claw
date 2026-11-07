@@ -120,7 +120,7 @@ function RecoveryDependencies({
                 className="h-auto whitespace-normal p-0 text-left text-[13px]"
                 onClick={() => {
                   onNavigate()
-                  route.openSkillMarket(dependency.slug)
+                  route.openSkillMarket(dependency.slug, dependency.packageType)
                 }}
               >
                 {dependency.slug} · {dependency.requiredVersion}

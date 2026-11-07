@@ -69,6 +69,7 @@ pub struct VersionReview {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelatedCapability {
+    pub package_type: String,
     pub id: String,
     pub slug: String,
 }
@@ -76,6 +77,7 @@ pub struct RelatedCapability {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DependencyChange {
+    pub package_type: String,
     pub id: String,
     pub slug: String,
     pub version: String,

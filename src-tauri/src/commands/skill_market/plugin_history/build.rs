@@ -49,6 +49,7 @@ pub(super) async fn build(context: &Context) -> Result<Built, AppCommandError> {
         }
         if item.skill_id != context.plan.root_skill_id {
             built.dependencies.push(DependencyChange {
+                package_type: item.package_type.clone(),
                 id: item.skill_id.clone(),
                 slug: item.slug.clone(),
                 version: item.version.clone(),

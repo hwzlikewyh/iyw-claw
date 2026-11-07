@@ -64,6 +64,7 @@ pub struct RecoveryReview {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DependencyView {
+    pub package_type: String,
     pub id: String,
     pub slug: String,
     pub required_version: String,
