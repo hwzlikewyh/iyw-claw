@@ -7,30 +7,23 @@ use serde::Deserialize;
 
 use crate::acp::version_center::capability;
 use crate::acp::version_center::types::{
-    AgentOffer, CatalogSnapshot, DownloadRequest, DownloadTicket, ResolveAgentRequest,
-    ResolveToolRequest, ToolOffer, VersionHistory,
+    AgentOffer, DownloadRequest, DownloadTicket, ResolveAgentRequest, ResolveToolRequest,
+    ToolOffer, VersionHistory,
 };
 use crate::app_error::AppCommandError;
 use crate::commands::iyw_account::iyw_account_access_token_core;
 use crate::update::preferences;
 
 mod capability_policy;
+mod catalog;
 mod config;
 mod error;
 pub use capability_policy::CapabilityPolicyHttpFetcher;
+pub use catalog::CatalogFetch;
 use config::{endpoint, http_client, INSTALLATION_HEADER};
 use error::{envelope_error, retryable_agent_resolve_error};
 
 const AGENT_RESOLVE_RETRY_DELAY_MS: u64 = 1_000;
-
-#[derive(Debug)]
-pub enum CatalogFetch {
-    NotModified,
-    Updated {
-        snapshot: CatalogSnapshot,
-        etag: Option<String>,
-    },
-}
 
 #[derive(Debug, Deserialize)]
 struct Envelope {
@@ -46,31 +39,7 @@ impl AgentPlatformClient {
         conn: &DatabaseConnection,
         etag: Option<&str>,
     ) -> Result<CatalogFetch, AppCommandError> {
-        let preferences = preferences::load(conn).await?;
-        let query = [
-            ("clientVersion", env!("CARGO_PKG_VERSION")),
-            ("runtime", capability::RUNTIME),
-            ("target", capability::current_target()),
-            ("arch", capability::current_arch()),
-            ("channel", preferences.channel.as_str()),
-        ];
-        let mut request = Self::request(conn, Method::GET, "/agent-platforms/v1/catalog")
-            .await?
-            .query(&query);
-        if let Some(etag) = etag.filter(|value| !value.trim().is_empty()) {
-            request = request.header(reqwest::header::IF_NONE_MATCH, etag);
-        }
-        let response = request.send().await.map_err(network_error)?;
-        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
-            return Ok(CatalogFetch::NotModified);
-        }
-        let etag = response
-            .headers()
-            .get(reqwest::header::ETAG)
-            .and_then(|value| value.to_str().ok())
-            .map(ToString::to_string);
-        let snapshot = decode_response(response).await?;
-        Ok(CatalogFetch::Updated { snapshot, etag })
+        catalog::fetch(conn, etag).await
     }
 
     pub async fn agent_history(
@@ -79,7 +48,12 @@ impl AgentPlatformClient {
         channel: &str,
     ) -> Result<VersionHistory, AppCommandError> {
         let path = format!("/agent-platforms/v1/agents/{registry_id}/versions");
-        Self::history(conn, &path, channel).await
+        Self::history(
+            conn,
+            &path,
+            catalog_query(channel, capability::current_agent_target()),
+        )
+        .await
     }
 
     pub async fn tool_history(
@@ -88,13 +62,22 @@ impl AgentPlatformClient {
         channel: &str,
     ) -> Result<VersionHistory, AppCommandError> {
         let path = format!("/agent-platforms/v1/tools/{tool_id}/versions");
-        Self::history(conn, &path, channel).await
+        Self::history(
+            conn,
+            &path,
+            catalog_query(channel, capability::current_target()),
+        )
+        .await
     }
 
     pub async fn resolve_agent(
         conn: &DatabaseConnection,
         request: ResolveAgentRequest<'_>,
     ) -> Result<AgentOffer, AppCommandError> {
+        let request = ResolveAgentRequest {
+            target: capability::current_agent_target(),
+            ..request
+        };
         let first: Result<AgentOffer, AppCommandError> =
             Self::post(conn, "/agent-platforms/v1/resolve", &request).await;
         let offer = match first {
@@ -133,6 +116,10 @@ impl AgentPlatformClient {
         conn: &DatabaseConnection,
         request: DownloadRequest<'_>,
     ) -> Result<DownloadTicket, AppCommandError> {
+        let request = DownloadRequest {
+            target: capability::current_agent_target(),
+            ..request
+        };
         Self::post(conn, "/agent-platforms/v1/download", &request).await
     }
 
@@ -146,9 +133,8 @@ impl AgentPlatformClient {
     async fn history(
         conn: &DatabaseConnection,
         path: &str,
-        channel: &str,
+        query: [(&str, String); 5],
     ) -> Result<VersionHistory, AppCommandError> {
-        let query = catalog_query(channel);
         let response = Self::request(conn, Method::GET, path)
             .await?
             .query(&query)
@@ -201,11 +187,11 @@ impl AgentPlatformClient {
     }
 }
 
-fn catalog_query(channel: &str) -> [(&'static str, String); 5] {
+fn catalog_query(channel: &str, target: &str) -> [(&'static str, String); 5] {
     [
         ("clientVersion", env!("CARGO_PKG_VERSION").to_string()),
         ("runtime", capability::RUNTIME.to_string()),
-        ("target", capability::current_target().to_string()),
+        ("target", target.to_string()),
         ("arch", capability::current_arch().to_string()),
         ("channel", channel.to_string()),
     ]
