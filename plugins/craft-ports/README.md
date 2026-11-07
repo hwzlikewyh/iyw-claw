@@ -1,14 +1,20 @@
-# 原助理图像编辑器独立移植
+# PhotoCraft 与 PdfCraft 独立移植
 
 ```powershell
 node plugins/craft-ports/build.mjs --source 'C:\Users\iyw\.zcode\cli\plugins\cache\zcode-plugins-official\photocraft\0.2.4' --output 'D:\projects\iyw\reports\image-editor-port'
 ```
 
-仅制作应用构建资源之外的独立候选包，不自动安装/启用、上传或发布。来源固定PhotoCraft插件0.2.4及其记录的源码提交；源缓存只读。完整许可证/第三方声明保留，不删除或压缩成无法访问的声明。
+同一入口接受 `photocraft/0.2.4` 或 `pdfcraft/0.2.4`，分别输出 `iyw-image-editor` 与 `iyw-pdfcraft`。制作 PdfCraft 时把上面 `--source` 改为对应目录；最低客户端沿 `--min-client-version` 声明。
+
+仅制作应用构建资源之外的独立候选包，不自动安装/启用、上传或发布。来源固定PhotoCraft/PdfCraft插件0.2.4及其记录的源码提交；源缓存只读。完整许可证/第三方声明保留，不删除或压缩成无法访问的声明。
 
 正式制包增加`--min-client-version <已验证发行版本>`，写入不可变v2清单并由安装/下载门禁校验。省略时仅生成本地待验收候选，新交互插件不能直接完成云端上传。不能用开发包版本号推断宿主已发布兼容版本；本脚本不操作客户端发布中心或数据库。
 
-WASM静态数据段的等长品牌文本替换保留内存地址和函数代码，验证模块后重新计算摘要。ArtCraft受限文字改成中性的上游说明；PhotoCraft名称改为IYW Editor，应用图标有独立MIT/Apache-2.0许可。Brotli压缩减小传输体积，服务端仍校验解压后的真实大小和SHA-256；这不改变上传限制。
+PhotoCraft的WASM静态数据段采用等长品牌文本替换，保留内存地址和函数代码，验证模块后重新计算摘要。ArtCraft受限文字改成中性的上游说明；PhotoCraft画布名称改为IYW Editor，应用图标有独立MIT/Apache-2.0许可。PdfCraft的WASM保持源文件逐字节不变，使用支持大窗口的Brotli编码；资源服务器解压后仍校验真实大小和SHA-256。
+
+插件作者工具、后台和客户端不再设置固定的包总大小限制。此项必须同时部署后台并交付包含修改的客户端后才生效；已冻结的客户端发行标签不会自动改变。后台沿既有配置以 `SKILL_MAX_PACKAGE_BYTES=0` 或缺省表示不限，旧环境若显式设置正值仍会采用该运维值。
+
+下述画笔、界面恢复和窄屏菜单适配属于PhotoCraft。PdfCraft复用会话隔离、宿主保存、私有键值存储和退出等待，保留自己的原生PDF编辑界面；不调用PhotoCraft专用的画笔库与菜单控制接口。
 
 复用现有插件作者工具生成契约与清单。编辑器桥按宿主提供的可信对话信息隔离；手动保存走宿主确认和当前设备下载，模型写工作区需要项目写入权限。本地实际编辑/导出和持久化已有证据，正式账号安装授权、撤权、原生保存及云端生命周期仍须验收；制品存在不表示已发布。
 
