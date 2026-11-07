@@ -23,7 +23,7 @@ pub(super) async fn fetch(
     let agent_target = capability::current_agent_target();
     let fetched = fetch_target(
         conn,
-        catalog_query(&preferences.channel, agent_target),
+        catalog_query(preferences.channel.as_str(), agent_target),
         etag,
     )
     .await?;
@@ -34,7 +34,7 @@ pub(super) async fn fetch(
         // Mac 的 Agent 与工具使用不同平台名，只合并同一目录版本的数据。
         let tools = fetch_target(
             conn,
-            catalog_query(&preferences.channel, capability::current_target()),
+            catalog_query(preferences.channel.as_str(), capability::current_target()),
             None,
         )
         .await?;

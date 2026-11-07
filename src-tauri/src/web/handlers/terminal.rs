@@ -62,6 +62,7 @@ pub async fn terminal_spawn(
     let id = manager
         .spawn_with_id(
             SpawnOptions {
+                direct_command: None,
                 terminal_id,
                 working_dir: params.working_dir,
                 owner_window_label: "web".to_string(),
