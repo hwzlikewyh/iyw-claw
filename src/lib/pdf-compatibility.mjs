@@ -15,6 +15,42 @@ if (typeof Promise.withResolvers !== "function") {
   })
 }
 
+// Safari 17.4 之前没有该接口，PDF.js legacy viewer 仍会合并渲染取消信号。
+if (
+  typeof AbortSignal !== "undefined" &&
+  typeof AbortSignal.any !== "function"
+) {
+  Object.defineProperty(AbortSignal, "any", {
+    configurable: true,
+    writable: true,
+    value: function any(signals) {
+      const sources = Array.from(signals)
+      for (const source of sources) {
+        if (!(source instanceof AbortSignal))
+          throw new TypeError("Expected an AbortSignal")
+      }
+      const controller = new AbortController()
+      const aborted = sources.find((source) => source.aborted)
+      if (aborted) {
+        controller.abort(aborted.reason)
+        return controller.signal
+      }
+      const cleanup = new AbortController()
+      for (const source of sources) {
+        source.addEventListener(
+          "abort",
+          () => {
+            controller.abort(source.reason)
+            cleanup.abort()
+          },
+          { once: true, signal: cleanup.signal }
+        )
+      }
+      return controller.signal
+    },
+  })
+}
+
 // Chromium 109 的 ReadableStream 尚未提供异步迭代，PDF 文本层会使用此接口。
 if (typeof ReadableStream !== "undefined" && !ReadableStream.prototype.values) {
   Object.defineProperty(ReadableStream.prototype, "values", {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, type RefObject } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { PreviewToolbar } from "./preview-toolbar"
@@ -14,6 +14,7 @@ interface PdfPreviewProps {
   src: string
   title: string
   compact?: boolean
+  onError?: () => void
 }
 
 interface PdfPreviewContentProps extends PdfPreviewProps {
@@ -28,6 +29,7 @@ interface PdfPreviewBodyProps {
   zoom: number
   pagesRef: RefObject<PdfPagesHandle | null>
   onPageChange: (page: number) => void
+  onError?: () => void
 }
 
 export function PdfPreview(props: PdfPreviewProps) {
@@ -53,12 +55,16 @@ function PdfPreviewContent({
   compact,
   fullscreen,
   onToggleFullscreen,
+  onError,
 }: PdfPreviewContentProps) {
   const { ref, visible } = usePreviewVisibility()
   const [page, setPage] = useState(1)
   const [zoom, setZoom] = useState(1)
   const pagesRef = useRef<PdfPagesHandle>(null)
   const pdf = usePdfDocument(src, visible)
+  useEffect(() => {
+    if (pdf.error) onError?.()
+  }, [pdf.error, onError])
   return (
     <div
       ref={ref}
@@ -85,6 +91,7 @@ function PdfPreviewContent({
         zoom={zoom}
         pagesRef={pagesRef}
         onPageChange={setPage}
+        onError={onError}
       />
     </div>
   )
@@ -97,6 +104,7 @@ function PdfPreviewBody({
   zoom,
   pagesRef,
   onPageChange,
+  onError,
 }: PdfPreviewBodyProps) {
   const messages = useTranslations("Folder.chat.workspaceFiles")
   return (
@@ -117,6 +125,7 @@ function PdfPreviewBody({
           initialPage={page}
           zoom={zoom}
           onPageChange={onPageChange}
+          onError={onError}
         />
       ) : (
         <div className="flex flex-1 items-center justify-center">

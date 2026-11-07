@@ -31,7 +31,11 @@ export function ScenarioCasePreview({
     return (
       <>
         <div className={styles.documentPreview}>
-          <CaseDocument asset={asset} onRetry={onRetry} />
+          <CaseDocument
+            asset={asset}
+            onRetry={onRetry}
+            onError={() => setFailed(true)}
+          />
         </div>
         <ScenarioCaseSource asset={asset} />
       </>
@@ -43,14 +47,23 @@ export function ScenarioCasePreview({
 function CaseDocument({
   asset,
   onRetry,
+  onError,
 }: {
   asset: ScenarioCaseAsset
   onRetry: () => void
+  onError: () => void
 }) {
   if (asset.kind === "text")
     return <ScenarioCaseMarkdown asset={asset} onRetry={onRetry} />
   if (asset.kind === "pdf")
-    return <PdfPreview src={asset.url} title={asset.fileName} compact />
+    return (
+      <PdfPreview
+        src={asset.url}
+        title={asset.fileName}
+        compact
+        onError={onError}
+      />
+    )
   if (asset.kind === "audio" || asset.kind === "video")
     return (
       <MediaPreview src={asset.url} kind={asset.kind} title={asset.fileName} />
