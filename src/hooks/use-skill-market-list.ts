@@ -22,17 +22,19 @@ const INITIAL_LIST = {
 }
 
 export function useSkillMarketList(input: {
+  packageType: "skill" | "plugin"
   query: SkillMarketQueryState
   source: SkillMarketSource
-  initial: { page: string | null; pageSize: string | null }
+  initial: { page: string | null; pageSize: string | null; persist?: boolean }
   metric: (name: string, elapsed: number) => void
 }) {
-  const { query, source, metric } = input
+  const { query, source, metric, packageType } = input
   const [list, setList] = useState(INITIAL_LIST)
   const requestRef = useRef({ value: 0 })
   const { position, setPosition, revision, refresh, reset, move } =
     useListControls(input.initial, requestRef, setList)
   useCatalogRequest({
+    packageType,
     query,
     source,
     metric,
@@ -56,7 +58,7 @@ export function useSkillMarketList(input: {
 }
 
 function useListControls(
-  initial: { page: string | null; pageSize: string | null },
+  initial: { page: string | null; pageSize: string | null; persist?: boolean },
   requestRef: React.RefObject<{ value: number }>,
   setList: React.Dispatch<React.SetStateAction<typeof INITIAL_LIST>>
 ) {
@@ -84,10 +86,10 @@ function useListControls(
     setList(INITIAL_LIST)
     setPosition((value) => ({ ...value, page: 1 }))
   }, [requestRef, setList])
-  useEffect(
-    () => persistMarketPage(position.page, position.pageSize),
-    [position]
-  )
+  useEffect(() => {
+    if (initial.persist !== false)
+      persistMarketPage(position.page, position.pageSize)
+  }, [position, initial.persist])
   return { position, setPosition, revision, refresh, reset, move }
 }
 
@@ -101,7 +103,7 @@ function invalidateList(
 
 type RequestInput = Pick<
   Parameters<typeof useSkillMarketList>[0],
-  "query" | "source" | "metric"
+  "query" | "source" | "metric" | "packageType"
 > & {
   position: { page: number; pageSize: number }
   revision: number
@@ -122,6 +124,7 @@ function useCatalogRequest(input: RequestInput) {
     requestRef,
     setList,
     setPosition,
+    packageType,
   } = input
   useEffect(() => {
     const counter = requestRef.current
@@ -130,6 +133,7 @@ function useCatalogRequest(input: RequestInput) {
       () =>
         void readPage(
           {
+            packageType,
             query,
             source,
             metric,
@@ -156,6 +160,7 @@ function useCatalogRequest(input: RequestInput) {
     requestRef,
     setList,
     setPosition,
+    packageType,
   ])
 }
 
@@ -168,7 +173,7 @@ async function readPage(input: RequestInput, request: number) {
   try {
     const value = await source.list({
       ...query,
-      packageType: "skill",
+      packageType: input.packageType,
       cursor:
         position.page === 1
           ? null

@@ -19,7 +19,7 @@ export function PluginPanelHome({ panels }: { panels: Panels }) {
   const workspace = usePluginWorkspace(tabId)
   const open = (app: PluginPanelChoice) => {
     if (app.state === "context_required") void workspace.bind()
-    else if (app.state !== "available") route.openSkillMarket(app.pluginSlug)
+    else if (app.state !== "available") route.openPlugin(app.pluginSlug)
     else void panels.open(app)
   }
   return (

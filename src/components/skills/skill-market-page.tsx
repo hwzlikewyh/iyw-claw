@@ -8,7 +8,6 @@ import {
   type CapabilityMarketSection,
 } from "@/components/skills/market/capability-market-shell"
 import { ConnectorMarketView } from "@/components/skills/market/connector-market-view"
-import { PluginMarketPreview } from "@/components/skills/market/plugin-market-preview"
 import { SkillMarketView } from "@/components/skills/market/view"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn } from "@/lib/utils"
@@ -37,7 +36,6 @@ function SkillMarketContent() {
   const {
     skillMarketTarget,
     consumeSkillMarketTarget,
-    openSkillMarket,
     connectorMarketRequested,
     consumeConnectorMarket,
     pluginMarketRequested,
@@ -61,7 +59,10 @@ function SkillMarketContent() {
     if (connectorMarketRequested || pluginMarketRequested || skillMarketTarget)
       queueMicrotask(() => {
         if (active) {
-          if (skillMarketTarget) openSection("skills")
+          if (skillMarketTarget)
+            openSection(
+              skillMarketTarget.packageType === "plugin" ? "plugins" : "skills"
+            )
           else if (pluginMarketRequested) {
             openSection("plugins")
             consumePluginMarket()
@@ -91,7 +92,11 @@ function SkillMarketContent() {
       >
         <div className={cn("h-full", section !== "skills" && "hidden")}>
           <SkillMarketView
-            navigationTarget={skillMarketTarget}
+            navigationTarget={
+              skillMarketTarget?.packageType === "plugin"
+                ? null
+                : skillMarketTarget
+            }
             onNavigationTargetConsumed={consumeSkillMarketTarget}
             onOpenConnectors={() => openSection("connectors")}
           />
@@ -103,11 +108,15 @@ function SkillMarketContent() {
         ) : null}
         {visited.has("plugins") ? (
           <div className={cn("h-full", section !== "plugins" && "hidden")}>
-            <PluginMarketPreview
-              onOpenPlugin={(slug) => {
-                openSection("skills")
-                openSkillMarket(slug)
-              }}
+            <SkillMarketView
+              packageType="plugin"
+              navigationTarget={
+                skillMarketTarget?.packageType === "plugin"
+                  ? skillMarketTarget
+                  : null
+              }
+              onNavigationTargetConsumed={consumeSkillMarketTarget}
+              onOpenConnectors={() => openSection("connectors")}
             />
           </div>
         ) : null}

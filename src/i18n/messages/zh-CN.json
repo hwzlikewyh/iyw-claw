@@ -7504,7 +7504,8 @@
         "slug": "请输入有效的 slug（仅支持小写字母、数字和连字符）。",
         "version": "请输入有效的 SemVer，例如 1.2.3。",
         "dependencies": "依赖格式无效；不需要依赖时可以留空。",
-        "dependenciesLine": "第 {line} 行依赖格式无效；不需要依赖时可以留空。"
+        "dependenciesLine": "第 {line} 行依赖格式无效；不需要依赖时可以留空。",
+        "wrongPackageType": "请使用与文件夹类型对应的 Skill 或插件上传入口。"
       },
       "reviewLine": "版本 {version} · {files} 个文件",
       "buildHint": "上传完成不等于可安装：制品构建完成后才会出现在可安装列表。",

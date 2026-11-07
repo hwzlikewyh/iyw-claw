@@ -10,6 +10,7 @@ import { PluginMarketToolbar } from "./plugin-market-toolbar"
 import { usePluginCatalog } from "./use-plugin-catalog"
 import { usePluginCatalogPage } from "./use-plugin-catalog-page"
 import { MarketPagination } from "./market-pagination"
+import type { SkillMarketV2Item } from "@/lib/skill-market"
 
 const CATALOG_GRID =
   "grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5"
@@ -17,7 +18,7 @@ const CATALOG_GRID =
 export function PluginMarketPreview({
   onOpenPlugin,
 }: {
-  onOpenPlugin: (slug: string) => void
+  onOpenPlugin: (item: SkillMarketV2Item) => void
 }) {
   const t = useTranslations("CapabilityMarket.plugins")
   const {
@@ -65,7 +66,7 @@ function PluginCatalogBody({
 }: {
   catalog: ReturnType<typeof usePluginCatalog>
   items: ReturnType<typeof usePluginCatalog>["items"]
-  onOpenPlugin: (slug: string) => void
+  onOpenPlugin: (item: SkillMarketV2Item) => void
 }) {
   if (!catalog.loading && (catalog.error || !items.length)) {
     return (
@@ -83,7 +84,7 @@ function PluginCatalogBody({
               <PluginMarketCard
                 key={item.id}
                 item={item}
-                onOpen={() => onOpenPlugin(item.slug)}
+                onOpen={() => onOpenPlugin(item)}
               />
             ))}
       </div>

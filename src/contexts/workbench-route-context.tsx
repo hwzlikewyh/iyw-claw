@@ -27,6 +27,7 @@ export type WorkbenchRouteId =
   | "library"
 
 export interface SkillMarketNavigationTarget {
+  packageType?: "skill" | "plugin"
   requestId: number
   skillId: string
 }
@@ -45,7 +46,7 @@ interface WorkbenchRouteContextValue {
   openConnectorMarket: () => void
   consumeConnectorMarket: () => void
   pluginMarketRequested: boolean
-  openPluginMarket: () => void
+  openPluginMarket: (slug?: string) => void
   consumePluginMarket: () => void
 }
 
@@ -81,10 +82,18 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
   const [connectorMarketRequested, setConnectorMarketRequested] =
     useState(false)
   const [pluginMarketRequested, setPluginMarketRequested] = useState(false)
-  const openPluginMarket = useCallback(() => {
+  const openPluginMarket = useCallback((slug?: string) => {
     setPluginMarketRequested(true)
     setConnectorMarketRequested(false)
-    setSkillMarketTarget(null)
+    setSkillMarketTarget(
+      slug
+        ? {
+            skillId: slug,
+            requestId: ++skillMarketRequestIdRef.current,
+            packageType: "plugin",
+          }
+        : null
+    )
     setRouteId("skills")
   }, [])
   const consumePluginMarket = useCallback(

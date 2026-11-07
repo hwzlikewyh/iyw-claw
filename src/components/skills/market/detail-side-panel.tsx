@@ -62,7 +62,8 @@ export function DetailSidePanel(props: DetailSidePanelProps) {
           <h3 className="text-xs font-semibold">
             {t("detail.activation.targets")}
           </h3>
-          {props.activation.agents.length ? (
+          {props.activation.agents.length &&
+          props.detail.packageType !== "plugin" ? (
             <Button
               variant="link"
               size="xs"

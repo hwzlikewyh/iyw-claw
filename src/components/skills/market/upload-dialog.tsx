@@ -81,6 +81,7 @@ function normalizeSlug(value: string): string {
 }
 
 export interface SkillMarketUploadDialogProps {
+  packageType?: "skill" | "plugin"
   open: boolean
   mode: SkillMarketUploadMode
   categories: SkillMarketCategory[]
@@ -119,6 +120,10 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
   const [folder, setFolder] = useState<SelectedSkillMarketFolder | null>(null)
   const [form, setForm] = useState<PublishForm>(EMPTY_PUBLISH)
   const [errors, setErrors] = useState<SkillMarketUploadErrors>({})
+  const folderMismatch = Boolean(
+    folder &&
+    (folder.packageType === "plugin") !== (props.packageType === "plugin")
+  )
 
   const reset = () => {
     setStep(1)
@@ -146,7 +151,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
       : validateSkillMarketVersionForm(form)
 
   const next = () => {
-    if (step === 1 && !folder) return
+    if (step === 1 && (!folder || folderMismatch)) return
     if (step === 2) {
       const validationErrors = validate()
       if (hasSkillMarketUploadErrors(validationErrors)) {
@@ -158,7 +163,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
   }
 
   const submit = async () => {
-    if (!folder) return
+    if (!folder || folderMismatch) return
     const validationErrors = validate()
     if (hasSkillMarketUploadErrors(validationErrors)) {
       setErrors(validationErrors)
@@ -228,6 +233,11 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
               disabled={props.busy}
               onChange={setFolder}
             />
+            {folderMismatch ? (
+              <p role="alert" className="text-xs text-destructive">
+                {t("upload.errors.wrongPackageType")}
+              </p>
+            ) : null}
           </section>
         ) : null}
 
