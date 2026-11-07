@@ -13,7 +13,7 @@ import {
   useMarketViewAction,
   type MarketViewAction,
 } from "./market-view-action"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { ConnectorInstallDialog } from "./connector-install-dialog"
 import { ConnectorInstalledList } from "./connector-installed-list"
 import type { McpMarketplaceItem } from "@/lib/types"
@@ -157,14 +157,18 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
           onOpen={setActive}
         />
         <Tabs value={section} onValueChange={setSection}>
-          <TabsList variant="line" className="mb-2">
-            <TabsTrigger value="market">{t("discover")}</TabsTrigger>
-            <TabsTrigger value="installed">
-              {t("installed")} ({installed.length})
-            </TabsTrigger>
-          </TabsList>
+          {section === "installed" && (
+            <Button
+              variant="ghost"
+              className="w-fit"
+              onClick={() => setSection("market")}
+            >
+              {c("browse")}
+            </Button>
+          )}
           <TabsContent value="market">
             <div
+              data-market-grid
               className="grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
               aria-busy={loading}
             >
