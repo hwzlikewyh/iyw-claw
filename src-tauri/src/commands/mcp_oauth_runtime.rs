@@ -67,6 +67,7 @@ pub(crate) async fn run(args: UpstreamStartArgs, context: (String, String, Cance
         _ = cancel.cancelled() => "cancelled",
         outcome = tokio::time::timeout(super::mcp_oauth::LIFETIME, login(&client, (&attempt, &name))) => match outcome {
             Ok(Ok(true)) => "completed",
+            Err(_) => "expired",
             _ => "failed",
         }
     };

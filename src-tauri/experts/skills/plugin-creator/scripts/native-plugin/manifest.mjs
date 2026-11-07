@@ -5,6 +5,8 @@ import { writeJson } from "./json.mjs"
 import { captureConnector, collectPermissions } from "./capture.mjs"
 import { addRuntime, addTools } from "./components.mjs"
 import { addSkills } from "./skills.mjs"
+import { validatePreparation } from "../validate_plugin_preparation.mjs"
+import { minimumClientVersion } from "./client-version.mjs"
 
 function createState(source, output) {
   return {
@@ -31,7 +33,8 @@ function createState(source, output) {
   }
 }
 
-export async function buildManifest(source, output) {
+export async function buildManifest(source, output, options = {}) {
+  const minimum = minimumClientVersion(options.minClientVersion)
   const state = createState(source, output)
   for (const [key, spec] of Object.entries(source.servers)) {
     const connector = await captureConnector(source, key, spec)
@@ -47,14 +50,17 @@ export async function buildManifest(source, output) {
     flag: "wx",
   })
   await writeJson(path.join(output, "native-plugin.json"), state.native)
-  await writeJson(path.join(output, ".iyw-plugin.json"), {
+  const manifest={
     schemaVersion: 2,
     name: state.name,
     version: source.manifest.version,
     targets: ["iyw-claw"],
     components: state.components,
     permissions: state.permissions,
-  })
+    ...(minimum ? { minClientVersion: minimum } : {}),
+  }
+  validatePreparation(manifest)
+  await writeJson(path.join(output, ".iyw-plugin.json"), manifest)
   return {
     name: state.name,
     version: source.manifest.version,

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { toErrorMessage } from "@/lib/app-error"
+import { useSkillMarketList } from "./use-skill-market-list"
 import type {
   SkillMarketCategory,
   SkillMarketCompatibility,
@@ -22,8 +23,6 @@ import {
   type SkillMarketPublishRequestV2,
   type SkillMarketSource,
 } from "@/lib/skill-market-source"
-
-const LIST_PAGE_SIZE = 50
 
 // ---------------------------------------------------------------------------
 // Lightweight P50/P95 metric collector. Samples are kept per name so the UI
@@ -166,7 +165,18 @@ function initialQuery(
 
 function persistQuery(query: SkillMarketQueryState): void {
   if (typeof window === "undefined") return
-  const params = new URLSearchParams()
+  const params = new URLSearchParams(window.location.search)
+  for (const key of [
+    "view",
+    "publisher",
+    "distribution",
+    "compatibility",
+    "category",
+    "sort",
+    "q",
+    "page",
+  ])
+    params.delete(key)
   if (query.view !== "market") params.set("view", query.view)
   if (query.publisher !== "all") params.set("publisher", query.publisher)
   if (query.distribution !== "all")
@@ -179,26 +189,6 @@ function persistQuery(query: SkillMarketQueryState): void {
   const search = params.toString()
   const url = `${window.location.pathname}${search ? `?${search}` : ""}`
   window.history.replaceState(null, "", url)
-}
-
-interface ListState {
-  items: SkillMarketV2Item[]
-  total: number
-  nextCursor: string | null
-  loading: boolean
-  error: string | null
-  revision: string
-  offline: boolean
-}
-
-const INITIAL_LIST: ListState = {
-  items: [],
-  total: 0,
-  nextCursor: null,
-  loading: false,
-  error: null,
-  revision: "",
-  offline: false,
 }
 
 export function useSkillMarket(targetSkillId?: string | null) {
@@ -216,89 +206,31 @@ export function useSkillMarket(targetSkillId?: string | null) {
     [perfCount]
   )
 
-  const [list, setList] = useState<ListState>(INITIAL_LIST)
-  const requestRef = useRef(0)
-
-  const loadList = useCallback(
-    async (cursor: string | null) => {
-      const requestId = ++requestRef.current
-      const startedAt = performance.now()
-      const firstPage = !cursor
-      setList((current) => ({ ...current, loading: true, error: null }))
-      try {
-        const page = await source.list({
-          view: query.view,
-          publisher: query.publisher,
-          distribution: query.distribution,
-          compatibility: query.compatibility,
-          category: query.category,
-          q: query.q,
-          sort: query.sort,
-          cursor,
-          limit: LIST_PAGE_SIZE,
-        })
-        if (requestId !== requestRef.current) return
-        const elapsed = performance.now() - startedAt
-        setList((current) => {
-          const items = cursor ? [...current.items, ...page.items] : page.items
-          return {
-            items,
-            total: page.total,
-            nextCursor: page.nextCursor,
-            loading: false,
-            error: null,
-            revision: page.catalogRevision,
-            offline: page.offline,
-          }
-        })
-        if (firstPage) recordSkillMarketMetric("listFirstContent", elapsed)
-        if (query.q.trim()) recordSkillMarketMetric("searchResponse", elapsed)
-      } catch (error) {
-        if (requestId !== requestRef.current) return
-        setList((current) => ({
-          ...current,
-          loading: false,
-          error: toErrorMessage(error),
-        }))
-      }
+  const { list, setList, refresh, reset, pagination } = useSkillMarketList({
+    query,
+    source,
+    metric: recordSkillMarketMetric,
+    initial: {
+      page: targetSkillId ? null : searchParams.get("page"),
+      pageSize: searchParams.get("pageSize"),
     },
-    [query, source]
-  )
-
-  const [refreshKey, setRefreshKey] = useState(0)
-  const refresh = useCallback(() => {
-    requestRef.current += 1
-    setList({ ...INITIAL_LIST, loading: true })
-    setRefreshKey((current) => current + 1)
-  }, [])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadList(null)
-    }, 300)
-    return () => {
-      window.clearTimeout(timer)
-      requestRef.current += 1
-    }
-  }, [loadList, refreshKey])
-
-  const loadMore = useCallback(() => {
-    if (list.nextCursor && !list.loading) void loadList(list.nextCursor)
-  }, [list.nextCursor, list.loading, loadList])
+  })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null)
-  const updateQuery = useCallback((patch: Partial<SkillMarketQueryState>) => {
-    requestRef.current += 1
-    setList({ ...INITIAL_LIST, loading: true })
-    setSelectedId(null)
-    setSelectedVersion(null)
-    setQueryState((current) => {
-      const next = { ...current, ...patch }
-      persistQuery(next)
-      return next
-    })
-  }, [])
+  const updateQuery = useCallback(
+    (patch: Partial<SkillMarketQueryState>) => {
+      reset()
+      setSelectedId(null)
+      setSelectedVersion(null)
+      setQueryState((current) => {
+        const next = { ...current, ...patch }
+        persistQuery(next)
+        return next
+      })
+    },
+    [reset]
+  )
   const [detailRetryKey, setDetailRetryKey] = useState(0)
   const retryDetail = useCallback(
     () => setDetailRetryKey((current) => current + 1),
@@ -307,10 +239,17 @@ export function useSkillMarket(targetSkillId?: string | null) {
 
   useEffect(() => {
     if (!list.items.length) return
-    if (!selectedId || !list.items.some((item) => item.id === selectedId)) {
-      setSelectedId(list.items[0].id)
-    }
-  }, [list.items, selectedId])
+    const timer = window.setTimeout(
+      () =>
+        setSelectedId((current) =>
+          current && list.items.some((item) => item.id === current)
+            ? current
+            : list.items[0].id
+        ),
+      0
+    )
+    return () => window.clearTimeout(timer)
+  }, [list.items])
 
   const selectItem = useCallback((item: SkillMarketV2Item) => {
     setSelectedId(item.id)
@@ -325,37 +264,40 @@ export function useSkillMarket(targetSkillId?: string | null) {
   }>({ value: null, loading: false, error: null })
 
   useEffect(() => {
-    if (!selectedId) {
-      setDetail({ value: null, loading: false, error: null })
-      return
-    }
-    const key = `${list.revision}:${selectedId}:${selectedVersion ?? ""}`
-    const cached = detailCache.current.get(key)
-    if (cached) {
-      setDetail({ value: cached, loading: false, error: null })
-      return
-    }
     let cancelled = false
-    const startedAt = performance.now()
-    setDetail((current) => ({ ...current, loading: true, error: null }))
-    void source
-      .detail(selectedId, selectedVersion)
-      .then((value) => {
-        if (cancelled) return
-        detailCache.current.set(key, value)
-        recordSkillMarketMetric("detailOpen", performance.now() - startedAt)
-        setDetail({ value, loading: false, error: null })
-      })
-      .catch((error) => {
-        if (cancelled) return
-        setDetail((current) => ({
-          ...current,
-          loading: false,
-          error: toErrorMessage(error),
-        }))
-      })
+    const timer = window.setTimeout(() => {
+      if (!selectedId) {
+        setDetail({ value: null, loading: false, error: null })
+        return
+      }
+      const key = `${list.revision}:${selectedId}:${selectedVersion ?? ""}`
+      const cached = detailCache.current.get(key)
+      if (cached) {
+        setDetail({ value: cached, loading: false, error: null })
+        return
+      }
+      const startedAt = performance.now()
+      setDetail((current) => ({ ...current, loading: true, error: null }))
+      void source
+        .detail(selectedId, selectedVersion)
+        .then((value) => {
+          if (cancelled) return
+          detailCache.current.set(key, value)
+          recordSkillMarketMetric("detailOpen", performance.now() - startedAt)
+          setDetail({ value, loading: false, error: null })
+        })
+        .catch((error) => {
+          if (cancelled) return
+          setDetail((current) => ({
+            ...current,
+            loading: false,
+            error: toErrorMessage(error),
+          }))
+        })
+    }, 0)
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
     }
   }, [detailRetryKey, selectedId, selectedVersion, list.revision, source])
 
@@ -367,38 +309,41 @@ export function useSkillMarket(targetSkillId?: string | null) {
   }>({ skillId: null, value: [], loading: false, error: null })
 
   useEffect(() => {
-    if (!selectedId) {
-      setVersions({ skillId: null, value: [], loading: false, error: null })
-      return
-    }
     let cancelled = false
-    setVersions((current) => ({
-      ...current,
-      skillId: selectedId,
-      loading: true,
-      error: null,
-    }))
-    void source
-      .versions(selectedId)
-      .then((value) => {
-        if (cancelled) return
-        setVersions({
-          skillId: selectedId,
-          value,
-          loading: false,
-          error: null,
+    const timer = window.setTimeout(() => {
+      if (!selectedId) {
+        setVersions({ skillId: null, value: [], loading: false, error: null })
+        return
+      }
+      setVersions((current) => ({
+        ...current,
+        skillId: selectedId,
+        loading: true,
+        error: null,
+      }))
+      void source
+        .versions(selectedId)
+        .then((value) => {
+          if (cancelled) return
+          setVersions({
+            skillId: selectedId,
+            value,
+            loading: false,
+            error: null,
+          })
         })
-      })
-      .catch((error) => {
-        if (cancelled) return
-        setVersions((current) => ({
-          ...current,
-          loading: false,
-          error: toErrorMessage(error),
-        }))
-      })
+        .catch((error) => {
+          if (cancelled) return
+          setVersions((current) => ({
+            ...current,
+            loading: false,
+            error: toErrorMessage(error),
+          }))
+        })
+    }, 0)
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
     }
   }, [selectedId, list.revision, source])
 
@@ -429,14 +374,18 @@ export function useSkillMarket(targetSkillId?: string | null) {
       : null
 
   useEffect(() => {
-    filesRequestRef.current += 1
-    setFiles({
-      key: activeFilesKey,
-      value: null,
-      loading: false,
-      error: null,
-      requested: false,
-    })
+    const request = ++filesRequestRef.current
+    const timer = window.setTimeout(() => {
+      if (filesRequestRef.current === request)
+        setFiles({
+          key: activeFilesKey,
+          value: null,
+          loading: false,
+          error: null,
+          requested: false,
+        })
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [activeFilesKey])
 
   const openFiles = useCallback(() => {
@@ -525,7 +474,7 @@ export function useSkillMarket(targetSkillId?: string | null) {
           : current
       )
     },
-    []
+    [setList]
   )
 
   const applyInstalled = useCallback(
@@ -585,17 +534,20 @@ export function useSkillMarket(targetSkillId?: string | null) {
           : current
       )
     },
-    []
+    [setList]
   )
 
-  const applyDeleted = useCallback((skillId: string) => {
-    setList((current) => ({
-      ...current,
-      items: current.items.filter((item) => item.id !== skillId),
-    }))
-    setSelectedId((current) => (current === skillId ? null : current))
-    setDetail({ value: null, loading: false, error: null })
-  }, [])
+  const applyDeleted = useCallback(
+    (skillId: string) => {
+      setList((current) => ({
+        ...current,
+        items: current.items.filter((item) => item.id !== skillId),
+      }))
+      setSelectedId((current) => (current === skillId ? null : current))
+      setDetail({ value: null, loading: false, error: null })
+    },
+    [setList]
+  )
 
   const publish = useCallback(
     async (request: SkillMarketPublishRequestV2) => {
@@ -674,7 +626,7 @@ export function useSkillMarket(targetSkillId?: string | null) {
     query,
     updateQuery,
     list,
-    loadMore,
+    pagination,
     refresh,
     selectedId,
     selectedVersion,
@@ -687,6 +639,7 @@ export function useSkillMarket(targetSkillId?: string | null) {
     retryDetail,
     categories,
     applyInstalled,
+    applyUninstalled,
     publish,
     addVersion,
     updateMetadata,

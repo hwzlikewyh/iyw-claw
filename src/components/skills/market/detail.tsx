@@ -157,7 +157,14 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
           onOpenInventory={props.onOpenInventory}
           onOpenConnectors={props.onOpenConnectors}
           onRetryActivation={props.onRetryActivation}
+          onVersionChanged={props.onRetry}
           onUninstall={() => props.onUninstall(detail)}
+          onRepairPlugin={() =>
+            props.onPrimaryAction(
+              detail,
+              detail.installedVersion || activeVersion.version
+            )
+          }
         />
       </div>
     </div>

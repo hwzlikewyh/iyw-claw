@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { Loader2, RefreshCw, Search } from "lucide-react"
 import { toast } from "sonner"
@@ -13,8 +13,23 @@ import { ConnectorInstallDialog } from "./connector-install-dialog"
 import { ConnectorInstalledList } from "./connector-installed-list"
 import type { McpMarketplaceItem } from "@/lib/types"
 import { useConnectorMarket } from "./use-connector-market"
+import { useConnectorInstallTasks } from "./use-connector-install-tasks"
+import { ConnectorInstallTasks } from "./connector-install-tasks"
+import { connectorTaskActive } from "@/lib/connector-install-tasks"
+import { useIywAccount } from "@/contexts/iyw-account-context"
 
 export function ConnectorMarketView() {
+  const { profile, status } = useIywAccount()
+  const scope = JSON.stringify([
+    status,
+    profile?.user_id,
+    profile?.org_code,
+    profile?.workspace_pending,
+  ])
+  return <ConnectorMarketContent key={scope} />
+}
+
+function ConnectorMarketContent() {
   const t = useTranslations("ConnectorMarket")
   const {
     items,
@@ -30,6 +45,26 @@ export function ConnectorMarketView() {
   } = useConnectorMarket(t("unavailable"))
   const [active, setActive] = useState<McpMarketplaceItem | null>(null)
   const [section, setSection] = useState("market")
+  const tasks = useConnectorInstallTasks()
+  const settled = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!tasks.loaded) {
+      settled.current = null
+      return
+    }
+    const done = tasks.tasks.filter((task) => !connectorTaskActive(task))
+    if (!settled.current) {
+      settled.current = new Set(done.map((task) => task.id))
+      return
+    }
+    const fresh = done.filter((task) => !settled.current?.has(task.id))
+    fresh.forEach((task) => settled.current?.add(task.id))
+    if (fresh.length) {
+      void reload()
+      if (fresh.some((task) => task.phase === "completed"))
+        toast.success(t("installedHint"))
+    }
+  }, [tasks.tasks, tasks.loaded, reload, t])
   const installedIds = new Set(installed.map((item) => item.id))
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
@@ -68,6 +103,22 @@ export function ConnectorMarketView() {
             {error}
           </p>
         )}
+        {tasks.error ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 text-sm text-destructive"
+          >
+            <span>{tasks.error}</span>
+            <Button variant="outline" size="sm" onClick={tasks.refresh}>
+              {t("retry")}
+            </Button>
+          </div>
+        ) : null}
+        <ConnectorInstallTasks
+          tasks={tasks.tasks}
+          items={items}
+          onOpen={setActive}
+        />
         <Tabs value={section} onValueChange={setSection}>
           <TabsList>
             <TabsTrigger value="market">{t("discover")}</TabsTrigger>
@@ -144,6 +195,7 @@ export function ConnectorMarketView() {
           </TabsContent>
           <TabsContent value="installed">
             <ConnectorInstalledList
+              key={tasks.scope}
               items={installed.filter((item) =>
                 `${item.id} ${item.display_name}`
                   .toLowerCase()
@@ -163,11 +215,17 @@ export function ConnectorMarketView() {
         )}
         {active && (
           <ConnectorInstallDialog
+            key={`${tasks.scope}:${active.server_id}`}
             item={active}
+            installed={installedIds.has(active.server_id)}
+            task={tasks.tasks.find(
+              (task) => task.serverId === active.server_id
+            )}
             onClose={() => setActive(null)}
-            onInstalled={() => {
+            onTaskChanged={tasks.refresh}
+            onManageInstalled={() => {
               setActive(null)
-              toast.success(t("installedHint"))
+              setSection("installed")
               void reload()
             }}
           />

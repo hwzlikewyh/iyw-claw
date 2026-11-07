@@ -27,6 +27,8 @@ pub(super) fn build_manifest(
         name: portable.name,
         version: portable.version,
         targets: portable.targets,
+        platforms: super::plugin_platforms::normalized(&portable.platforms)?,
+        min_client_version: String::new(),
         components,
         bindings,
         permissions: None,

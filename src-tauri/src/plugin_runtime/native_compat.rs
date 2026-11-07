@@ -11,6 +11,7 @@ const METADATA_FILE: &str = "native-plugin.json";
 const MAX_METADATA_BYTES: u64 = 1024 * 1024;
 const MAX_STARTUP_SECONDS: u64 = 600;
 const MAX_TOOL_SECONDS: u64 = 7200;
+const MAX_RESOURCE_TEMPLATES: usize = 256;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -31,6 +32,10 @@ pub(crate) struct NativeConnector {
     pub model_tools: Vec<String>,
     pub app_tools: Vec<String>,
     pub resources: Vec<Value>,
+    #[serde(default)]
+    pub resource_templates: Vec<Value>,
+    #[serde(default)]
+    pub wasm_unsafe_eval: bool,
     preferred_display_modes: BTreeMap<String, String>,
 }
 
@@ -74,6 +79,12 @@ fn validate(value: &NativeConnector) -> Result<(), PluginInvokeError> {
             item["uri"]
                 .as_str()
                 .is_none_or(|uri| !uri.starts_with("ui://"))
+        })
+        || value.resource_templates.len() > MAX_RESOURCE_TEMPLATES
+        || value.resource_templates.iter().any(|item| {
+            item["uriTemplate"]
+                .as_str()
+                .is_none_or(|template| !super::native_resources::valid_template(template))
         })
     {
         return Err(invalid("Native connector metadata is invalid"));

@@ -70,6 +70,10 @@ pub async fn send(builder: RequestBuilder) -> Result<serde_json::Value, AppComma
     let response = builder.send().await.map_err(|error| {
         AppCommandError::network("Skill market request failed").with_detail(error.to_string())
     })?;
+    decode_response(response).await
+}
+
+pub(super) async fn decode_response(response: reqwest::Response) -> Result<serde_json::Value, AppCommandError> {
     if !response.status().is_success() {
         return Err(
             AppCommandError::network("Skill market gateway rejected the request")
@@ -198,6 +202,7 @@ fn remote_error(message: String, data: &serde_json::Value) -> AppCommandError {
         .and_then(serde_json::Value::as_str)
         .unwrap_or("SKILL_REMOTE_ERROR");
     let error = match error_code {
+        "SKILL_CLIENT_INCOMPATIBLE" => return super::plugin_client_version::incompatible(""),
         "SKILL_NOT_FOUND" => AppCommandError::not_found(message),
         "SKILL_FORBIDDEN" => AppCommandError::permission_denied(message),
         "SKILL_SLUG_CONFLICT" | "SKILL_VERSION_CONFLICT" | "SKILL_VERSION_NOT_GREATER" => {

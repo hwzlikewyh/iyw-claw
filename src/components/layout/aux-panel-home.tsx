@@ -5,26 +5,36 @@ import { FileDiff, FolderOpen, Globe2, SquareTerminal } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
-import { useBrowser, waitForHost } from "@/contexts/browser-context"
+import { useBrowser } from "@/contexts/browser-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
 import { useTerminalContext } from "@/contexts/terminal-context"
 import { useWorkspaceActions } from "@/contexts/workspace-context"
 import { useBrowserVisibility } from "@/hooks/use-browser-visibility"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { isLocalDesktop } from "@/lib/platform"
-import { browserApi } from "@/lib/browser-api"
-import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
+import { TaskArtifactsTab } from "./aux-panel-artifacts-tab"
+import type { usePluginPanels } from "./use-plugin-panels"
+import { PluginPanelHome } from "./plugin-panel-home"
 
-export function AuxPanelHome() {
+export function AuxPanelHome({
+  panels,
+}: {
+  panels: ReturnType<typeof usePluginPanels>
+}) {
   const t = useTranslations("Folder.auxPanel")
+  const tArtifacts = useTranslations("Folder.taskArtifacts")
+  const pluginText = useTranslations("PluginPanels")
   const { activeFolder } = useActiveFolder()
   const isChatMode = useIsActiveChatMode()
   const hasWorkspace = !!activeFolder && !isChatMode
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 px-3 py-4">
-        <BrowserHomeAction />
+    <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <h1 className="shrink-0 px-5 pt-5 text-base font-semibold">
+        {pluginText("newTab")}
+      </h1>
+      <div className="grid shrink-0 grid-cols-1 gap-x-3 px-3 py-4 @min-[480px]:grid-cols-2">
         <WorkspaceHomeAction enabled={hasWorkspace} />
+        <BrowserHomeAction />
         <ChangesHomeAction
           enabled={hasWorkspace && !!activeFolder?.git_branch}
         />
@@ -35,6 +45,11 @@ export function AuxPanelHome() {
           </p>
         )}
       </div>
+      <PluginPanelHome panels={panels} />
+      <h2 className="shrink-0 px-3 pb-2 text-xs font-medium text-muted-foreground">
+        {tArtifacts("title")}
+      </h2>
+      <TaskArtifactsTab />
     </div>
   )
 }
@@ -42,7 +57,7 @@ export function AuxPanelHome() {
 function BrowserHomeAction() {
   const t = useTranslations("Folder.auxPanel")
   const { setOpen } = useAuxPanelContext()
-  const { state, isOpen, openBrowser, refresh, run } = useBrowser()
+  const { state, openBrowser } = useBrowser()
   const { closePanel } = useInteractivePage()
   const browserVisible = useBrowserVisibility()
   if (!browserVisible || !isLocalDesktop()) return null
@@ -54,23 +69,7 @@ function BrowserHomeAction() {
       onClick={() => {
         closePanel()
         setOpen(false)
-        void openBrowser().then(() =>
-          run(async () => {
-            const host = await waitForHost("main", refresh)
-            const latest = await browserApi.state()
-            const current = latest.hosts.find(
-              (item) => item.hostId === host.hostId
-            )
-            if (!isOpen && current?.tabOrder.length) return latest
-            // 首次打开与 BrowserShell 的初始化共享后端互斥，避免多建空白页。
-            return !isOpen && latest.tabs.length === 0
-              ? browserApi.ensureInitialTab(
-                  DEFAULT_BROWSER_HOME_URL,
-                  host.hostId
-                )
-              : browserApi.createTab(DEFAULT_BROWSER_HOME_URL, host.hostId)
-          })
-        )
+        void openBrowser()
       }}
     />
   )

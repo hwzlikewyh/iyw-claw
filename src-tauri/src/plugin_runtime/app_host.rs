@@ -162,6 +162,11 @@ impl PluginAppRegistry {
         Ok(())
     }
 
+    pub(crate) fn has_live_lease(&self, instance_id: &str) -> bool {
+        self.leases.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(instance_id).is_some_and(|lease| lease.expires_at > Instant::now())
+    }
+
     pub fn teardown(&self, instance_id: &str) -> bool {
         self.leases
             .write()
@@ -260,6 +265,7 @@ fn allowed_method(method: &str) -> bool {
         "initialize"
             | "ui/initialize"
             | "ui/open-link"
+            | "ui/download-file"
             | "ui/message"
             | "ui/request-display-mode"
             | "ui/update-model-context"

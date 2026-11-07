@@ -26,18 +26,94 @@ pub(super) async fn authorize_app_message(
             "Plugin permissions changed",
         ));
     }
-    let granted = plugin.permission_grants.iter().any(|grant| {
-        grant.permissions_digest == plugin.permissions_digest
-            && grant.grant_state == "granted"
-            && (grant.scope == "global" || grant.workspace_key == instance.workspace_key)
-    });
+    let granted =
+        crate::plugin_runtime::policy::permission_granted(plugin, &instance.workspace_key);
     if !granted {
         return Err(plugin_error(
             "plugin_app_unauthorized",
             "Plugin permissions are not granted",
         ));
     }
+    if matches!(method, "ui/open-link" | "ui/message" | "ui/download-file") {
+        authorize_host_action(db, (&instance, plugin, &snapshot.plugins)).await?;
+    }
     authorize_method(plugin, method)
+}
+
+async fn authorize_host_action(
+    db: &crate::db::AppDatabase,
+    context: (
+        &crate::db::entities::plugin_app_instance::Model,
+        &crate::plugin_runtime::registry::PluginDescriptor,
+        &std::collections::BTreeMap<String, crate::plugin_runtime::registry::PluginDescriptor>,
+    ),
+) -> Result<(), crate::plugin_runtime::types::PluginInvokeError> {
+    let (instance, plugin, plugins) = context;
+    authorize_account(db, plugin).await?;
+    let workspace = super::plugin_app_context::load_workspace(
+        db,
+        instance.conversation_id,
+        &instance.workspace_key,
+    )
+    .await
+    .map_err(|error| plugin_error("plugin_app_unavailable", error.message))?;
+    crate::plugin_runtime::dependency_scope::require(
+        plugin,
+        plugins,
+        (
+            &workspace.workspace_key,
+            workspace.agent_type.as_wire().as_ref(),
+        ),
+    )?;
+    let app = plugin
+        .manifest
+        .components
+        .iter()
+        .find(|app| app.kind == "app" && app.key == instance.app_key)
+        .and_then(|app| app.config.as_ref())
+        .ok_or_else(|| {
+            plugin_error(
+                "plugin_app_unavailable",
+                "Plugin app binding is unavailable",
+            )
+        })?;
+    if !crate::plugin_runtime::policy::activation_enabled(
+        plugin,
+        (
+            app["connectorKey"].as_str().unwrap_or_default(),
+            &workspace.workspace_key,
+            workspace.agent_type.as_wire().as_ref(),
+        ),
+    ) {
+        return Err(plugin_error(
+            "plugin_app_unauthorized",
+            "Plugin app is disabled for this workspace",
+        ));
+    }
+    Ok(())
+}
+
+async fn authorize_account(
+    db: &crate::db::AppDatabase,
+    plugin: &crate::plugin_runtime::registry::PluginDescriptor,
+) -> Result<(), crate::plugin_runtime::types::PluginInvokeError> {
+    let scope = crate::commands::mcp_cli_config::account_scope(&db.conn)
+        .await
+        .map_err(|_| {
+            plugin_error(
+                "plugin_app_unauthorized",
+                "Plugin account context is unavailable",
+            )
+        })?;
+    if !crate::plugin_runtime::recovery::read_pointer(std::path::Path::new(&plugin.install_root))
+        .is_some_and(|pointer| pointer.account_scope == scope)
+    {
+        return Err(plugin_error(
+            "plugin_app_unauthorized",
+            "Plugin account context changed",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) async fn route_app_tool(
@@ -72,6 +148,7 @@ pub(super) async fn route_app_tool(
     .map_err(|error| plugin_error("plugin_app_unavailable", error.to_string()))?;
     router
         .invoke_app_tool(crate::plugin_runtime::types::PluginAppToolCall {
+            conversation_id: instance.conversation_id,
             plugin_slug: instance.plugin_slug,
             plugin_version: instance.plugin_version,
             app_key: instance.app_key,

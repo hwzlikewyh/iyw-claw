@@ -361,12 +361,14 @@ impl BuiltinMcpHandler {
     }
     async fn invoke_plugin(
         &self,
-        invocation: crate::plugin_runtime::types::PluginToolCall,
+        mut invocation: crate::plugin_runtime::types::PluginToolCall,
         request_cancel: &CancellationToken,
         authority_cancel: &CancellationToken,
     ) -> Result<CallToolResult, ErrorData> {
         let router = crate::plugin_runtime::global::router()
             .ok_or_else(|| ErrorData::internal_error("plugin router is unavailable", None))?;
+        invocation.context.conversation_id = self.listener.parent_lookup
+            .current_conversation_id(&invocation.context.connection_id).await.map(i64::from);
         let routed = tokio::select! {
             _ = request_cancel.cancelled() => return Err(cancelled_error("MCP request cancelled")),
             _ = authority_cancel.cancelled() => return Err(cancelled_error("MCP authority revoked")),

@@ -811,8 +811,32 @@ pub fn build_router(
         )
         .route("/mcp_conversation_get", post(handlers::mcp::mcp_conversation_get))
         .route("/mcp_oauth_begin", post(handlers::mcp::mcp_oauth_begin))
+        .route("/mcp_market_install_begin", post(handlers::mcp_install::begin))
+        .route("/mcp_market_install_list", post(handlers::mcp_install::list))
+        .route("/mcp_market_install_status", post(handlers::mcp_install::status))
+        .route("/mcp_market_install_cancel", post(handlers::mcp_install::cancel))
         .route("/mcp_oauth_status", post(handlers::mcp::mcp_oauth_status))
         .route("/mcp_oauth_cancel", post(handlers::mcp::mcp_oauth_cancel))
+        .route("/mcp_connector_check", post(handlers::mcp_auth::check))
+        .route("/mcp_cli_begin", post(handlers::mcp_auth::begin))
+        .route("/mcp_cli_cancel", post(handlers::mcp_auth::cancel))
+        .route("/mcp_cli_logout", post(handlers::mcp_auth::logout))
+        .route("/plugin_preparation_get", post(handlers::plugin_preparation::read))
+        .route("/plugin_preparation_configure", post(handlers::plugin_preparation::configure))
+        .route("/plugin_preparation_account", post(handlers::plugin_preparation::account))
+        .route("/plugin_recovery_inspect",post(handlers::plugin_recovery::inspect))
+        .route("/plugin_recovery_apply",post(handlers::plugin_recovery::apply))
+        .route("/plugin_versions_list",post(handlers::plugin_history::list))
+        .route("/plugin_version_inspect",post(handlers::plugin_history::inspect))
+        .route("/plugin_version_apply",post(handlers::plugin_history::apply))
+        .route("/plugin_remove_inspect",post(handlers::plugin_remove::inspect))
+        .route("/plugin_remove_apply",post(handlers::plugin_remove::apply))
+        .route("/plugin_remove_status",post(handlers::plugin_remove::status))
+        .route("/plugin_remove_cleanup",post(handlers::plugin_remove::cleanup))
+        .route("/plugin_remove_recover",post(handlers::plugin_remove::recover))
+        .route("/plugin_preparation_approve", post(handlers::plugin_preparation::approve))
+        .route("/plugin_preparation_disable", post(handlers::plugin_preparation::disable))
+        .route("/plugin_preparation_check", post(handlers::plugin_preparation::check))
         .route("/mcp_conversation_set", post(handlers::mcp::mcp_conversation_set))
         .route(
             "/mcp_search_marketplace",
@@ -1304,6 +1328,9 @@ pub fn build_router(
             post(handlers::skill_market::rebuild_artifact),
         )
         .route("/plugin_app_open", post(handlers::plugin_apps::open))
+        .route("/plugin_app_catalog",post(handlers::plugin_apps::catalog))
+        .route("/plugin_app_sync",post(handlers::plugin_apps::sync))
+        .route("/plugin_app_launch",post(handlers::plugin_apps::launch))
         .route(
             "/plugin_app_message",
             post(handlers::plugin_apps::message).layer(DefaultBodyLimit::max(

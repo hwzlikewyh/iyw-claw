@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type RefCallback,
 } from "react"
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
@@ -64,7 +65,7 @@ import { RemoteConnectionGate } from "@/contexts/remote-connection-context"
 import { UpdateProvider } from "@/components/providers/update-provider"
 import { TabBar } from "@/components/tabs/tab-bar"
 import { TerminalPanel } from "@/components/terminal/terminal-panel"
-import { AuxPanel } from "@/components/layout/aux-panel"
+import { MobileAuxPanel } from "@/components/layout/mobile-aux-panel"
 import { FileWorkspaceTabBar } from "@/components/files/file-workspace-tab-bar"
 import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
 import { ExternalConflictDialog } from "@/components/files/external-conflict-dialog"
@@ -478,11 +479,6 @@ function MobileFolderWorkspaceShell({
     restored: sidebarRestored,
     toggle: toggleSidebar,
   } = useSidebarContext()
-  const {
-    isOpen: auxOpen,
-    restored: auxRestored,
-    toggle: toggleAux,
-  } = useAuxPanelContext()
   const { isOpen: terminalOpen, toggle: toggleTerminal } = useTerminalContext()
 
   return (
@@ -502,17 +498,6 @@ function MobileFolderWorkspaceShell({
         <MobileWorkspaceContent>{children}</MobileWorkspaceContent>
       </main>
 
-      <Sheet open={auxRestored && auxOpen} onOpenChange={toggleAux}>
-        <SheetContent
-          side="right"
-          showCloseButton={false}
-          className="w-[85%] max-w-[360px] p-0"
-        >
-          <SheetTitle className="sr-only">Panel</SheetTitle>
-          <AuxPanel />
-        </SheetContent>
-      </Sheet>
-
       <Sheet open={terminalOpen} onOpenChange={toggleTerminal}>
         <SheetContent
           side="bottom"
@@ -529,7 +514,13 @@ function MobileFolderWorkspaceShell({
   )
 }
 
-function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
+function FolderWorkspaceShell({
+  children,
+  auxSlotRef,
+}: {
+  children: React.ReactNode
+  auxSlotRef: RefCallback<HTMLDivElement>
+}) {
   const { zoomLevel } = useZoomLevel()
   const {
     isOpen: sidebarOpen,
@@ -1007,9 +998,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
           minSize={auxOpen ? auxSizeRange.minSize : 0}
           maxSize={auxOpen ? auxSizeRange.maxSize : 0}
         >
-          <div className="h-full min-h-0 overflow-hidden">
-            <AuxPanel />
-          </div>
+          <div ref={auxSlotRef} className="h-full min-h-0 overflow-hidden" />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -1018,6 +1007,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 
 function FolderLayoutShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile()
+  const [auxSlot, setAuxSlot] = useState<HTMLDivElement | null>(null)
   useNewConversationBrowser()
   if (isDetachedConversationWindow()) {
     return <DetachedConversationShell>{children}</DetachedConversationShell>
@@ -1029,8 +1019,11 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
       {isMobile ? (
         <MobileFolderWorkspaceShell>{children}</MobileFolderWorkspaceShell>
       ) : (
-        <FolderWorkspaceShell>{children}</FolderWorkspaceShell>
+        <FolderWorkspaceShell auxSlotRef={setAuxSlot}>
+          {children}
+        </FolderWorkspaceShell>
       )}
+      <MobileAuxPanel mobile={isMobile} desktopSlot={auxSlot} />
       <AppToaster
         position="bottom-right"
         duration={TOAST_DURATION_MS}

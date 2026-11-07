@@ -1,9 +1,8 @@
 #[path = "router_support.rs"]
 mod support;
-pub(super) use support::ResolvedRoute;
+pub(super) use support::{ResolvedRoute, validate_activation, validate_permission};
 use support::{
     app_plugin_call, app_tool_capability, contract_error, resolve_route, unavailable,
-    validate_activation, validate_permission,
 };
 
 use std::sync::Arc;
@@ -22,8 +21,8 @@ use rmcp::model::ReadResourceResult;
 
 #[derive(Clone)]
 pub struct PluginRouter {
-    registry: PluginRegistry,
-    supervisor: Arc<PluginRuntimeSupervisor>,
+    pub(super) registry: PluginRegistry,
+    pub(super) supervisor: Arc<PluginRuntimeSupervisor>,
 }
 
 impl PluginRouter {
@@ -45,6 +44,7 @@ impl PluginRouter {
             .filter(|plugin| plugin.available)
             .ok_or_else(|| unavailable("Plugin is not available"))?;
         validate_permission(plugin, &call)?;
+        super::dependency_scope::require(plugin, &snapshot.plugins, (&call.context.workspace_key, call.context.agent_type.as_wire().as_ref()))?;
         let route = resolve_route(plugin, &call.context.capability_id)?;
         if !super::native_compat::model_tool_allowed(
             std::path::Path::new(&plugin.install_root),
@@ -60,6 +60,7 @@ impl PluginRouter {
             call.context.agent_type,
         )?;
         let spec = launch_spec(plugin, &route.connector_key, &call)?;
+        self.verify_dependency_accounts(&call).await?;
         let requested_mode = call
             .arguments
             .get("displayMode")
@@ -70,10 +71,13 @@ impl PluginRouter {
             .supervisor
             .invoke(
                 spec,
-                route.tool_name.clone(),
-                call.arguments,
-                call.context.cancellation.clone(),
-                call.context.authority_cancellation.clone(),
+                super::types::PluginRuntimeCall {
+                    tool_name: route.tool_name.clone(),
+                    arguments: call.arguments,
+                    conversation_id: call.context.conversation_id,
+                    cancellation: call.context.cancellation.clone(),
+                    authority_cancellation: call.context.authority_cancellation.clone(),
+                },
             )
             .await?;
         let launch_payload = serde_json::json!({
@@ -111,6 +115,7 @@ impl PluginRouter {
         if request.plugin_version != plugin.version {
             return Err(unavailable("Plugin app version is no longer current"));
         }
+        super::dependency_scope::require(plugin, &snapshot.plugins, (&request.workspace_key, request.agent_type.as_wire().as_ref()))?;
         if request.permission_revision != plugin.permissions_digest {
             return Err(unavailable("Plugin permission revision changed"));
         }
@@ -122,17 +127,10 @@ impl PluginRouter {
             .as_str()
             .ok_or_else(|| unavailable("Plugin app resource URI is missing"))?;
         let uri = requested_uri.as_deref().unwrap_or(uri);
-        if app["resourceUri"].as_str() != Some(uri)
-            && !super::native_compat::connector(
-                std::path::Path::new(&plugin.install_root),
-                connector,
-            )?
-            .is_some_and(|value| {
-                value
-                    .resources
-                    .iter()
-                    .any(|item| item["uri"].as_str() == Some(uri))
-            })
+        if !super::native_resources::allowed(
+            std::path::Path::new(&plugin.install_root), connector,
+            (app["resourceUri"].as_str().unwrap_or_default(), uri),
+        )?
         {
             return Err(unavailable(
                 "Plugin app resource is not declared by its connector",
@@ -147,6 +145,7 @@ impl PluginRouter {
         let call = PluginToolCall {
             context: super::types::PluginCallContext {
                 connection_id: String::new(),
+                conversation_id: None,
                 plugin_slug: request.plugin_slug.clone(),
                 capability_id: app["capabilityKey"]
                     .as_str()
@@ -186,12 +185,14 @@ impl PluginRouter {
             return Err(unavailable("Plugin app version is no longer current"));
         }
         let app = component_config(plugin, "app", &call.app_key)?;
+        super::dependency_scope::require(plugin, &snapshot.plugins, (&call.workspace_key, call.agent_type.as_wire().as_ref()))?;
         let connector_key = app["connectorKey"]
             .as_str()
             .ok_or_else(|| contract_error("Plugin app connector is missing"))?;
         let capability_id = app_tool_capability(plugin, connector_key, &tool_name)?;
         let routed_call = app_plugin_call(plugin, call, capability_id);
         validate_permission(plugin, &routed_call)?;
+        self.verify_dependency_accounts(&routed_call).await?;
         validate_activation(
             plugin,
             connector_key,
@@ -202,10 +203,13 @@ impl PluginRouter {
         self.supervisor
             .invoke(
                 spec,
-                tool_name,
-                routed_call.arguments,
-                routed_call.context.cancellation,
-                routed_call.context.authority_cancellation,
+                super::types::PluginRuntimeCall {
+                    tool_name,
+                    arguments: routed_call.arguments,
+                    conversation_id: routed_call.context.conversation_id,
+                    cancellation: routed_call.context.cancellation,
+                    authority_cancellation: routed_call.context.authority_cancellation,
+                },
             )
             .await
     }

@@ -8,6 +8,10 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 SUPPORTED_TARGETS = ("codex", "claude_code")
+SUPPORTED_PLATFORMS = (
+    "windows-x86_64", "windows-aarch64", "macos-x86_64", "macos-aarch64",
+    "linux-x86_64", "linux-aarch64", "windows7-x86_64", "windows7-i686",
+)
 
 
 def display_name(plugin_name: str) -> str:

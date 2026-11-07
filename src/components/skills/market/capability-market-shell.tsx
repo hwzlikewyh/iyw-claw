@@ -26,9 +26,10 @@ function MarketIdentity() {
       <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
         <PackageOpen className="size-3.5" aria-hidden="true" />
       </span>
-      <div className="hidden min-w-0 sm:block">
+      <div className="min-w-0">
         <h1 className="truncate text-sm font-semibold leading-5">
-          {t("title")}
+          <span className="sm:hidden">{t("shortTitle")}</span>
+          <span className="hidden sm:inline">{t("title")}</span>
         </h1>
       </div>
     </div>
@@ -52,7 +53,7 @@ function MarketNavigation({
             key={id}
             type="button"
             className={cn(
-              "relative flex h-9 flex-none items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+              "relative flex h-9 flex-none items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors sm:gap-2 sm:px-3 sm:text-sm",
               active
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -60,7 +61,7 @@ function MarketNavigation({
             onClick={() => onSectionChange(id)}
             aria-current={active ? "page" : undefined}
           >
-            <Icon className="size-4" aria-hidden="true" />
+            <Icon className="size-3.5 sm:size-4" aria-hidden="true" />
             <span>{t(`sections.${id}`)}</span>
           </button>
         )

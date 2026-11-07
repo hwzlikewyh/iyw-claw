@@ -23,6 +23,7 @@ struct TerminalInstance {
     owner_window_label: String,
     /// Temp files (credential store + helper script) to clean up on exit.
     temp_files: Vec<std::path::PathBuf>,
+    direct_program: bool,
 }
 
 pub struct TerminalManager {
@@ -269,6 +270,7 @@ pub struct SpawnOptions {
     pub initial_command: Option<String>,
     pub extra_env: Option<HashMap<String, String>>,
     pub temp_files: Vec<std::path::PathBuf>,
+    pub direct_command: Option<(String, Vec<String>)>,
 }
 
 impl TerminalManager {
@@ -322,8 +324,16 @@ impl TerminalManager {
             &mut environment,
         );
 
-        let mut cmd = CommandBuilder::new(&shell);
-        configure_shell_command(&mut cmd, &shell, opts.initial_command.as_deref());
+        let mut cmd = if let Some((program, args)) = &opts.direct_command {
+            let mut command = CommandBuilder::new(program);
+            command.args(args);
+            command.env_clear();
+            command
+        } else {
+            let mut command = CommandBuilder::new(&shell);
+            configure_shell_command(&mut command, &shell, opts.initial_command.as_deref());
+            command
+        };
         cmd.cwd(&opts.working_dir);
         for (key, value) in environment {
             cmd.env(key, value);
@@ -344,6 +354,7 @@ impl TerminalManager {
             title: "Terminal".to_string(),
             owner_window_label: opts.owner_window_label,
             temp_files: opts.temp_files,
+            direct_program: opts.direct_command.is_some(),
         };
 
         self.terminals
@@ -502,6 +513,13 @@ impl TerminalManager {
 }
 
 fn terminate_terminal(instance: &mut TerminalInstance) {
+    if instance.direct_program {
+        if let Some(pid) = instance._child.process_id() {
+            if kill_tree::blocking::kill_tree(pid).is_err() {
+                tracing::warn!(pid, "[TERM] 交互程序进程树回收未完成，继续关闭终端");
+            }
+        }
+    }
     let _ = instance._child.kill();
     let _ = instance._child.wait();
     cleanup_temp_files(&mut instance.temp_files);

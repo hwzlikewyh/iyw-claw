@@ -9,6 +9,8 @@ Node.js stdio MCP 服务。需要 Node.js 22 或更高版本，不需要额外 n
 node scripts/import-native-plugin.mjs --source <native-plugin-directory> --output <output-parent-directory>
 ```
 
+正式上传交互插件时增加`--min-client-version <已验证的宿主发行SemVer>`，例如完整的`1.2.3`；导入器不推断当前开发版本就是最低支持版本。该值写入v2清单的`minClientVersion`，参与服务端摘要与客户端安装校验。未传参数仍可制作本地作者候选，但交互插件正式上传会被拒绝；后台也可修改上传副本，用户原目录不变。版本门槛发布后不可原地调整，恢复上传时须保留相同声明。
+
 输出为 `<output-parent-directory>/<plugin-name>`。选择新的输出位置；已有目录
 不会被覆盖。导入器会运行源包中的 MCP 服务，读取 `tools/list`、`resources/list`
 与界面资源来生成契约，不调用登录、生成或付费工具。仅处理用户指定并授权使用的源包。

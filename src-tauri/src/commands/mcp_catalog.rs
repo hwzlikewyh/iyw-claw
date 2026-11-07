@@ -202,6 +202,7 @@ where
             "Connector '{server_id}' still requires configuration"
         )));
     }
+    if enabled {super::mcp_catalog_sources::require_platform(entry)?;}
     entry.enabled = enabled;
     entry.managed = true;
     let updated = entry.clone();

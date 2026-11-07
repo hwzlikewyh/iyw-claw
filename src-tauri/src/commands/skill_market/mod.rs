@@ -1,35 +1,49 @@
 mod auto_update;
+mod availability;
+mod availability_snapshot;
 pub(crate) mod client;
 mod install;
 mod install_plan;
 mod office_skills;
 mod plugin_components;
+mod plugin_constraints;
 mod plugin_install;
 mod plugin_install_context;
+mod plugin_install_commit;
+mod plugin_uninstall;
+pub(crate) mod plugin_remove;
 mod plugin_install_data;
 mod plugin_install_rollback;
 mod plugin_install_runtime_state;
 mod plugin_manifest;
 mod plugin_manifest_v2;
 mod plugin_storage;
+mod plugin_storage_io;
+mod plugin_storage_removal;
+mod plugin_receipt;
+pub(crate) mod plugin_history;
 mod plugin_types;
+pub(crate) mod plugin_client_version;
+pub(crate) mod plugin_setup;
+pub(crate) mod plugin_platforms;
 mod routing_description;
 mod types;
 
 pub use auto_update::task as auto_update_task;
+use availability::reconcile_market_skill_availability_batch;
 pub use install::{install_core, revalidate_artifact_core};
 
 pub const MAX_SKILL_MARKET_REQUEST_BYTES: usize = 36 * 1024 * 1024;
 
 use reqwest::Method;
 use sea_orm::DatabaseConnection;
-use std::collections::HashSet;
 
 use crate::app_error::AppCommandError;
 pub use plugin_types::{
     SkillPluginBinding, SkillPluginComponent, SkillPluginManifest, SkillPluginPermissions,
 };
 pub(crate) use types::parse_value;
+pub(crate) use plugin_manifest::validate_plugin_package as validate_installed_plugin_package;
 use types::{parse_id, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,
@@ -42,7 +56,6 @@ pub use types::{
 #[serde(rename_all = "camelCase")]
 struct SkillAvailability {
     id: String,
-    slug: Option<String>,
     status: String,
 }
 
@@ -140,84 +153,6 @@ async fn installed_market_skill_ids(
     Ok(ids)
 }
 
-async fn reconcile_market_skill_availability_batch(
-    conn: &DatabaseConnection,
-    ids: &[i64],
-) -> Result<bool, AppCommandError> {
-    let body = serde_json::json!({
-        "ids": ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
-    });
-    let builder = client::request(conn, reqwest::Method::POST, "/skills/availability")
-        .await?
-        .json(&body)
-        .timeout(AVAILABILITY_TIMEOUT);
-    let items: Vec<SkillAvailability> = parse_value(client::send(builder).await?, Some("items"))?;
-    let mut deferred = false;
-    let requested_ids = ids.iter().copied().collect::<HashSet<_>>();
-    for item in items {
-        if !matches!(
-            item.status.as_str(),
-            "removed" | "unlisted" | "inaccessible"
-        ) {
-            continue;
-        }
-        let Ok(skill_id) = item.id.parse::<i64>() else {
-            tracing::warn!(
-                id = %item.id,
-                status = %item.status,
-                "[skill-market] availability response contained invalid Skill ID"
-            );
-            continue;
-        };
-        if !requested_ids.contains(&skill_id) {
-            tracing::warn!(
-                skill_id,
-                status = %item.status,
-                "[skill-market] availability response contained an unrequested Skill ID"
-            );
-            continue;
-        }
-        let mut plugin_in_use = false;
-        for (slug, version) in installed_market_skill_plugin_refs(conn, skill_id).await? {
-            if crate::plugin_runtime::global::plugin_version_has_active_leases(
-                &slug,
-                Some(&version),
-            )
-            .await
-            {
-                plugin_in_use = true;
-                break;
-            }
-        }
-        if plugin_in_use {
-            deferred = true;
-            tracing::debug!(
-                skill_id,
-                status = %item.status,
-                "[skill-market] deferred unavailable plugin cleanup while in use"
-            );
-            continue;
-        }
-        match uninstall_core(conn, skill_id.to_string()).await {
-            Ok(()) => tracing::info!(
-                skill_id,
-                slug = item.slug.as_deref().unwrap_or(""),
-                status = %item.status,
-                "[skill-market] removed unavailable managed Skill"
-            ),
-            Err(error) => {
-                deferred = true;
-                tracing::warn!(
-                    skill_id,
-                    status = %item.status,
-                    error = %error,
-                    "[skill-market] unavailable managed Skill cleanup deferred"
-                );
-            }
-        }
-    }
-    Ok(deferred)
-}
 
 async fn installed_market_skill_plugin_refs(
     conn: &DatabaseConnection,
@@ -485,9 +420,25 @@ pub async fn delete_core(conn: &DatabaseConnection, id: String) -> Result<(), Ap
 /// 卸载本地已安装的 market skill（按 `skill_id` 匹配本地 market marker）。
 /// 未找到安装记录时幂等成功；被其他已启用 expert 包依赖时拒绝。
 pub async fn uninstall_core(conn: &DatabaseConnection, id: String) -> Result<(), AppCommandError> {
+    let _storage = crate::acp::agent_storage_work::begin_agent_storage_read().await;
+    let _operation = crate::plugin_runtime::registry::lock_mutation().await;
     let skill_id = parse_id(&id)?;
+    uninstall_locked(conn, skill_id, RemovalPolicy::User).await
+}
+
+#[derive(Clone, Copy)]
+enum RemovalPolicy {
+    User,
+    Unavailable,
+}
+
+async fn uninstall_locked(
+    conn: &DatabaseConnection,
+    skill_id: i64,
+    policy: RemovalPolicy,
+) -> Result<(), AppCommandError> {
     let office_skills = office_skills::installed_for_root(skill_id);
-    if plugin_install::uninstall_plugin(conn, skill_id).await? {
+    if plugin_install::uninstall_plugin(conn, skill_id, policy).await? {
         tracing::info!(skill_id, "[skill-market] Plugin uninstalled");
     } else {
         let removed =
@@ -511,6 +462,7 @@ pub async fn uninstall_core(conn: &DatabaseConnection, id: String) -> Result<(),
     }
     restore_bundled_skills_after_uninstall(conn, skill_id).await?;
     office_skills::restore_after_uninstall(conn, office_skills).await?;
+    crate::plugin_runtime::registry::reconcile_global(conn).await?;
     Ok(())
 }
 

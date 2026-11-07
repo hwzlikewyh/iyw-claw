@@ -9,6 +9,7 @@ import {
   Wrench,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { pluginPlatformLabel } from "@/lib/plugin-platforms"
 import type {
   SkillPluginBinding,
   SkillPluginComponent,
@@ -31,6 +32,19 @@ export function PluginComponents({
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        {t("detail.platforms")}:{" "}
+        {plugin.platforms?.length
+          ? plugin.platforms.map(pluginPlatformLabel).join(" · ")
+          : t("detail.platformsUnspecified")}
+      </p>
+      {plugin.minClientVersion && (
+        <p className="text-xs text-muted-foreground">
+          {t("detail.minimumClientVersion", {
+            version: plugin.minClientVersion,
+          })}
+        </p>
+      )}
       <PluginComponentList components={plugin.components} />
       <PluginBindings bindings={plugin.bindings} />
     </div>

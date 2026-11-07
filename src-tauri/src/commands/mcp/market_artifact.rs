@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use super::market;
 use super::market_types::{Document, OptionSpec};
 use crate::app_error::AppCommandError;
+use crate::commands::mcp_install::progress;
 
 const MAX_DOWNLOAD: usize = 32 * 1024 * 1024;
 pub(super) const MAX_EXPANDED: u64 = 128 * 1024 * 1024;
@@ -17,6 +18,7 @@ pub(super) async fn install(
     input: (&Document, &OptionSpec, &Value),
 ) -> Result<PathBuf, AppCommandError> {
     let (doc, option, metadata) = input;
+    progress::stage("checking_cache")?;
     let digest = &option.artifact_id;
     if digest.len() != 64
         || !digest.bytes().all(|value| value.is_ascii_hexdigit())
@@ -37,7 +39,8 @@ pub(super) async fn install(
     if valid {
         return Ok(destination);
     }
-    let bytes = download(conn, (doc, digest, metadata)).await?;
+    let bytes = progress::cancellable(download(conn, (doc, digest, metadata))).await?;
+    progress::stage("verifying")?;
     if format!("{:x}", Sha256::digest(&bytes)) != *digest {
         return Err(AppCommandError::configuration_invalid(
             "连接器文件摘要校验失败",
@@ -48,6 +51,7 @@ pub(super) async fn install(
         .unwrap_or("server")
         .to_string();
     let digest = digest.to_string();
+    progress::stage("extracting")?;
     tokio::task::spawn_blocking(move || activate(&root, &digest, (&filename, bytes)))
         .await
         .map_err(|_| AppCommandError::io_error("连接器文件安装任务失败"))?
@@ -198,6 +202,16 @@ async fn download(
             "连接器制品下载失败，请重试以刷新下载授权",
         ));
     }
-    let bytes = market::limited_response(response, MAX_DOWNLOAD).await?;
+    let total = response.content_length();
+    if total.is_some_and(|size| size > MAX_DOWNLOAD as u64) { return Err(AppCommandError::network("连接器文件超过大小限制")); }
+    let mut response = response;
+    let mut bytes = Vec::new();
+    progress::download(0, total)?;
+    while let Some(chunk) = response.chunk().await.map_err(|_| AppCommandError::network("连接器文件下载中断"))? {
+        if bytes.len().saturating_add(chunk.len()) > MAX_DOWNLOAD { return Err(AppCommandError::network("连接器文件超过大小限制")); }
+        bytes.extend_from_slice(&chunk);
+        progress::download(bytes.len() as u64, total)?;
+    }
+    if total.is_some_and(|size| size != bytes.len() as u64) { return Err(AppCommandError::network("连接器文件下载不完整，请重试")); }
     Ok(bytes)
 }

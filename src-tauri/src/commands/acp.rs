@@ -6022,6 +6022,7 @@ struct PreparedMarketSkillInstall {
     backup: Option<PathBuf>,
 }
 
+#[derive(Serialize,Deserialize)]
 struct PreviousMarketSkillState {
     skill_id: String,
     existed: bool,
@@ -6029,12 +6030,15 @@ struct PreviousMarketSkillState {
     publications: Vec<(AgentType, AgentSkillSyncMode)>,
 }
 
+#[derive(Serialize,Deserialize)]
 struct MarketSkillRemovalEntry {
     source: PathBuf,
     backup: PathBuf,
     previous: PreviousMarketSkillState,
+    #[serde(default)] marker:Option<MarketSkillMarker>,
 }
 
+#[derive(Serialize,Deserialize)]
 struct MarketSkillRemovalSnapshot {
     transaction_root: PathBuf,
     entries: Vec<MarketSkillRemovalEntry>,
@@ -6045,45 +6049,10 @@ struct StagedMarketSkillInstall {
     staging: PathBuf,
 }
 
-pub(crate) fn install_market_skills(
-    agent_types: &[AgentType],
-    root_skill_id: i64,
-    installs: Vec<MarketSkillInstall>,
-) -> Result<Vec<AgentSkillItem>, AcpError> {
-    let _paths = require_private_agent_storage_for_write()?;
-    if agent_types.is_empty() {
-        return Err(AcpError::protocol("Skill publication targets are empty"));
-    }
-    if !installs.is_empty() && market_install_root_id(&installs)? != root_skill_id {
-        return Err(AcpError::protocol(
-            "market Skill install plan references the wrong root Skill",
-        ));
-    }
-    let retained_skills = installs
-        .iter()
-        .map(|install| (install.marker.skill_id, install.marker.slug.clone()))
-        .collect::<BTreeSet<_>>();
-    let _guard = shared_skill_mutation_guard();
-    let prepared = prepare_market_skill_installs(installs)?;
-    let mut replaced = replace_market_skill_directories(prepared)?;
-    let installed = match publish_market_skill_installs(&replaced) {
-        Ok(installed) => installed,
-        Err(error) => {
-            rollback_market_skill_directories(&mut replaced);
-            restore_market_skill_publications(&replaced);
-            return Err(error);
-        }
-    };
-    if let Err(error) = release_market_root_references(root_skill_id, &retained_skills) {
-        tracing::warn!(
-            root_skill_id,
-            error = %error,
-            "[skill-market] install committed but stale dependency cleanup failed"
-        );
-    }
-    finish_market_skill_directories(&mut replaced);
-    Ok(installed)
-}
+mod market_install_transaction;
+pub(crate) use market_install_transaction::MarketSkillInstallTransaction;
+mod market_remove_transaction;
+pub(crate) use market_remove_transaction::PluginSkillRemoval;
 
 /// 卸载指定 market skill（按 `skill_id` 匹配本地 market marker）。
 /// 若该 skill 仍被其他已启用的 expert 包依赖则拒绝卸载；未找到任何
@@ -6131,13 +6100,17 @@ fn uninstall_market_skill_by_id_locked(skill_id: i64) -> Result<usize, AcpError>
             Ok(removed)
         }
         Err(error) => {
-            snapshot.rollback();
+            snapshot.rollback().map_err(|rollback| AcpError::protocol(format!("{error}; rollback incomplete: {rollback}")))?;
             Err(error)
         }
     }
 }
 
 fn stage_market_skill_removal(root_skill_id: i64) -> Result<MarketSkillRemovalSnapshot, AcpError> {
+    stage_market_skill_removal_with((root_skill_id, None))
+}
+
+fn stage_market_skill_removal_with(context: (i64, Option<&str>)) -> Result<MarketSkillRemovalSnapshot, AcpError> {
     let root = shared_skills_dir();
     let transaction_root = root.join(format!(
         ".iyw-claw-market-uninstall-{}",
@@ -6146,7 +6119,7 @@ fn stage_market_skill_removal(root_skill_id: i64) -> Result<MarketSkillRemovalSn
     fs::create_dir_all(&transaction_root).map_err(|error| {
         AcpError::protocol(format!("failed to create Skill uninstall backup: {error}"))
     })?;
-    let result = collect_market_skill_removal_entries(&root, &transaction_root, root_skill_id);
+    let result = collect_market_skill_removal_entries(&root, &transaction_root, context);
     match result {
         Ok(entries) => Ok(MarketSkillRemovalSnapshot {
             transaction_root,
@@ -6162,8 +6135,9 @@ fn stage_market_skill_removal(root_skill_id: i64) -> Result<MarketSkillRemovalSn
 fn collect_market_skill_removal_entries(
     root: &Path,
     transaction_root: &Path,
-    root_skill_id: i64,
+    context: (i64, Option<&str>),
 ) -> Result<Vec<MarketSkillRemovalEntry>, AcpError> {
+    let (root_skill_id, plugin_slug) = context;
     let mut result = Vec::new();
     for entry in fs::read_dir(root).map_err(|error| {
         AcpError::protocol(format!("failed to inspect Skill uninstall state: {error}"))
@@ -6175,7 +6149,8 @@ fn collect_market_skill_removal_entries(
             continue;
         };
         let legacy_root = marker.target_references.is_empty() && marker.skill_id == root_skill_id;
-        if !legacy_root && !marker.target_references.contains_key(&root_skill_id) {
+        let owned = plugin_slug.is_some_and(|slug| marker.skill_id == root_skill_id && marker.plugin_slug.as_deref() == Some(slug));
+        if !legacy_root && !owned && !marker.target_references.contains_key(&root_skill_id) {
             continue;
         }
         let skill_id = validate_skill_id(&marker.slug)?;
@@ -6184,6 +6159,7 @@ fn collect_market_skill_removal_entries(
             AcpError::protocol(format!("failed to back up Skill '{skill_id}': {error}"))
         })?;
         result.push(MarketSkillRemovalEntry {
+            marker:Some(marker),
             previous: PreviousMarketSkillState {
                 enabled: shared_skill_publish_enabled(&source, &skill_id)?,
                 publications: existing_shared_skill_publications(&source, &skill_id)?,
@@ -6198,20 +6174,38 @@ fn collect_market_skill_removal_entries(
 }
 
 impl MarketSkillRemovalSnapshot {
-    fn rollback(&mut self) {
+    fn rollback(&mut self) -> Result<(), AcpError> {
+        let mut failed = false;
+        let mut restored = Vec::new();
         for entry in self.entries.iter().rev() {
+            if !path_entry_exists(&entry.backup) {
+                tracing::error!(skill_id=%entry.previous.skill_id,"[skill-market] uninstall backup missing; current files retained");
+                failed = true;
+                continue;
+            }
             if path_entry_exists(&entry.source) {
                 if let Err(error) = remove_skill_entry(&entry.source) {
                     tracing::error!(skill_id = %entry.previous.skill_id, error = %error, "[skill-market] failed to clear partial uninstall");
+                    failed = true;
                     continue;
                 }
             }
-            if let Err(error) = fs::rename(&entry.backup, &entry.source) {
+            if let Err(error) = copy_dir_recursive(&entry.backup, &entry.source) {
                 tracing::error!(skill_id = %entry.previous.skill_id, error = %error, "[skill-market] failed to restore uninstalled Skill");
+                failed = true;
+            } else {
+                restored.push(entry);
             }
         }
-        restore_market_skill_removal_publications(&self.entries);
-        let _ = remove_skill_entry(&self.transaction_root);
+        failed |= restore_market_skill_removal_publications(&restored).is_err();
+        if failed {
+            return Err(AcpError::protocol(format!(
+                "Skill uninstall rollback incomplete; backup retained at {}",
+                self.transaction_root.display()
+            )));
+        }
+        remove_skill_entry(&self.transaction_root)
+            .map_err(|error| AcpError::protocol(error.to_string()))
     }
 
     fn finish(&mut self) {
@@ -6221,7 +6215,10 @@ impl MarketSkillRemovalSnapshot {
     }
 }
 
-fn restore_market_skill_removal_publications(entries: &[MarketSkillRemovalEntry]) {
+fn restore_market_skill_removal_publications(
+    entries: &[&MarketSkillRemovalEntry],
+) -> Result<(), AcpError> {
+    let mut failure = None;
     for entry in entries {
         let state = &entry.previous;
         let result = if state.enabled {
@@ -6231,8 +6228,10 @@ fn restore_market_skill_removal_publications(entries: &[MarketSkillRemovalEntry]
         };
         if let Err(error) = result {
             tracing::error!(skill_id = %state.skill_id, error = %error, "[skill-market] failed to restore publications after uninstall rollback");
+            failure = Some(error);
         }
     }
+    failure.map_or(Ok(()), Err)
 }
 
 fn market_install_root_id(installs: &[MarketSkillInstall]) -> Result<i64, AcpError> {
@@ -6533,7 +6532,7 @@ fn apply_staged_market_skills(
             Err(error) => {
                 cleanup_market_skill_staging(&value.staging, &value.prepared.skill_id);
                 cleanup_staged_market_skills(iterator.collect());
-                rollback_market_skill_directories(&mut replaced);
+                rollback_market_skill_directories(&mut replaced).map_err(|rollback| AcpError::protocol(format!("{error}; rollback incomplete: {rollback}")))?;
                 return Err(error);
             }
         }
@@ -6556,7 +6555,7 @@ fn replace_staged_market_skill(
         None
     };
     if let Err(error) = fs::rename(staging, target) {
-        restore_market_skill_backup(target, previous.as_deref(), skill_id);
+        restore_market_skill_backup(target, previous.as_deref(), skill_id).map_err(|rollback| AcpError::protocol(format!("{error}; rollback incomplete: {rollback}")))?;
         return Err(AcpError::protocol(format!(
             "failed to install Skill directory: {error}"
         )));
@@ -6568,7 +6567,7 @@ fn replace_staged_market_skill(
     let preserved = match preserved {
         Ok(value) => value,
         Err(error) => {
-            restore_market_skill_backup(target, previous.as_deref(), skill_id);
+            restore_market_skill_backup(target, previous.as_deref(), skill_id).map_err(|rollback| AcpError::protocol(format!("{error}; rollback incomplete: {rollback}")))?;
             return Err(error);
         }
     };
@@ -6637,25 +6636,55 @@ fn log_market_skill_replacement(skill_id: &str, target: &Path, preserved: &[Stri
     );
 }
 
-fn rollback_market_skill_directories(replaced: &mut [PreparedMarketSkillInstall]) {
+fn rollback_market_skill_directories(
+    replaced: &mut [PreparedMarketSkillInstall],
+) -> Result<(), AcpError> {
+    let mut failure = None;
     for value in replaced.iter_mut().rev() {
-        restore_market_skill_backup(&value.source, value.backup.as_deref(), &value.skill_id);
-        value.backup = None;
+        match restore_market_skill_backup(&value.source, value.backup.as_deref(), &value.skill_id) {
+            Ok(()) => {
+                value.backup = None;
+                if let Err(error) = restore_market_skill_publications(std::slice::from_ref(value)) {
+                    failure = Some(error);
+                }
+            }
+            Err(error) => {
+                tracing::error!(skill_id=%value.skill_id,error=%error,"[skill-market] 技能目录回退失败，保留备份");
+                if let Err(publication_error) =
+                    remove_shared_skill_publications_locked(&value.skill_id)
+                {
+                    tracing::error!(skill_id=%value.skill_id,error=%publication_error,"[skill-market] 未恢复技能的发布撤回失败");
+                }
+                failure = Some(error);
+            }
+        }
     }
+    failure.map_or(Ok(()), Err)
 }
 
-fn restore_market_skill_backup(target: &Path, backup: Option<&Path>, skill_id: &str) {
+fn restore_market_skill_backup(
+    target: &Path,
+    backup: Option<&Path>,
+    skill_id: &str,
+) -> Result<(), AcpError> {
+    if backup.is_some_and(|path| !path_entry_exists(path)) {
+        return Err(AcpError::protocol(format!(
+            "Skill '{skill_id}' rollback backup is missing; current files retained"
+        )));
+    }
     if path_entry_exists(target) {
-        if let Err(error) = remove_skill_entry(target) {
-            tracing::error!(skill_id, error = %error, "[skill-market] failed to remove replacement during rollback");
-            return;
-        }
+        remove_skill_entry(target).map_err(|error| {
+            AcpError::protocol(format!(
+                "failed to remove replacement Skill '{skill_id}': {error}"
+            ))
+        })?;
     }
-    if let Some(backup) = backup.filter(|path| path_entry_exists(path)) {
-        if let Err(error) = fs::rename(backup, target) {
-            tracing::error!(skill_id, error = %error, "[skill-market] failed to restore Skill backup");
-        }
+    if let Some(backup) = backup {
+        fs::rename(backup, target).map_err(|error| {
+            AcpError::protocol(format!("failed to restore Skill '{skill_id}': {error}"))
+        })?;
     }
+    Ok(())
 }
 
 fn finish_market_skill_directories(replaced: &mut [PreparedMarketSkillInstall]) {
@@ -6690,7 +6719,10 @@ fn publish_market_skill_installs(
     Ok(installed)
 }
 
-fn restore_market_skill_publications(replaced: &[PreparedMarketSkillInstall]) {
+fn restore_market_skill_publications(
+    replaced: &[PreparedMarketSkillInstall],
+) -> Result<(), AcpError> {
+    let mut failure = None;
     for value in replaced {
         let state = &value.previous;
         let result = if state.existed && state.enabled {
@@ -6704,8 +6736,10 @@ fn restore_market_skill_publications(replaced: &[PreparedMarketSkillInstall]) {
                 error = %error,
                 "[skill-market] failed to restore Skill publication state after install failure"
             );
+            failure = Some(error);
         }
     }
+    failure.map_or(Ok(()), Err)
 }
 
 fn existing_shared_skill_publications(

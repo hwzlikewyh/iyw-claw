@@ -509,6 +509,11 @@ pub(crate) fn is_officecli_skill_id(id: &str) -> bool {
     find_skill_def(id).is_some()
 }
 
+pub(crate) fn managed_office_dependency_available(id: &str) -> bool {
+    is_officecli_skill_id(id) && resolve_officecli().is_some()
+        && office_skill_source_is_ready(&skill_central_path(id))
+}
+
 fn skill_def_to_metadata(def: &SkillDef) -> OfficecliSkill {
     let mut display_name = BTreeMap::new();
     display_name.insert("en".to_string(), def.en_name.to_string());

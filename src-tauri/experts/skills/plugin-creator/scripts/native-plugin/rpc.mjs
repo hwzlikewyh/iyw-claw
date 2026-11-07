@@ -11,7 +11,7 @@ export class PluginRpc {
     this.timeout = timeout
     this.child = spawn(process.execPath, [entrypoint], {
       cwd,
-      env: { ...process.env, ...env },
+      env: { ...captureEnvironment(), ...env },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     })
@@ -132,4 +132,9 @@ export class PluginRpc {
     clearTimeout(timer)
     this.lines.close()
   }
+}
+
+function captureEnvironment() {
+  const names = ["SystemRoot", "windir", "ComSpec", "PATH", "Path", "PATHEXT", "TEMP", "TMP", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "IYW_WORKSPACE_DIR", "IYW_PLUGIN_DATA_DIR"]
+  return Object.fromEntries(names.flatMap((key) => process.env[key] === undefined ? [] : [[key, process.env[key]]]))
 }

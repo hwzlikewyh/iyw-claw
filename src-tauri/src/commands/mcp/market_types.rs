@@ -37,6 +37,8 @@ pub(super) struct OptionSpec {
     #[serde(default)]
     pub auth_mode: String,
     #[serde(default)]
+    pub cli_auth: Option<Value>,
+    #[serde(default)]
     pub runtime: String,
     #[serde(default)]
     pub protocol_versions: Vec<String>,

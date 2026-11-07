@@ -86,6 +86,28 @@ pub async fn list_for_conversation(
         .map_err(Into::into)
 }
 
+pub(crate) async fn find_related_result(
+    conn: &DatabaseConnection,
+    context: (&plugin_app_instance::Model, &[String]),
+) -> Result<Option<plugin_app_instance::Model>, DbError> {
+    use sea_orm::{QueryOrder, QuerySelect};
+    let (recipient, app_keys) = context;
+    let query = plugin_app_instance::Entity::find()
+        .filter(plugin_app_instance::Column::ConversationId.eq(recipient.conversation_id))
+        .filter(plugin_app_instance::Column::PluginSlug.eq(&recipient.plugin_slug))
+        .filter(plugin_app_instance::Column::PluginVersion.eq(&recipient.plugin_version))
+        .filter(plugin_app_instance::Column::WorkspaceKey.eq(&recipient.workspace_key))
+        .filter(plugin_app_instance::Column::AppKey.is_in(app_keys.to_vec()))
+        .filter(plugin_app_instance::Column::ToolCallId.not_like("panel:%"));
+    query
+        .order_by_desc(plugin_app_instance::Column::CreatedAt)
+        .order_by_desc(plugin_app_instance::Column::InstanceId)
+        .limit(1)
+        .one(conn)
+        .await
+        .map_err(Into::into)
+}
+
 pub async fn mark_plugin_inactive(
     conn: &DatabaseConnection,
     plugin_slug: &str,
@@ -134,5 +156,25 @@ pub async fn mark_inactive(
         .exec(conn)
         .await
         .map(|result| result.rows_affected > 0)
+        .map_err(Into::into)
+}
+
+pub(crate) async fn workspace_plugin_instances(
+    conn: &DatabaseConnection,
+    context: (&str, &str),
+) -> Result<Vec<String>, DbError> {
+    use sea_orm::QuerySelect;
+    let mut query = plugin_app_instance::Entity::find()
+        .select_only()
+        .column(plugin_app_instance::Column::InstanceId)
+        .filter(plugin_app_instance::Column::PluginSlug.eq(context.0));
+    if !context.1.is_empty() {
+        query = query.filter(plugin_app_instance::Column::WorkspaceKey.eq(context.1));
+    }
+    query
+        .filter(plugin_app_instance::Column::State.eq("active"))
+        .into_tuple()
+        .all(conn)
+        .await
         .map_err(Into::into)
 }

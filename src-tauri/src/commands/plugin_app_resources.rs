@@ -46,18 +46,11 @@ fn validate_resource_binding(
     app: &serde_json::Value,
     uri: &str,
 ) -> Result<(), crate::plugin_runtime::types::PluginInvokeError> {
-    let native = crate::plugin_runtime::native_compat::connector(
+    if !crate::plugin_runtime::native_resources::allowed(
         std::path::Path::new(&plugin.install_root),
         app["connectorKey"].as_str().unwrap_or_default(),
-    )?;
-    if app["resourceUri"].as_str() != Some(uri)
-        && !native.is_some_and(|value| {
-            value
-                .resources
-                .iter()
-                .any(|item| item["uri"].as_str() == Some(uri))
-        })
-    {
+        (app["resourceUri"].as_str().unwrap_or_default(), uri),
+    )? {
         return Err(plugin_error(
             "plugin_app_unauthorized",
             "Plugin app resource is not declared by its binding",

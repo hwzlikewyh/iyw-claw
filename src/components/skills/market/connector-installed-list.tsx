@@ -4,7 +4,6 @@ import { useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -22,7 +21,7 @@ import {
 } from "@/lib/conversation-connectors"
 import { mcpRemoveServer } from "@/lib/api"
 import type { LocalMcpServer } from "@/lib/types"
-import { ConnectorOAuthDialog } from "./connector-oauth-dialog"
+import { ConnectorInstalledStatus } from "./connector-installed-status"
 import { ConnectorMigrationDialog } from "@/components/connectors/connector-migration-dialog"
 
 export function ConnectorInstalledList({
@@ -34,7 +33,6 @@ export function ConnectorInstalledList({
 }) {
   const t = useTranslations("ConnectorMarket")
   const [removing, setRemoving] = useState<string | null>(null)
-  const [oauth, setOAuth] = useState<string | null>(null)
   const [migration, setMigration] = useState<{
     targetId: string
   } | null>(null)
@@ -109,7 +107,7 @@ export function ConnectorInstalledList({
       )}
       {items.map((item) => (
         <div
-          key={item.id}
+          key={`${item.id}:${JSON.stringify(item.spec)}`}
           className="flex flex-wrap items-center gap-3 rounded-lg border p-4"
         >
           <div className="min-w-0 flex-1">
@@ -118,18 +116,7 @@ export function ConnectorInstalledList({
               {t("chooseInConversation")}
             </p>
           </div>
-          <Badge variant="outline">{t("configured")}</Badge>
-          {(item.spec.iyw_market as { auth_mode?: string } | undefined)
-            ?.auth_mode === "oauth" && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setOAuth(item.id)}
-            >
-              {t("authorize")}
-            </Button>
-          )}
+          <ConnectorInstalledStatus item={item} disabled={busy} />
           <Button
             size="sm"
             disabled={busy || !activeTabId}
@@ -148,9 +135,6 @@ export function ConnectorInstalledList({
           </Button>
         </div>
       ))}
-      {oauth && (
-        <ConnectorOAuthDialog id={oauth} onClose={() => setOAuth(null)} />
-      )}
       <ConnectorMigrationDialog
         open={migration !== null}
         busy={busy}

@@ -77,20 +77,26 @@ fn validate_install_request(
 
 pub(super) async fn approve_scope(
     database: &sea_orm::DatabaseConnection,
-    plugin_slug: &str,
+    plugin: &crate::plugin_runtime::registry::PluginDescriptor,
     authority: &SessionContext,
 ) -> Result<(), ErrorData> {
+    let _operation = crate::plugin_runtime::registry::lock_mutation().await;
     let workspace_key = crate::commands::skill_inventory::workspace_key(Some(
         authority.cwd().to_string_lossy().as_ref(),
     ));
     let agent_type = authority.agent_type().as_wire();
-    crate::db::service::plugin_runtime_approval_service::approve_plugin(
+    let snapshot = crate::plugin_runtime::registry::global_snapshot()
+        .ok_or_else(|| ErrorData::internal_error("plugin registry is unavailable", None))?;
+    crate::plugin_runtime::dependency_scope::require(plugin, &snapshot.plugins, (&workspace_key, agent_type.as_ref()))
+        .map_err(|error| ErrorData::invalid_params(error.message, Some(json!({"code": error.code}))))?;
+    crate::db::service::plugin_runtime_approval_service::set_plugin_scope(
         database,
         crate::db::service::plugin_runtime_approval_service::PluginApprovalScope {
-            plugin_slug,
+            plugin_slug: &plugin.slug,
             workspace_key: &workspace_key,
             agent_type: agent_type.as_ref(),
         },
+        (&plugin.version, &plugin.permissions_digest, true),
     )
     .await
     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;

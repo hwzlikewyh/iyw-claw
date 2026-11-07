@@ -16,7 +16,7 @@ pub struct PluginInstallationRecord {
     pub permission_grants: Vec<crate::db::entities::plugin_permission_grant::Model>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PluginInstallationInput {
     pub market_skill_id: i64,
     pub slug: String,
@@ -37,7 +37,7 @@ pub struct PluginInstallationInput {
     pub runtime_state: PluginRuntimeStateInput,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PluginComponentInput {
     pub component_type: String,
     pub component_key: String,
@@ -105,6 +105,20 @@ pub async fn list_installations(
         .map_err(Into::into)
 }
 
+pub(crate) async fn list_installations_by_ids(
+    conn: &DatabaseConnection,
+    ids: &[i64],
+) -> Result<Vec<plugin_installation::Model>, DbError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    plugin_installation::Entity::find()
+        .filter(plugin_installation::Column::MarketSkillId.is_in(ids.iter().copied()))
+        .all(conn)
+        .await
+        .map_err(Into::into)
+}
+
 pub async fn list_records(
     conn: &DatabaseConnection,
 ) -> Result<Vec<PluginInstallationRecord>, DbError> {
@@ -122,14 +136,19 @@ pub async fn replace(
     input: PluginInstallationInput,
 ) -> Result<PluginInstallationRecord, DbError> {
     let transaction = conn.begin().await?;
-    let result = replace_in_transaction(&transaction, input).await?;
+    let result = replace_in_transaction(&transaction, input, true).await?;
     transaction.commit().await?;
     Ok(result)
 }
 
+mod restore;
+pub use restore::mark_repair_required;
+pub(crate) use restore::{finish_installations, restore};
+
 async fn replace_in_transaction(
     transaction: &DatabaseTransaction,
     input: PluginInstallationInput,
+    preserve: bool,
 ) -> Result<PluginInstallationRecord, DbError> {
     let now = Utc::now();
     let existing = plugin_installation::Entity::find()
@@ -145,12 +164,16 @@ async fn replace_in_transaction(
         .exec(transaction)
         .await?;
     let components = insert_components(transaction, installation.id, input.components, now).await?;
-    let runtime_state = plugin_runtime_state_service::preserve_existing_in_transaction(
-        transaction,
-        &installation.slug,
-        input.runtime_state,
-    )
-    .await?;
+    let runtime_state = if preserve {
+        plugin_runtime_state_service::preserve_existing_in_transaction(
+            transaction,
+            &installation.slug,
+            input.runtime_state,
+        )
+        .await?
+    } else {
+        input.runtime_state
+    };
     plugin_runtime_state_service::replace_in_transaction(
         transaction,
         &installation.slug,
@@ -272,23 +295,4 @@ pub async fn delete_by_market_skill_id(
         .await?;
     transaction.commit().await?;
     Ok(result.rows_affected)
-}
-
-pub async fn mark_repair_required(
-    conn: &DatabaseConnection,
-    market_skill_id: i64,
-) -> Result<(), DbError> {
-    plugin_installation::Entity::update_many()
-        .col_expr(
-            plugin_installation::Column::Status,
-            sea_orm::sea_query::Expr::value("repair_required"),
-        )
-        .col_expr(
-            plugin_installation::Column::ReconcileState,
-            sea_orm::sea_query::Expr::value("repair_required"),
-        )
-        .filter(plugin_installation::Column::MarketSkillId.eq(market_skill_id))
-        .exec(conn)
-        .await?;
-    Ok(())
 }

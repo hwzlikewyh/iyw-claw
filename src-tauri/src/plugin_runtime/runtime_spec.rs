@@ -33,12 +33,31 @@ pub(super) fn launch_spec(
             .unwrap_or_default()
             .to_string(),
         install_root: PathBuf::from(&plugin.install_root),
-        plugin_data_dir: paths.root().join("plugin-data").join(&plugin.slug),
+        plugin_data_dir: plugin_data_dir(&paths, plugin)?,
         workspace_dir: call.context.workspace_dir.clone(),
-        permission_revision: plugin.permissions_digest.clone(),
+        permission_revision: super::policy::scope_revision(plugin, &call.context.workspace_key),
         expected_tools: expected_tools(plugin, connector_key)?,
         resource_uris: resource_uris(plugin, connector_key)?,
     })
+}
+
+fn plugin_data_dir(
+    paths: &crate::acp::agent_storage::AgentStoragePaths,
+    plugin: &PluginDescriptor,
+) -> Result<PathBuf, PluginInvokeError> {
+    use sha2::{Digest, Sha256};
+    let scope = super::recovery::read_pointer(std::path::Path::new(&plugin.install_root))
+        .map(|pointer| pointer.account_scope)
+        .filter(|scope| !scope.is_empty())
+        .ok_or_else(|| {
+            unavailable("Plugin account scope is missing; reinstall the installed version")
+        })?;
+    let key = format!("{:x}", Sha256::digest(scope.as_bytes()));
+    Ok(paths
+        .root()
+        .join("plugin-data")
+        .join(key)
+        .join(&plugin.slug))
 }
 
 pub(super) fn component_config<'a>(

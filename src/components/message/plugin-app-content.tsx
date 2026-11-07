@@ -1,13 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect } from "react"
 import { Maximize2, Minimize2, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
-import {
-  pluginAppOpen,
-  type PluginAppLaunch,
-  type PluginAppResourceMeta,
-} from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -15,23 +10,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { PluginAppHost } from "./plugin-app-host"
+import { usePluginAppState } from "./use-plugin-app-state"
 
 type PluginAppContentProps = {
   instanceId: string
   toolCallId: string
   conversationId: number
 }
-
-type AppState =
-  | { status: "loading" }
-  | {
-      status: "ready"
-      html: string
-      launch: PluginAppLaunch
-      hostVersion: string
-      resourceMeta?: PluginAppResourceMeta
-    }
-  | { status: "error"; message: string }
 
 export function PluginAppContent({
   instanceId,
@@ -40,63 +25,11 @@ export function PluginAppContent({
 }: PluginAppContentProps) {
   void toolCallId
   const t = useTranslations("Folder.chat.contentParts.pluginApp")
-  const [state, setState] = useState<AppState>({ status: "loading" })
-  const [fullscreen, setFullscreen] = useState(false)
-
-  const openApp = useCallback(async () => {
-    return pluginAppOpen({ instanceId, conversationId })
-  }, [conversationId, instanceId])
-
-  const retry = useCallback(async () => {
-    setState({ status: "loading" })
-    try {
-      const response = await openApp()
-      setFullscreen(response.launch.displayMode === "fullscreen")
-      setState({
-        status: "ready",
-        html: response.html,
-        launch: response.launch,
-        hostVersion: response.hostVersion,
-        resourceMeta: response.resourceMeta,
-      })
-    } catch (error) {
-      setState({
-        status: "error",
-        message:
-          error instanceof Error ? error.message : "Plugin app unavailable",
-      })
-    }
-  }, [openApp])
-
-  useEffect(() => {
-    let active = true
-    void openApp().then(
-      (response) => {
-        if (active) {
-          setFullscreen(response.launch.displayMode === "fullscreen")
-          setState({
-            status: "ready",
-            html: response.html,
-            launch: response.launch,
-            hostVersion: response.hostVersion,
-            resourceMeta: response.resourceMeta,
-          })
-        }
-      },
-      (error: unknown) => {
-        if (active) {
-          setState({
-            status: "error",
-            message:
-              error instanceof Error ? error.message : "Plugin app unavailable",
-          })
-        }
-      }
-    )
-    return () => {
-      active = false
-    }
-  }, [openApp])
+  const { state, fullscreen, setFullscreen, retry } = usePluginAppState(
+    instanceId,
+    conversationId,
+    t("unavailable")
+  )
 
   useEffect(() => {
     if (!fullscreen) return
@@ -105,7 +38,7 @@ export function PluginAppContent({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [fullscreen])
+  }, [fullscreen, setFullscreen])
 
   if (state.status === "loading") {
     return (

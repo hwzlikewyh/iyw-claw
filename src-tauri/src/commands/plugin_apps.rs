@@ -1,3 +1,5 @@
+#[path = "plugin_app_catalog.rs"]
+mod plugin_app_catalog;
 #[path = "plugin_app_context.rs"]
 mod plugin_app_context;
 #[path = "plugin_app_messages.rs"]
@@ -8,6 +10,13 @@ mod plugin_app_open;
 mod plugin_app_resources;
 #[path = "plugin_app_types.rs"]
 mod plugin_app_types;
+pub use plugin_app_catalog::{catalog_core, AppChoice, CatalogRequest, LaunchRequest};
+#[path = "plugin_app_launch.rs"]
+mod plugin_app_launch;
+pub use plugin_app_launch::launch_core;
+#[path = "plugin_app_sync.rs"]
+mod plugin_app_sync;
+pub use plugin_app_sync::{sync_core, SyncRequest, SyncUpdate};
 
 use crate::app_error::AppCommandError;
 
@@ -150,4 +159,33 @@ pub async fn plugin_app_teardown(
     request: PluginAppTeardownRequest,
 ) -> Result<(), AppCommandError> {
     teardown_core(&db, &apps, request).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn plugin_app_catalog(
+    db: tauri::State<'_, crate::db::AppDatabase>,
+    request: CatalogRequest,
+) -> Result<Vec<AppChoice>, AppCommandError> {
+    catalog_core(&db, request).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn plugin_app_sync(
+    db: tauri::State<'_, crate::db::AppDatabase>,
+    apps: tauri::State<'_, crate::plugin_runtime::app_host::PluginAppRegistry>,
+    request: SyncRequest,
+) -> Result<Option<SyncUpdate>, AppCommandError> {
+    sync_core(&db, &apps, request).await
+}
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn plugin_app_launch(
+    db: tauri::State<'_, crate::db::AppDatabase>,
+    apps: tauri::State<'_, crate::plugin_runtime::app_host::PluginAppRegistry>,
+    router: tauri::State<'_, crate::plugin_runtime::router::PluginRouter>,
+    request: LaunchRequest,
+) -> Result<PluginAppOpenResponse, AppCommandError> {
+    launch_core(&db, (&apps, &router), request).await
 }

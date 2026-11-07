@@ -17,6 +17,7 @@ pub(crate) fn hydrate_spec(spec: &Value) -> Result<Value, AppCommandError> {
                 AppCommandError::configuration_invalid("连接器凭据格式无效，请重新配置")
             })?;
     }
+    crate::commands::mcp_cli_config::scope_runtime(spec, &mut resolved)?;
     if let Some(map) = resolved.as_object_mut() {
         map.remove("iyw_secret_ref");
         map.remove("iyw_market");
@@ -77,7 +78,7 @@ fn valid_value(value: &Value, kind: &str) -> bool {
     }
 }
 
-pub(super) fn substitute(
+pub(crate) fn substitute(
     value: &mut Value,
     parameters: &Map<String, Value>,
     allow_unresolved: bool,

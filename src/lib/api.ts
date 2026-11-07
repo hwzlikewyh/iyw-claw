@@ -4797,6 +4797,7 @@ export interface PluginAppLaunch {
 }
 
 export interface PluginAppResourceCsp {
+  wasmUnsafeEval?: boolean
   connectDomains?: string[]
   resourceDomains?: string[]
   frameDomains?: string[]

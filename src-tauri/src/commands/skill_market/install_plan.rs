@@ -141,7 +141,8 @@ fn validate_package_metadata(item: &SkillInstallPlanItem) -> Result<(), AppComma
                     "The plugin artifact has incomplete trust metadata",
                 ));
             }
-            validate_plugin_summary(plugin, &item.slug, &item.version)
+            validate_plugin_summary(plugin, &item.slug, &item.version)?;
+            super::plugin_client_version::require_current(&plugin.min_client_version)
         }
         SkillPackageType::Skill | SkillPackageType::Expert => {
             let expected = if item.dependencies.is_empty() {

@@ -19,7 +19,7 @@ const QUARANTINE_THRESHOLD: u32 = 3;
 
 #[derive(Clone)]
 pub struct PluginRuntimeSupervisor {
-    inner: Arc<SupervisorInner>,
+    pub(super) inner: Arc<SupervisorInner>,
 }
 
 pub(super) struct SupervisorInner {
@@ -59,17 +59,20 @@ impl PluginRuntimeSupervisor {
     pub async fn invoke(
         &self,
         spec: RuntimeLaunchSpec,
-        tool_name: String,
-        arguments: serde_json::Map<String, serde_json::Value>,
-        cancellation: CancellationToken,
-        authority_cancellation: CancellationToken,
+        call: super::types::PluginRuntimeCall,
     ) -> PluginInvokeResult {
+        let super::types::PluginRuntimeCall { tool_name, arguments, conversation_id, cancellation, authority_cancellation } = call;
         self.ensure_accepting(&cancellation, &authority_cancellation)?;
         let call_timeout = super::native_compat::tool_timeout(&spec)?;
         let instance = self.ensure_instance(&spec).await?;
         let permits = super::lease::acquire(&self.inner.global_calls, &instance).await?;
         self.ensure_accepting(&cancellation, &authority_cancellation)?;
-        let call = instance.client.call_tool(tool_name, arguments);
+        super::authentication::require(&instance.client,&spec,&tool_name).await?;
+        self.ensure_accepting(&cancellation, &authority_cancellation)?;
+        if !super::policy::authority_current(&spec).await {
+            return Err(PluginInvokeError::before_effect("plugin_authority_revoked", "Plugin authorization changed before dispatch"));
+        }
+        let call = instance.client.call_tool_scoped(tool_name, arguments, conversation_id);
         let result = tokio::select! {
             _ = cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
                 "plugin_call_cancelled", "Plugin call was cancelled after dispatch",
@@ -86,6 +89,9 @@ impl PluginRuntimeSupervisor {
         };
         drop(permits);
         self.record_outcome(&spec.key, &result).await;
+        if !super::policy::authority_current(&spec).await {
+            return Err(PluginInvokeError::after_dispatch("plugin_authority_revoked", "Plugin authorization changed after dispatch; do not retry automatically"));
+        }
         result
     }
 
@@ -111,6 +117,9 @@ impl PluginRuntimeSupervisor {
         let instance = self.ensure_instance(&spec).await?;
         let permits = super::lease::acquire(&self.inner.global_calls, &instance).await?;
         self.ensure_accepting(&cancellation, &authority_cancellation)?;
+        if !super::policy::authority_current(&spec).await {
+            return Err(PluginInvokeError::before_effect("plugin_authority_revoked", "Plugin authorization changed before resource access"));
+        }
         let result = tokio::select! {
             _ = cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
                 "plugin_resource_cancelled", "Plugin resource read was cancelled",
@@ -124,6 +133,9 @@ impl PluginRuntimeSupervisor {
                 ))?,
         };
         drop(permits);
+        if !super::policy::authority_current(&spec).await {
+            return Err(PluginInvokeError::after_dispatch("plugin_authority_revoked", "Plugin authorization changed while reading the resource"));
+        }
         result
     }
 
@@ -213,7 +225,7 @@ impl PluginRuntimeSupervisor {
         false
     }
 
-    async fn ensure_instance(
+    pub(super) async fn ensure_instance(
         &self,
         spec: &RuntimeLaunchSpec,
     ) -> Result<Arc<RuntimeInstance>, PluginInvokeError> {
@@ -243,7 +255,12 @@ impl PluginRuntimeSupervisor {
             }
             state.instance = None;
         }
-        match PluginMcpClient::start(spec).await {
+        let started = tokio::select! {
+            _ = self.inner.shutdown.cancelled() => Err(PluginInvokeError::before_effect("plugin_runtime_unavailable", "Plugin runtime is shutting down")),
+            _ = super::policy::wait_revoked(spec) => Err(PluginInvokeError::before_effect("plugin_authority_revoked", "Plugin authorization changed during startup")),
+            result = PluginMcpClient::start(spec) => result,
+        };
+        match started {
             Ok(client) => {
                 let instance = Arc::new(RuntimeInstance::new(client));
                 state.instance = Some(instance.clone());

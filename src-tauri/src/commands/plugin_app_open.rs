@@ -46,7 +46,7 @@ async fn prepare_open(
     })
 }
 
-async fn load_instance(
+pub(super) async fn load_instance(
     db: &crate::db::AppDatabase,
     request: &PluginAppOpenRequest,
 ) -> Result<

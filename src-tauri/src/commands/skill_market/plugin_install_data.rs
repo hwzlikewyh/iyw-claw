@@ -48,6 +48,7 @@ pub(super) fn connector_registrations(
                 version: plugin.version.clone(),
                 component_key: component.key.clone(),
                 required_skill_keys: required_skill_keys(plugin, &component.key),
+                platforms:plugin.plugin.manifest.platforms.clone(),
                 template_spec: spec,
             },
         });
@@ -142,11 +143,8 @@ pub(super) async fn stage_plugin_removal(
     record: &PluginInstallationRecord,
     market_skill_id: i64,
 ) -> Result<PluginStorageRemoval, AppCommandError> {
-    if !crate::plugin_runtime::registry::suspend_global(&record.installation.slug) {
-        return Err(AppCommandError::task_execution_failed(
-            "Plugin registry could not suspend the plugin",
-        ));
-    }
+    // 损坏清单可能已经被registry排除；移除仍须检查在用租约和受管路径。
+    crate::plugin_runtime::registry::suspend_global(&record.installation.slug);
     if crate::plugin_runtime::global::plugin_version_has_active_leases(
         &record.installation.slug,
         Some(&record.installation.version),
@@ -155,7 +153,7 @@ pub(super) async fn stage_plugin_removal(
     {
         // Suspension prevents new calls from entering the runtime. Restore the
         // registry snapshot and defer removal until all in-flight calls finish.
-        let _ = require_registry_state(conn, market_skill_id, true).await;
+        let _ = crate::plugin_runtime::registry::reconcile_global(conn).await;
         return Err(AppCommandError::task_execution_failed(
             "Plugin is still in use; Skill removal deferred",
         ));
@@ -164,7 +162,9 @@ pub(super) async fn stage_plugin_removal(
     match PluginStorageRemoval::stage(&record.installation.slug) {
         Ok(removal) => Ok(removal),
         Err(error) => {
-            let _ = require_registry_state(conn, market_skill_id, true).await;
+            if let Err(reconcile) = crate::plugin_runtime::registry::reconcile_global(conn).await {
+                tracing::error!(market_skill_id,error=%reconcile,"[plugin-install] 移除暂存失败后的目录恢复未完成");
+            }
             Err(error)
         }
     }
@@ -212,7 +212,7 @@ pub(super) fn installation_input(
         trust_state: trust_state(plugin).to_string(),
         artifact_signature_key_id: plugin.signature_key_id.clone(),
         permissions_digest: permissions_digest.clone(),
-        reconcile_state: "ready".to_string(),
+        reconcile_state: "installing".to_string(),
         components,
         runtime_state: runtime_state_input(plugin, permissions_digest)?,
     })

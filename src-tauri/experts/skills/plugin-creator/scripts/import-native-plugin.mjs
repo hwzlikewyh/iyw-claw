@@ -10,15 +10,15 @@ function options(args) {
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index]
     if (
-      !["--source", "--output"].includes(key) ||
+      !["--source", "--output", "--min-client-version"].includes(key) ||
       !args[index + 1] ||
       result[key]
     )
-      throw Error("Use --source <plugin-directory> --output <parent-directory>")
+      throw Error("Use --source <plugin-directory> --output <parent-directory> [--min-client-version <SemVer>]")
     result[key] = args[index + 1]
   }
   if (!result["--source"] || !result["--output"])
-    throw Error("Use --source <plugin-directory> --output <parent-directory>")
+    throw Error("Use --source <plugin-directory> --output <parent-directory> [--min-client-version <SemVer>]")
   return result
 }
 
@@ -26,7 +26,7 @@ async function main() {
   const args = options(process.argv.slice(2))
   if (!args) {
     console.log(
-      "node scripts/import-native-plugin.mjs --source <native-plugin-directory> --output <parent-directory>"
+      "node scripts/import-native-plugin.mjs --source <native-plugin-directory> --output <parent-directory> [--min-client-version <SemVer>]"
     )
     return
   }
@@ -45,17 +45,18 @@ async function main() {
   const staging = await mkdtemp(
     path.join(path.dirname(output), ".native-import-")
   )
-  await convertSource(source, output, staging)
+  await convertSource({ source, output, staging, minimum: args["--min-client-version"] })
 }
 
-async function convertSource(source, output, staging) {
+async function convertSource({ source, output, staging, minimum }) {
   try {
     await copyNativeSource(source.root, path.join(staging, "source"), [
       source.configPath,
     ])
     const result = await buildManifest(
       { ...source, root: await realpath(path.join(staging, "source")) },
-      staging
+      staging,
+      { minClientVersion: minimum }
     )
     const stats = await packageStats(staging)
     await rename(staging, output)
@@ -66,7 +67,7 @@ async function convertSource(source, output, staging) {
           ...stats,
           output,
           nextStep:
-            "在原助理插件市场的上传入口选择此目录，然后安装并授权插件。",
+            minimum ? "在原助理插件市场上传，并核对最低宿主发行版本后发布。" : "候选包未声明最低宿主版本；交互插件正式上传前须补齐该声明。",
         },
         null,
         2

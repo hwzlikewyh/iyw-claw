@@ -49,6 +49,8 @@ pub async fn install_core(
     version: String,
     agent_types: Vec<AgentType>,
 ) -> Result<(), AppCommandError> {
+    let _storage = crate::acp::agent_storage_work::begin_agent_storage_read().await;
+    let account_scope = crate::commands::mcp_cli_config::account_scope(conn).await?;
     let requested_id = parse_id(&id)?;
     let requested_version = semver::Version::parse(version.trim())
         .map_err(|error| {
@@ -57,6 +59,9 @@ pub async fn install_core(
         .to_string();
     let plan = request_install_plan(conn, requested_id, &requested_version).await?;
     validate_install_plan(&plan, requested_id, &requested_version)?;
+    for item in &plan.items {
+        if let Some(plugin)=&item.plugin {super::plugin_platforms::require_current(&plugin.platforms)?;}
+    }
     let mut managed_office_slugs = BTreeSet::new();
     for item in &plan.items {
         if item.slug != plan.root_slug
@@ -130,6 +135,7 @@ pub async fn install_core(
     }
     super::plugin_install::install_market_plan(MarketInstallPlanExecution {
         conn,
+        account_scope,
         agent_types: &agent_types,
         root_skill_id: requested_id,
         skill_installs: installs,
@@ -188,7 +194,7 @@ async fn validated_agent_targets_for_plan(
     Ok(requested)
 }
 
-async fn validate_install_targets(
+pub(super) async fn validate_install_targets(
     conn: &DatabaseConnection,
     agent_types: &[AgentType],
 ) -> Result<(), AppCommandError> {
@@ -329,7 +335,7 @@ async fn request_install_plan(
 ) -> Result<SkillInstallPlan, AppCommandError> {
     let builder = client::request(conn, Method::POST, "/skills/install-plan")
         .await?
-        .json(&serde_json::json!({ "id": id, "version": version }));
+        .json(&serde_json::json!({ "id": id.to_string(), "version": version, "client": super::plugin_client_version::context() }));
     parse_value(client::send(builder).await?, None)
 }
 
@@ -378,7 +384,7 @@ async fn download_package_once(
     let response = client::request(conn, Method::POST, "/skills/download")
         .await
         .map_err(PackageDownloadError::permanent)?
-        .json(&serde_json::json!({ "id": id, "version": version }))
+        .json(&serde_json::json!({ "id": id.to_string(), "version": version, "client": super::plugin_client_version::context() }))
         .timeout(client::transfer_timeout())
         .send()
         .await
@@ -388,6 +394,11 @@ async fn download_package_once(
                     .with_detail(error.to_string()),
             )
         })?;
+    if response.headers().get(CONTENT_TYPE).and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json")) {
+        client::decode_response(response).await.map_err(PackageDownloadError::permanent)?;
+        return Err(PackageDownloadError::permanent(AppCommandError::configuration_invalid("Skill package returned JSON instead of an archive")));
+    }
     validate_download_response(&response, MAX_PACKAGE_BYTES)
         .map_err(PackageDownloadError::permanent)?;
     read_download(response, MAX_PACKAGE_BYTES).await

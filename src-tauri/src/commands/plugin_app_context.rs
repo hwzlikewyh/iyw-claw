@@ -13,21 +13,32 @@ pub(super) async fn load_workspace(
     conversation_id: i64,
     expected_workspace: &str,
 ) -> Result<PluginAppWorkspace, AppCommandError> {
-    let conversation =
-        crate::db::service::conversation_service::get_by_id(&db.conn, conversation_id as i32)
-            .await
-            .map_err(AppCommandError::from)?;
+    let workspace = conversation_workspace(db, conversation_id).await?;
+    if workspace.workspace_key != expected_workspace {
+        return Err(AppCommandError::permission_denied(
+            "Plugin app workspace no longer matches its conversation",
+        ));
+    }
+    Ok(workspace)
+}
+
+pub(super) async fn conversation_workspace(
+    db: &crate::db::AppDatabase,
+    conversation_id: i64,
+) -> Result<PluginAppWorkspace, AppCommandError> {
+    let id = i32::try_from(conversation_id)
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| AppCommandError::invalid_input("插件应用需要有效的当前对话"))?;
+    let conversation = crate::db::service::conversation_service::get_by_id(&db.conn, id)
+        .await
+        .map_err(AppCommandError::from)?;
     let folder =
         crate::db::service::folder_service::get_folder_by_id(&db.conn, conversation.folder_id)
             .await
             .map_err(AppCommandError::from)?
             .ok_or_else(|| AppCommandError::not_found("Plugin app workspace was not found"))?;
     let workspace_key = crate::commands::skill_inventory::workspace_key(Some(&folder.path));
-    if workspace_key != expected_workspace {
-        return Err(AppCommandError::permission_denied(
-            "Plugin app workspace no longer matches its conversation",
-        ));
-    }
     Ok(PluginAppWorkspace {
         agent_type: conversation.agent_type,
         workspace_key,

@@ -14,6 +14,8 @@ import {
 import type { SkillMarketActivationSummary } from "@/lib/skill-market-activation"
 import { getAgentLabel } from "@/lib/custom-agents"
 import { cn } from "@/lib/utils"
+import { PluginPreparationPanel } from "./plugin-preparation-panel"
+import { PluginRemoveStatus } from "./plugin-remove-status"
 
 function agentState({
   enabled,
@@ -37,12 +39,24 @@ interface DetailSidePanelProps {
   onOpenConnectors: () => void
   onRetryActivation: () => void
   onUninstall: () => void
+  onRepairPlugin: () => void
+  onVersionChanged: () => void
 }
 
 export function DetailSidePanel(props: DetailSidePanelProps) {
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   return (
     <aside className="min-h-0 overflow-y-auto border-t bg-muted/10 p-4 lg:border-t-0 lg:border-l lg:p-5">
+      {props.detail.packageType === "plugin" &&
+      props.detail.installedVersion ? (
+        <PluginPreparationPanel
+          marketSkillId={props.detail.id}
+          installedVersion={props.detail.installedVersion}
+          onRepair={props.onRepairPlugin}
+          onOpenConnectors={props.onOpenConnectors}
+          onVersionChanged={props.onVersionChanged}
+        />
+      ) : null}
       <section className="border-b pb-4">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-xs font-semibold">
@@ -216,6 +230,12 @@ export function DetailSidePanel(props: DetailSidePanelProps) {
           <Trash2 className="size-3.5" />
           {t("manage.uninstall")}
         </Button>
+      ) : null}
+      {props.detail.packageType === "plugin" ? (
+        <PluginRemoveStatus
+          id={props.detail.id}
+          onChanged={props.onVersionChanged}
+        />
       ) : null}
     </aside>
   )

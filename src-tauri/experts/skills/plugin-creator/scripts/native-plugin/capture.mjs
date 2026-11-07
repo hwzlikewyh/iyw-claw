@@ -2,6 +2,8 @@ import path from "node:path"
 import { PluginRpc } from "./rpc.mjs"
 import { resolveServer } from "./source.mjs"
 import { nativeEnvironment } from "./runtime.mjs"
+import { readResourceTemplates } from "./resources.mjs"
+import { environmentNames } from "./environment.mjs"
 const KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export function collectPermissions(state, metadata) {
@@ -53,6 +55,7 @@ export function collectPermissions(state, metadata) {
 
 export async function captureConnector(source, key, spec) {
   if (!KEY.test(key)) throw Error(`Invalid connector key: ${key}`)
+  environmentNames(spec)
   validateEnvironmentTemplates(spec.env)
   const entrypoint = await resolveServer(source, spec)
   if (
@@ -84,12 +87,14 @@ export async function captureConnector(source, key, spec) {
       ? await client.list("resources/list", "resources")
       : []
     const metadata = await readUiMetadata(client, resources)
+    const resourceTemplates = await readResourceTemplates(client, !!info.capabilities?.resources)
     return {
       key,
       spec,
       tools,
       resources,
       metadata,
+      resourceTemplates,
       entrypoint: path.relative(source.root, entrypoint).replaceAll("\\", "/"),
     }
   } finally {

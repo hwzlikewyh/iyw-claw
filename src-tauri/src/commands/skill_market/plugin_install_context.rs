@@ -20,6 +20,7 @@ pub(super) struct PreparedPluginInstall {
 
 pub(super) struct MarketInstallPlanExecution<'a> {
     pub(super) conn: &'a DatabaseConnection,
+    pub(super) account_scope: String,
     pub(super) agent_types: &'a [AgentType],
     pub(super) root_skill_id: i64,
     pub(super) skill_installs: Vec<MarketSkillInstall>,

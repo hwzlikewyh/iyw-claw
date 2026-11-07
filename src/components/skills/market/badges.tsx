@@ -61,7 +61,7 @@ export function MarketBadge({
   return (
     <Badge
       variant="outline"
-      className={cn("h-5 px-1.5 text-[10px]", TONES[info.tone], className)}
+      className={cn("h-5 px-1.5 text-[11px]", TONES[info.tone], className)}
       title={t(info.key)}
     >
       {Icon ? <Icon aria-hidden="true" /> : null}
@@ -82,10 +82,7 @@ export function MarketBadgeGroup({
   const visible = badges.slice(0, limit)
   return (
     <span
-      className={cn(
-        "flex min-w-0 flex-wrap items-center gap-1.5",
-        className
-      )}
+      className={cn("flex min-w-0 flex-wrap items-center gap-1.5", className)}
     >
       {visible.map((info) => (
         <MarketBadge key={`${info.key}-${info.tone}`} info={info} />

@@ -10,6 +10,7 @@ use crate::app_error::AppCommandError;
 use super::plugin_components::{valid_key, validate_summary_bindings};
 use super::plugin_manifest::{find_file, invalid_plugin, parse_document, IYW_MANIFEST};
 mod build;
+mod permissions;
 
 use build::Builder;
 
@@ -25,6 +26,10 @@ struct ManifestV2 {
     name: String,
     version: String,
     targets: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_null_vec")]
+    platforms: Vec<String>,
+    #[serde(default, deserialize_with = "super::plugin_client_version::nonempty")]
+    min_client_version: String,
     components: ComponentsV2,
     permissions: SkillPluginPermissions,
 }
@@ -70,6 +75,22 @@ struct ConnectorV2 {
     runtime_key: String,
     routing: RoutingV2,
     activation: ActivationV2,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null_preparation"
+    )]
+    preparation: Option<Value>,
+}
+
+fn non_null_preparation<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Value>, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(serde::de::Error::custom("preparation must be an object"));
+    }
+    Ok(Some(value))
 }
 
 #[derive(Deserialize, Serialize)]
@@ -132,18 +153,22 @@ pub(super) fn parse_plugin_package_v2(
     {
         return Err(invalid_plugin("Plugin v2 identity is invalid"));
     }
-    validate_permissions(&value.permissions)?;
+    permissions::validate(&value.permissions)?;
+    super::plugin_client_version::validate(&value.min_client_version)?;
     let mut builder = Builder::new(files);
     builder.add_runtimes(value.components.runtimes)?;
     builder.add_connectors(value.components.connectors)?;
     builder.add_skills(value.components.skills)?;
     builder.add_capabilities(slug, value.components.capabilities)?;
     builder.add_apps(value.components.apps)?;
+    super::plugin_setup::validate_components(&builder.components)?;
     let mut manifest = SkillPluginManifest {
         schema_version: 2,
         name: value.name,
         version: value.version,
         targets: value.targets,
+        platforms: super::plugin_platforms::normalized(&value.platforms)?,
+        min_client_version: value.min_client_version,
         components: builder.components,
         bindings: builder.bindings,
         permissions: Some(value.permissions),
@@ -174,7 +199,9 @@ pub(super) fn validate_summary_v2(
     {
         return Err(invalid_plugin("Plugin v2 install plan metadata is invalid"));
     }
-    validate_permissions(permissions)?;
+    permissions::validate(permissions)?;
+    super::plugin_client_version::validate(&value.min_client_version)?;
+    super::plugin_setup::validate_components(&value.components)?;
     let expected_digest = manifest_digest(value)?;
     if value.manifest_digest.as_deref() != Some(expected_digest.as_str()) {
         tracing::warn!(
@@ -210,6 +237,7 @@ pub(super) fn validate_summary_v2(
 }
 
 fn sort_manifest(value: &mut SkillPluginManifest) {
+    value.platforms.sort();
     value.components.sort_by(|left, right| {
         (&left.kind, &left.key, &left.path, &left.server_key).cmp(&(
             &right.kind,
@@ -258,57 +286,4 @@ fn config(value: impl Serialize) -> Result<Value, AppCommandError> {
     serde_json::to_value(value).map_err(|error| {
         invalid_plugin("Plugin v2 component is invalid").with_detail(error.to_string())
     })
-}
-
-fn validate_permissions(value: &SkillPluginPermissions) -> Result<(), AppCommandError> {
-    for path in value.workspace.read.iter().chain(&value.workspace.write) {
-        if path.is_empty()
-            || path.starts_with('/')
-            || path.contains('\\')
-            || path
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..")
-        {
-            return Err(invalid_plugin("Plugin v2 workspace permission is unsafe"));
-        }
-    }
-    for domain in value
-        .network
-        .connect_domains
-        .iter()
-        .chain(&value.network.resource_domains)
-        .chain(&value.network.frame_domains)
-        .chain(&value.network.base_uri_domains)
-    {
-        let parsed = reqwest::Url::parse(domain).ok();
-        if domain.chars().any(|character| {
-            character.is_control() || character.is_whitespace() || character == '\\'
-        }) || parsed.as_ref().is_none_or(|url| {
-            url.scheme() != "https"
-                || url.host_str().is_none()
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.query().is_some()
-                || url.fragment().is_some()
-                || !matches!(url.path(), "" | "/")
-        }) {
-            return Err(invalid_plugin(
-                "Plugin v2 network permission must use HTTPS",
-            ));
-        }
-    }
-    if value.host.iter().any(|item| {
-        !matches!(
-            item.as_str(),
-            "send-message"
-                | "clipboard-write"
-                | "open-link"
-                | "camera"
-                | "microphone"
-                | "geolocation"
-        )
-    }) {
-        return Err(invalid_plugin("Plugin v2 host permission is unsupported"));
-    }
-    Ok(())
 }

@@ -6,39 +6,32 @@ pub(crate) struct ResolvedRoute {
     pub(crate) tool_name: String,
 }
 
-pub(super) fn validate_permission(
+pub(crate) fn validate_permission(
     plugin: &PluginDescriptor,
     call: &PluginToolCall,
 ) -> Result<(), PluginInvokeError> {
     if call.context.permission_revision != plugin.permissions_digest {
         return Err(unavailable("Plugin permission revision changed"));
     }
-    let granted = plugin.permission_grants.iter().any(|grant| {
-        grant.permissions_digest == plugin.permissions_digest
-            && grant.grant_state == "granted"
-            && (grant.scope == "global" || grant.workspace_key == call.context.workspace_key)
-    });
+    let granted =
+        crate::plugin_runtime::policy::permission_granted(plugin, &call.context.workspace_key);
     if !granted {
         return Err(unavailable("Plugin permissions are not granted"));
     }
     Ok(())
 }
 
-pub(super) fn validate_activation(
+pub(crate) fn validate_activation(
     plugin: &PluginDescriptor,
     connector_key: &str,
     workspace_key: &str,
     agent_type: crate::models::AgentType,
 ) -> Result<(), PluginInvokeError> {
     let agent_type = agent_type.as_wire();
-    let enabled = plugin.activations.iter().any(|activation| {
-        activation.component_key == connector_key
-            && activation.routing_mode == "host_gateway"
-            && activation.requested_enabled
-            && (activation.agent_type.is_empty() || activation.agent_type == agent_type.as_ref())
-            && (activation.scope == "global"
-                || (activation.scope == "workspace" && activation.workspace_key == workspace_key))
-    });
+    let enabled = crate::plugin_runtime::policy::activation_enabled(
+        plugin,
+        (connector_key, workspace_key, agent_type.as_ref()),
+    );
     if !enabled {
         return Err(unavailable("Plugin connector is disabled"));
     }
@@ -108,6 +101,7 @@ pub(super) fn app_plugin_call(
     PluginToolCall {
         context: crate::plugin_runtime::types::PluginCallContext {
             connection_id: String::new(),
+            conversation_id: Some(call.conversation_id),
             plugin_slug: plugin.slug.clone(),
             capability_id,
             workspace_key: call.workspace_key,

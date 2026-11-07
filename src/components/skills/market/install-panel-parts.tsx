@@ -3,6 +3,7 @@
 import { AlertTriangle, Check, Loader2, PlugZap, RotateCcw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import { requestAppUpdateDialog } from "@/components/layout/sidebar-update-event"
 import {
   formatSkillBytes,
   type SkillMarketTranslator,
@@ -106,12 +107,14 @@ export function InstallFailure({
   errorMessage,
   errorAction,
   onRetry,
+  onClose,
 }: {
   errorMessage?: string | null
   errorAction: string | null
   onRetry: () => void
+  onClose: () => void
 }) {
-  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
+  const t = useTranslations("SkillMarketV2")
   return (
     <div className="p-4">
       <ResultState
@@ -119,17 +122,53 @@ export function InstallFailure({
         title={t("install.failed")}
         detail={errorMessage}
       >
+        <InstallFailureActions
+          errorAction={errorAction}
+          onRetry={onRetry}
+          onClose={onClose}
+        />
+      </ResultState>
+    </div>
+  )
+}
+
+function InstallFailureActions({
+  errorAction,
+  onRetry,
+  onClose,
+}: {
+  errorAction: string | null
+  onRetry: () => void
+  onClose: () => void
+}) {
+  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
+  return (
+    <>
+      {errorAction !== "choose_version" && errorAction !== "update_client" ? (
         <Button size="sm" onClick={onRetry}>
           <RotateCcw className="size-3.5" />
           {t("install.actionRetry")}
         </Button>
-        {errorAction && errorAction !== "retry" ? (
-          <span className="text-[10px] text-muted-foreground">
-            {t(`install.action${capitalize(errorAction)}`)}
-          </span>
-        ) : null}
-      </ResultState>
-    </div>
+      ) : null}
+      {errorAction === "update_client" && (
+        <Button
+          size="sm"
+          onClick={() => {
+            onClose()
+            requestAppUpdateDialog()
+          }}
+        >
+          {t("install.actionUpdateClient")}
+        </Button>
+      )}
+      {errorAction &&
+      errorAction !== "retry" &&
+      errorAction !== "update_client" ? (
+        <span className="text-[10px] text-muted-foreground">
+          {t(`install.action${capitalize(errorAction)}`)}
+        </span>
+      ) : null}
+    </>
   )
 }
 
@@ -159,5 +198,8 @@ export function InstallPlanMetrics({
 }
 
 function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return value
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join("")
 }

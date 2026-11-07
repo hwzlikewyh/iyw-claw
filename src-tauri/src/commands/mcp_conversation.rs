@@ -75,6 +75,9 @@ async fn choices(
     let selection = load(conn, context.0).await?;
     let catalog =
         super::mcp_catalog::load_or_import(conn, super::mcp::scan_legacy_server_specs).await?;
+    let cli_scope = if catalog.servers.values().any(|entry| entry.spec["iyw_market"]["auth_mode"].as_str() == Some("cli")) {
+        super::mcp_cli_config::account_scope(conn).await.ok()
+    } else { None };
     let mut connectors: Vec<ConnectorChoice> = catalog
         .servers
         .iter()
@@ -83,7 +86,14 @@ async fn choices(
         })
         .map(|(key, entry)| {
             let reason =
-                super::mcp_conversation_compatibility::incompatibility(context.1, &entry.spec)
+                super::mcp_catalog_sources::require_platform(entry).err().map(|error|error.message)
+                    .or_else(||super::mcp_conversation_compatibility::incompatibility(context.1, &entry.spec))
+                    .or_else(|| {
+                        if entry.spec["iyw_market"]["auth_mode"].as_str() != Some("cli") { return None; }
+                        super::mcp_cli_config::plan(&entry.spec).err().map(|error| error.message)
+                            .or_else(|| (cli_scope.is_none() || entry.spec["iyw_market"]["cli_auth"]["scope"].as_str() != cli_scope.as_deref())
+                                .then(|| "此 CLI 连接器属于其他账号或企业空间，请重新配置".to_string()))
+                    })
                     .or_else(|| {
                         (!entry.missing_config.is_empty()).then(|| "连接器仍需补充参数".to_string())
                     });
@@ -224,12 +234,18 @@ pub(crate) async fn specs(
             tracing::warn!(connector=%id, "[MCP] 对话所选连接器已卸载");
             continue;
         };
+        super::mcp_catalog_sources::require_platform(entry)?;
         if let Some(reason) =
             super::mcp_conversation_compatibility::incompatibility(context.1, &entry.spec)
         {
             return Err(AppCommandError::configuration_invalid(reason));
         }
+        super::mcp_cli_config::require_scope(conn, &entry.spec).await?;
         let spec = super::mcp::hydrate_market_spec(&entry.spec)?;
+        if entry.spec["iyw_market"]["auth_mode"].as_str() == Some("cli")
+            && !super::mcp_cli_config::authenticated(&entry.spec).await? {
+            return Err(AppCommandError::configuration_invalid(format!("连接器 {id} 需要 CLI 登录，请在已安装连接器中完成登录后重连")));
+        }
         specs.insert(id, spec);
     }
     super::mcp_conversation_applied::record(context.0, selected.revision);

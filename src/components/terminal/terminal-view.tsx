@@ -142,6 +142,7 @@ interface TerminalViewProps {
   isActive: boolean
   isVisible: boolean
   onProcessExited?: (terminalId: string) => void
+  spawnProcess?: (terminalId: string) => Promise<void>
 }
 
 export function TerminalView({
@@ -152,6 +153,7 @@ export function TerminalView({
   isActive,
   isVisible,
   onProcessExited,
+  spawnProcess,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitAddonRef = useRef<{ fit: () => void } | null>(null)
@@ -328,7 +330,8 @@ export function TerminalView({
 
       // Spawn the terminal AFTER subscribing to events
       try {
-        await terminalSpawn(workingDir, shell, initialCommand, terminalId)
+        if (spawnProcess) await spawnProcess(terminalId)
+        else await terminalSpawn(workingDir, shell, initialCommand, terminalId)
       } catch (err) {
         onProcessExitedRef.current?.(terminalId)
         term.write(`\r\n\x1b[31m[Failed to start terminal: ${err}]\x1b[0m\r\n`)
@@ -396,7 +399,7 @@ export function TerminalView({
       cancelled = true
       cleanup?.()
     }
-  }, [terminalId, workingDir, shell, initialCommand])
+  }, [terminalId, workingDir, shell, initialCommand, spawnProcess])
 
   // Refit and focus when becoming active or panel becomes visible
   useEffect(() => {

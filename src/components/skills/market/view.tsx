@@ -13,6 +13,7 @@ import {
   SkillMarketUploadDialog,
   type SkillMarketUploadMode,
 } from "@/components/skills/market/upload-dialog"
+import { PluginRemoveDialog } from "@/components/skills/market/plugin-remove-dialog"
 import { ManagementDialogs } from "@/components/skills/market/management-dialogs"
 import type { SkillMarketNavigationTarget } from "@/contexts/workbench-route-context"
 import type { SkillMarketV2Detail, SkillMarketV2Item } from "@/lib/skill-market"
@@ -234,7 +235,7 @@ export function SkillMarketView({
             loading={market.list.loading}
             error={market.list.error}
             total={market.list.total}
-            nextCursor={market.list.nextCursor}
+            {...market.pagination}
             onSelect={(item) => {
               market.selectItem(item)
               setDetailOpen(true)
@@ -242,7 +243,6 @@ export function SkillMarketView({
             onPrimaryAction={(item) =>
               handlePrimaryAction(item, item.currentVersion.version)
             }
-            onLoadMore={market.loadMore}
             onRetry={market.refresh}
           />
         )}
@@ -312,10 +312,29 @@ export function SkillMarketView({
         onPublish={publish}
         onAddVersion={addVersion}
       />
+      {uninstallTarget?.packageType === "plugin" ? (
+        <PluginRemoveDialog
+          id={uninstallTarget.id}
+          onClose={() => setUninstallTarget(null)}
+          onRemoved={() => {
+            market.applyUninstalled(uninstallTarget.id)
+            market.refresh()
+            inventory.refresh()
+          }}
+          onRecovered={(version) => {
+            market.applyInstalled(uninstallTarget.id, version)
+            market.refresh()
+            inventory.refresh()
+          }}
+        />
+      ) : null}
+
       <ManagementDialogs
         editTarget={editTarget}
         deleteTarget={deleteTarget}
-        uninstallTarget={uninstallTarget}
+        uninstallTarget={
+          uninstallTarget?.packageType === "plugin" ? null : uninstallTarget
+        }
         categories={market.categories}
         busy={manageBusy}
         onEditClose={() => setEditTarget(null)}

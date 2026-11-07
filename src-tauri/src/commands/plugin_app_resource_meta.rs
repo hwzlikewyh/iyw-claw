@@ -23,6 +23,8 @@ pub struct PluginAppResourceCsp {
     pub frame_domains: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_uri_domains: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasm_unsafe_eval: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,12 +50,12 @@ pub fn from_resource(
 ) -> Option<PluginAppResourceMeta> {
     let raw = resource.contents.iter().find_map(content_meta)?;
     let ui = raw.get("ui")?;
-    let allow_local_sources = native_resource(plugin, resource);
+    let native = native_resource(plugin, resource);
     let ceiling = plugin.manifest.permissions.as_ref();
     let granted = granted_permissions(plugin, workspace_key)?;
     let csp = ui
         .get("csp")
-        .map(|value| csp_meta(value, ceiling, &granted, allow_local_sources));
+        .map(|value| csp_meta(value, ceiling, &granted, native.as_ref()));
     let permissions = ui
         .get("permissions")
         .map(|value| permission_meta(value, ceiling, &granted));
@@ -73,11 +75,14 @@ fn csp_meta(
     value: &serde_json::Value,
     ceiling: Option<&SkillPluginPermissions>,
     granted: &SkillPluginPermissions,
-    allow_local_sources: bool,
+    native: Option<&crate::plugin_runtime::native_compat::NativeConnector>,
 ) -> PluginAppResourceCsp {
     let network = ceiling.map(|value| &value.network);
     let allowed = &granted.network;
     PluginAppResourceCsp {
+        wasm_unsafe_eval: (value["wasmUnsafeEval"] == true
+            && native.is_some_and(|value| value.wasm_unsafe_eval))
+        .then_some(true),
         connect_domains: domains(
             value,
             "connectDomains",
@@ -90,7 +95,7 @@ fn csp_meta(
             "resourceDomains",
             network.map(|value| &value.resource_domains),
             &allowed.resource_domains,
-            allow_local_sources,
+            native.is_some(),
         ),
         frame_domains: domains(
             value,
@@ -156,12 +161,15 @@ fn domains(
     )
 }
 
-fn native_resource(plugin: &PluginDescriptor, resource: &rmcp::model::ReadResourceResult) -> bool {
+fn native_resource(
+    plugin: &PluginDescriptor,
+    resource: &rmcp::model::ReadResourceResult,
+) -> Option<crate::plugin_runtime::native_compat::NativeConnector> {
     let uri = resource.contents.iter().find_map(|content| match content {
         rmcp::model::ResourceContents::TextResourceContents { uri, .. }
         | rmcp::model::ResourceContents::BlobResourceContents { uri, .. } => Some(uri),
     });
-    let Some(uri) = uri else { return false };
+    let uri = uri?;
     let connector = plugin
         .manifest
         .components
@@ -170,13 +178,12 @@ fn native_resource(plugin: &PluginDescriptor, resource: &rmcp::model::ReadResour
         .filter_map(|component| component.config.as_ref())
         .find(|config| config["resourceUri"].as_str() == Some(uri))
         .and_then(|config| config["connectorKey"].as_str());
-    connector.is_some_and(|key| {
-        crate::plugin_runtime::native_compat::connector(
-            std::path::Path::new(&plugin.install_root),
-            key,
-        )
-        .is_ok_and(|value| value.is_some())
-    })
+    crate::plugin_runtime::native_compat::connector(
+        std::path::Path::new(&plugin.install_root),
+        connector?,
+    )
+    .ok()
+    .flatten()
 }
 
 fn granted_permissions(

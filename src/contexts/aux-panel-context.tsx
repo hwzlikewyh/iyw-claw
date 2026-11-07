@@ -15,7 +15,7 @@ import {
 } from "@/lib/panel-state-storage"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 
-export type AuxPanelTab = "home" | "file_tree" | "artifacts"
+export type AuxPanelTab = "home" | "file_tree" | "artifacts" | `app:${string}`
 
 const STORAGE_KEY = "workspace:right-sidebar"
 
