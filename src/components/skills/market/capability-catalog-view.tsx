@@ -6,7 +6,7 @@ import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CapabilityCard } from "./capability-card"
+import { CapabilityCard, CAPABILITY_GRID_CLASS } from "./capability-card"
 import { SkillCard } from "./skill-card"
 import { ConnectorInstallDialog } from "./connector-install-dialog"
 import { useConnectorInstallTasks } from "./use-connector-install-tasks"
@@ -192,16 +192,13 @@ function CatalogBody({
           </Button>
         </div>
       ) : (
-        <div
-          data-market-grid
-          className="grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
-        >
+        <div data-market-grid className={CAPABILITY_GRID_CLASS}>
           {catalog.loading
             ? Array.from({ length: position.pageSize }, (_, id) => (
                 <Skeleton
                   data-market-skeleton
                   key={id}
-                  className="h-52 rounded-[10px]"
+                  className="h-44 rounded-[10px]"
                 />
               ))
             : items

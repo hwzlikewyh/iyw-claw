@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { useMarketPageFocus } from "./use-market-page-focus"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SkillCard } from "@/components/skills/market/skill-card"
+import { CAPABILITY_GRID_CLASS } from "./capability-card"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import {
   MarketPagination,
@@ -24,15 +25,12 @@ function ListState({
   const t = useTranslations("SkillMarketV2")
   if (kind === "loading") {
     return (
-      <div
-        data-market-grid
-        className="grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
-      >
+      <div data-market-grid className={CAPABILITY_GRID_CLASS}>
         {Array.from({ length: 6 }, (_, index) => (
           <Skeleton
             data-market-skeleton
             key={index}
-            className="h-52 rounded-lg"
+            className="h-44 rounded-lg"
           />
         ))}
       </div>
@@ -97,10 +95,7 @@ function SkillPageContent(props: SkillMarketListProps) {
   if (!props.items.length)
     return <ListState kind="empty" onRetry={props.onRetry} />
   return (
-    <div
-      data-market-grid
-      className="grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
-    >
+    <div data-market-grid className={CAPABILITY_GRID_CLASS}>
       {props.items.map((item) => (
         <SkillCard
           key={item.id}

@@ -6,7 +6,7 @@ import { Loader2, RefreshCw, Search } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { CapabilityCard } from "./capability-card"
+import { CapabilityCard, CAPABILITY_GRID_CLASS } from "./capability-card"
 import { MarketPagination } from "./market-pagination"
 import { MarketQuickPages } from "./market-quick-pages"
 import {
@@ -177,7 +177,7 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
           <TabsContent value="market">
             <div
               data-market-grid
-              className="grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
+              className={CAPABILITY_GRID_CLASS}
               aria-busy={loading}
             >
               {items.map((item) => (

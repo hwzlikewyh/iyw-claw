@@ -12,9 +12,7 @@ import { usePluginCatalogPage } from "./use-plugin-catalog-page"
 import { MarketPagination } from "./market-pagination"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import type { PluginCatalogView } from "./plugin-market-toolbar"
-
-const CATALOG_GRID =
-  "grid grid-cols-1 gap-4 @min-[560px]:grid-cols-2 @min-[960px]:grid-cols-3"
+import { CAPABILITY_GRID_CLASS } from "./capability-card"
 
 export function PluginMarketPreview({
   onOpenPlugin,
@@ -77,13 +75,17 @@ function PluginCatalogBody({
     )
   }
   return (
-    <div data-market-grid className={CATALOG_GRID} aria-busy={catalog.loading}>
+    <div
+      data-market-grid
+      className={CAPABILITY_GRID_CLASS}
+      aria-busy={catalog.loading}
+    >
       {catalog.loading
         ? Array.from({ length: 6 }, (_, index) => (
             <Skeleton
               data-market-skeleton
               key={index}
-              className="h-52 rounded-lg"
+              className="h-44 rounded-lg"
             />
           ))
         : items.map((item) => (
