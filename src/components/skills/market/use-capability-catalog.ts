@@ -5,6 +5,7 @@ import {
   mcpSearchMarketplace,
 } from "@/lib/api"
 import { getSkillMarketSource } from "@/lib/skill-market-source"
+import { toErrorMessage } from "@/lib/app-error"
 import type { McpMarketplaceItem } from "@/lib/types"
 
 export type CatalogEntry =
@@ -111,7 +112,8 @@ export function useCapabilityCatalog() {
         setState({ revision, items, error: "" })
       })
       .catch((cause) => {
-        if (active) setState({ revision, items: [], error: String(cause) })
+        if (active)
+          setState({ revision, items: [], error: toErrorMessage(cause) })
       })
     return () => {
       active = false

@@ -3,6 +3,7 @@ mod availability;
 mod availability_snapshot;
 pub(crate) mod client;
 mod install;
+mod download_ticket;
 mod install_plan;
 mod office_skills;
 mod plugin_components;

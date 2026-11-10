@@ -842,6 +842,7 @@ pub fn build_router(
             "/mcp_search_marketplace",
             post(handlers::mcp::mcp_search_marketplace),
         )
+        .route("/connector_market_user_request",post(handlers::mcp::connector_market_user_request))
         .route(
             "/mcp_get_marketplace_server_detail",
             post(handlers::mcp::mcp_get_marketplace_server_detail),

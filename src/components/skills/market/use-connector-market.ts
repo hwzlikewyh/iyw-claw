@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { toErrorMessage } from "@/lib/app-error"
 import {
   mcpListMarketplaces,
   mcpScanLocal,
@@ -150,6 +151,6 @@ async function loadPage({
     next.items = items.slice(0, search.pageSize)
     next.hasMore = items.length > search.pageSize
   } catch (cause) {
-    next.error = String(cause)
+    next.error = toErrorMessage(cause)
   }
 }

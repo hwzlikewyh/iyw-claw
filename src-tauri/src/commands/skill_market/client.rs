@@ -191,6 +191,8 @@ fn remote_error(message: String, data: &serde_json::Value) -> AppCommandError {
         .unwrap_or("SKILL_REMOTE_ERROR");
     let error = match error_code {
         "SKILL_CLIENT_INCOMPATIBLE" => return super::plugin_client_version::incompatible(""),
+        "token_required" | "authentication_failed" => AppCommandError::authentication_failed(message),
+        "identity_service_unavailable" => AppCommandError::network(message),
         "SKILL_NOT_FOUND" => AppCommandError::not_found(message),
         "SKILL_FORBIDDEN" => AppCommandError::permission_denied(message),
         "SKILL_SLUG_CONFLICT" | "SKILL_VERSION_CONFLICT" | "SKILL_VERSION_NOT_GREATER" => {

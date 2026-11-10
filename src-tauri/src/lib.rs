@@ -1998,6 +1998,7 @@ mod tauri_app {
                 crate::commands::mcp_conversation::mcp_conversation_set,
                 mcp_commands::mcp_list_marketplaces,
                 mcp_commands::mcp_search_marketplace,
+                crate::commands::mcp::market_user::connector_market_user_request,
                 mcp_commands::mcp_get_marketplace_server_detail,
                 mcp_commands::mcp_install_from_marketplace,
                 mcp_commands::mcp_upsert_local_server,

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { Loader2, RefreshCw, Search } from "lucide-react"
 import { toast } from "sonner"
@@ -23,14 +23,22 @@ import { ConnectorInstallTasks } from "./connector-install-tasks"
 import { connectorTaskActive } from "@/lib/connector-install-tasks"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useMarketPageFocus } from "./use-market-page-focus"
+import { ConnectorPublisherView } from "./connector-publisher-view"
+import { onTransportChange } from "@/lib/transport"
 
 export function ConnectorMarketView({ action }: { action?: MarketViewAction }) {
   const { profile, status } = useIywAccount()
+  const [transportRevision, setTransportRevision] = useState(0)
+  useEffect(
+    () => onTransportChange(() => setTransportRevision((value) => value + 1)),
+    []
+  )
   const scope = JSON.stringify([
     status,
     profile?.user_id,
     profile?.org_code,
     profile?.workspace_pending,
+    transportRevision,
   ])
   return <ConnectorMarketContent key={scope} action={action} />
 }
@@ -59,6 +67,10 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
   } = useConnectorMarket(t("unavailable"))
   const [active, setActive] = useState<McpMarketplaceItem | null>(null)
   const [section, setSection] = useState("market")
+  const publisherCanLeave = useRef<() => boolean>(() => true)
+  const registerPublisherLeave = useCallback((canLeave: () => boolean) => {
+    publisherCanLeave.current = canLeave
+  }, [])
   const root = useMarketPageFocus({
     page,
     loading,
@@ -66,8 +78,10 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
     enabled: section === "market",
   })
   useMarketViewAction(action, (kind) => {
-    if (kind === "installed" || kind === "market") setSection(kind)
-    else toast.info(c("connectorManagement"))
+    if (kind === "installed" || kind === "market") {
+      if (section === "publisher" && !publisherCanLeave.current()) return
+      setSection(kind)
+    } else setSection("publisher")
   })
   const pagination = {
     automaticPageSize,
@@ -103,6 +117,14 @@ function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
     }
   }, [tasks.tasks, tasks.loaded, reload, t])
   const installedIds = new Set(installed.map((item) => item.id))
+  if (section === "publisher")
+    return (
+      <ConnectorPublisherView
+        action={action}
+        onBrowse={() => setSection("market")}
+        onLeaveRequest={registerPublisherLeave}
+      />
+    )
   return (
     <div ref={root} className="@container min-w-0">
       <div className="space-y-4">

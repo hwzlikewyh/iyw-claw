@@ -6,6 +6,11 @@ import {
   mcpSearchMarketplace,
 } from "@/lib/api"
 import { useConnectorMarket } from "./use-connector-market"
+import { useCapabilityCatalog } from "./use-capability-catalog"
+
+vi.mock("@/lib/skill-market-source", () => ({
+  getSkillMarketSource: () => ({ list: async () => ({ items: [] }) }),
+}))
 
 vi.mock("@/lib/api", () => ({
   mcpListMarketplaces: vi.fn(),
@@ -31,6 +36,23 @@ beforeEach(() => {
 })
 
 describe("connector page capacity", () => {
+  it("shows structured transport errors in connector and aggregate catalogs", async () => {
+    vi.mocked(mcpSearchMarketplace).mockRejectedValue({
+      code: "network_error",
+      message: "连接器目录暂时无法读取",
+      detail: "502 Bad Gateway",
+    })
+    const connector = renderHook(() => useConnectorMarket("unavailable"))
+    const catalog = renderHook(useCapabilityCatalog)
+    await waitFor(() => {
+      expect(connector.result.current.error).toBe("502 Bad Gateway")
+      expect(catalog.result.current.error).toBe("502 Bad Gateway")
+    })
+    expect(connector.result.current.items).toEqual([])
+    expect(catalog.result.current.items).toEqual([])
+    connector.unmount()
+    catalog.unmount()
+  })
   it("requests the measured capacity plus one without inventing totals", async () => {
     const { result, unmount } = renderHook(() =>
       useConnectorMarket("unavailable")

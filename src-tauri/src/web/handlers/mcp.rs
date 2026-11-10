@@ -12,6 +12,15 @@ use crate::commands::mcp::{
     McpMarketplaceServerDetail,
 };
 
+pub async fn connector_market_user_request(
+    Extension(state):Extension<Arc<AppState>>,
+    Json(params):Json<ConnectorUserParams>,
+)->Result<Json<Value>,AppCommandError>{
+    mcp_commands::market_user::request_core(&state.db.conn,params.request).await.map(Json)
+}
+#[derive(Deserialize)]
+pub struct ConnectorUserParams { request:mcp_commands::market_user::UserMarketRequest }
+
 // ---------------------------------------------------------------------------
 // Param structs
 // ---------------------------------------------------------------------------

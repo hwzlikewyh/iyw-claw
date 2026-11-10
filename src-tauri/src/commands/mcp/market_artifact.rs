@@ -1,11 +1,10 @@
 use std::io::Read;
-use tokio::io::AsyncWriteExt;
 use std::path::{Component, Path, PathBuf};
+use tokio::io::AsyncWriteExt;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::market;
 use super::market_types::{Document, OptionSpec};
 use crate::app_error::AppCommandError;
 use crate::commands::mcp_install::progress;
@@ -74,7 +73,10 @@ fn activate(
     Ok(destination)
 }
 
-fn write_artifact(staging: &Path, source: (&str, tempfile::NamedTempFile)) -> Result<(), AppCommandError> {
+fn write_artifact(
+    staging: &Path,
+    source: (&str, tempfile::NamedTempFile),
+) -> Result<(), AppCommandError> {
     if !source.0.to_ascii_lowercase().ends_with(".zip") {
         let filename = Path::new(source.0)
             .file_name()
@@ -123,7 +125,9 @@ fn write_artifact(staging: &Path, source: (&str, tempfile::NamedTempFile)) -> Re
             std::fs::create_dir_all(&target).map_err(storage_error)?;
             continue;
         }
-        expanded = expanded.checked_add(entry.size()).ok_or_else(|| AppCommandError::invalid_input("连接器解压大小无效"))?;
+        expanded = expanded
+            .checked_add(entry.size())
+            .ok_or_else(|| AppCommandError::invalid_input("连接器解压大小无效"))?;
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(storage_error)?;
         }
@@ -133,7 +137,9 @@ fn write_artifact(staging: &Path, source: (&str, tempfile::NamedTempFile)) -> Re
             .open(&target)
             .map_err(storage_error)?;
         let expected = entry.size();
-        let read_limit = expected.checked_add(1).ok_or_else(|| AppCommandError::invalid_input("连接器文件大小无效"))?;
+        let read_limit = expected
+            .checked_add(1)
+            .ok_or_else(|| AppCommandError::invalid_input("连接器文件大小无效"))?;
         let count = std::io::copy(&mut entry.by_ref().take(read_limit), &mut file)
             .map_err(storage_error)?;
         if count != entry.size() {
@@ -170,27 +176,23 @@ async fn download(
     input: (&Document, &str, &Value),
 ) -> Result<tempfile::NamedTempFile, AppCommandError> {
     let (doc, digest, metadata) = input;
-    let expected = metadata["size"].as_u64().filter(|value| *value > 0)
+    let expected = metadata["size"]
+        .as_u64()
+        .filter(|value| *value > 0)
         .ok_or_else(|| AppCommandError::configuration_invalid("连接器制品大小声明无效"))?;
-    let ticket = metadata["ticket"].as_str()
-        .ok_or_else(|| AppCommandError::network("制品下载票据缺失"))?;
-    let url = market::base_url()?.join("artifact")
-        .map_err(|_| AppCommandError::configuration_invalid("制品下载路径无效"))?;
-    let response = market::client()?.post(url).timeout(std::time::Duration::from_secs(30 * 60)).header("token",
-        crate::commands::iyw_account::iyw_account_access_token_core(conn).await?
-            .ok_or_else(|| AppCommandError::permission_denied("请先登录爱原物账号"))?.expose())
-        .json(&serde_json::json!({"connector":doc.server_id,"id":digest,"ticket":ticket}))
-        .send().await.map_err(|_| AppCommandError::network("连接器文件下载失败"))?;
-    if !response.status().is_success() {
-        return Err(AppCommandError::network("连接器制品下载失败，请重试以刷新下载授权"));
-    }
+    let response = super::market_artifact_ticket::download(conn, (doc, digest, metadata)).await?;
     stream_artifact(response, expected, digest).await
 }
 
 async fn stream_artifact(
-    mut response: reqwest::Response, expected: u64, digest: &str,
+    mut response: reqwest::Response,
+    expected: u64,
+    digest: &str,
 ) -> Result<tempfile::NamedTempFile, AppCommandError> {
-    if response.content_length().is_some_and(|size| size != expected) {
+    if response
+        .content_length()
+        .is_some_and(|size| size != expected)
+    {
         return Err(AppCommandError::network("连接器文件大小与声明不一致"));
     }
     let file = tempfile::NamedTempFile::new().map_err(storage_error)?;
@@ -198,9 +200,15 @@ async fn stream_artifact(
     let mut received = 0_u64;
     let mut hasher = Sha256::new();
     progress::download(0, Some(expected))?;
-    while let Some(chunk) = response.chunk().await.map_err(|_| AppCommandError::network("连接器文件下载中断"))? {
-        received = received.checked_add(chunk.len() as u64)
-            .filter(|value| *value <= expected).ok_or_else(|| AppCommandError::network("连接器文件超过声明大小"))?;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| AppCommandError::network("连接器文件下载中断"))?
+    {
+        received = received
+            .checked_add(chunk.len() as u64)
+            .filter(|value| *value <= expected)
+            .ok_or_else(|| AppCommandError::network("连接器文件超过声明大小"))?;
         output.write_all(&chunk).await.map_err(storage_error)?;
         hasher.update(&chunk);
         progress::download(received, Some(expected))?;
@@ -209,7 +217,9 @@ async fn stream_artifact(
     output.sync_all().await.map_err(storage_error)?;
     drop(output);
     if received != expected || format!("{:x}", hasher.finalize()) != digest {
-        return Err(AppCommandError::configuration_invalid("连接器文件长度或摘要校验失败"));
+        return Err(AppCommandError::configuration_invalid(
+            "连接器文件长度或摘要校验失败",
+        ));
     }
     Ok(file)
 }
