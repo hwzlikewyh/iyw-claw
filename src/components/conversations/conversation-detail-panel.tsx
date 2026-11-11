@@ -568,6 +568,7 @@ const ConversationTabView = memo(function ConversationTabView({
     accountProfile?.workspace_pending,
     selectedAgent,
     agentsLoaded,
+    usableAgentTypes,
   ])
   useEffect(() => {
     if (
