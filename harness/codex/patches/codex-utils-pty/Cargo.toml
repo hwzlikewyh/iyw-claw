@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-utils-pty"
-version = "0.166.0"
+version = "0.167.1"
 
 [lib]
 doctest = false

@@ -893,7 +893,8 @@ pub enum ContentItem {
         detail: Option<ImageDetail>,
     },
     InputAudio {
-        audio_url: String,
+        #[serde(flatten)]
+        audio: AudioReference,
     },
     OutputText {
         text: String,
@@ -931,6 +932,15 @@ impl ContentItem {
 #[ts(untagged)]
 pub enum ImageReference {
     Inline { image_url: String },
+    File { file_id: String },
+}
+
+/// Inline audio data or an uploaded file loaded by the Responses API.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema, TS)]
+#[serde(untagged)]
+#[ts(untagged)]
+pub enum AudioReference {
+    Inline { audio_url: String },
     File { file_id: String },
 }
 
@@ -1982,7 +1992,9 @@ fn local_audio_content_items(
             text: local_audio_open_tag_text_with_path(label_number, path),
         },
         ContentItem::InputAudio {
-            audio_url: data_url_from_bytes(mime, file_bytes),
+            audio: AudioReference::Inline {
+                audio_url: data_url_from_bytes(mime, file_bytes),
+            },
         },
         ContentItem::InputText {
             text: LOCAL_AUDIO_CLOSE_TAG.to_string(),
@@ -2199,9 +2211,9 @@ impl ResponseInputItem {
                         )],
                     }
                 }
-                UserInput::Audio { audio_url } => {
+                UserInput::Audio { audio } => {
                     audio_index += 1;
-                    vec![ContentItem::InputAudio { audio_url }]
+                    vec![ContentItem::InputAudio { audio }]
                 }
                 UserInput::LocalAudio { path } => {
                     audio_index += 1;
@@ -2277,7 +2289,12 @@ impl From<ContentItem> for FunctionCallOutputContentItem {
                 Self::InputText { text }
             }
             ContentItem::InputImage { image, detail } => Self::InputImage { image, detail },
-            ContentItem::InputAudio { audio_url } => Self::InputAudio { audio_url },
+            ContentItem::InputAudio {
+                audio: AudioReference::Inline { audio_url },
+            } => Self::InputAudio { audio_url },
+            ContentItem::InputAudio {
+                audio: AudioReference::File { file_id, .. },
+            } => Self::InputText { text: file_id },
         }
     }
 }

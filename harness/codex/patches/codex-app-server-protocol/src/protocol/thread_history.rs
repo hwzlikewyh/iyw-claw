@@ -56,6 +56,7 @@ use codex_protocol::protocol::ThreadRolledBackEvent;
 use codex_protocol::protocol::TurnAbortedEvent;
 use codex_protocol::protocol::TurnCompleteEvent;
 use codex_protocol::protocol::TurnStartedEvent;
+use codex_protocol::protocol::UserMessageAudioKind;
 use codex_protocol::protocol::UserMessageEvent;
 use codex_protocol::protocol::UserMessageImageKind;
 use codex_protocol::protocol::ViewImageToolCallEvent;
@@ -385,6 +386,37 @@ impl ThreadHistoryBuilder {
         self.current_turn
             .as_ref()
             .map(|turn| turn.rollout_start_index)
+    }
+
+    /// Keeps the latest assistant item in memory for live summaries. Full reconnects
+    /// load older text from history. Rollout replay uses the regular reducer.
+    pub fn handle_live_paginated_event(&mut self, event: &EventMsg) {
+        let previous_len = self
+            .current_turn
+            .as_ref()
+            .map_or(0, |turn| turn.items.len());
+        self.handle_event_for_history_mode(event, ThreadHistoryMode::Paginated);
+        if let EventMsg::ItemCompleted(completed) = event
+            && let codex_protocol::items::TurnItem::AgentMessage(item) = &completed.item
+            && let Some(turn) = self
+                .current_turn
+                .as_mut()
+                .filter(|turn| turn.id == completed.turn_id)
+        {
+            if turn.items.len() > previous_len {
+                if let Some(index) = turn.evictable_agent_item.replace(previous_len)
+                    && let ThreadItemPayload::AgentMessage { text, .. } = &mut turn.items[index]
+                {
+                    *text = String::new();
+                }
+            } else if turn
+                .evictable_agent_item
+                .is_some_and(|index| turn.items[index].id() == item.id)
+            {
+                // A read by ID could still find the prior version of a corrected item.
+                turn.evictable_agent_item = None;
+            }
+        }
     }
 
     /// Shared reducer for persisted rollout replay and in-memory current-turn
@@ -1550,6 +1582,7 @@ impl ThreadHistoryBuilder {
             root_turn_id: None,
             items: Vec::new(),
             item_index: TurnItemIndex::default(),
+            evictable_agent_item: None,
             item_times: HashMap::new(),
             error: None,
             status: TurnStatus::Completed,
@@ -1739,8 +1772,48 @@ impl ThreadHistoryBuilder {
                 detail: payload.local_image_details.get(idx).copied().flatten(),
             });
         }
-        if let Some(audio) = &payload.audio {
-            content.extend(audio.iter().cloned().map(|url| UserInput::Audio { url }));
+        if payload.has_complete_audio_order() {
+            let mut inline_index = 0;
+            let mut file_index = 0;
+            for audio_kind in &payload.audio_order {
+                let audio = match audio_kind {
+                    UserMessageAudioKind::Inline => {
+                        let Some(url) = payload
+                            .audio
+                            .as_deref()
+                            .and_then(|audio| audio.get(inline_index))
+                        else {
+                            continue;
+                        };
+                        inline_index += 1;
+                        codex_protocol::models::AudioReference::Inline {
+                            audio_url: url.clone(),
+                        }
+                    }
+                    UserMessageAudioKind::File => {
+                        let Some(audio) = payload
+                            .audio_references
+                            .as_deref()
+                            .and_then(|audio| audio.get(file_index))
+                        else {
+                            continue;
+                        };
+                        file_index += 1;
+                        audio.clone()
+                    }
+                };
+                content.push(UserInput::from(
+                    codex_protocol::user_input::UserInput::Audio { audio },
+                ));
+            }
+        } else if let Some(audio) = &payload.audio_references {
+            content.extend(audio.iter().cloned().map(|audio| {
+                UserInput::from(codex_protocol::user_input::UserInput::Audio { audio })
+            }));
+        } else if let Some(audio) = &payload.audio {
+            content.extend(audio.iter().cloned().map(|url| UserInput::Audio {
+                audio: crate::AudioReference::Inline { url },
+            }));
         }
         content.extend(
             payload
@@ -1838,6 +1911,7 @@ struct PendingTurn {
     root_turn_id: Option<String>,
     items: Vec<ThreadItemPayload>,
     item_index: TurnItemIndex,
+    evictable_agent_item: Option<usize>,
     item_times: HashMap<String, ItemTimes>,
     error: Option<TurnError>,
     status: TurnStatus,
