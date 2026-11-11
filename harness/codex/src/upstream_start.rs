@@ -96,6 +96,8 @@ impl UpstreamStartArgs {
             })
             .collect();
         Ok(InProcessClientStartArgs {
+            // ACP 尚未实现 humanCommand 的一次性人工审批协商，保留上游拒绝路径。
+            required_human_approval: false,
             arg0_paths,
             config: Arc::new(config),
             cli_overrides: serde_json::from_value(launch_overrides).map_err(|_| {
