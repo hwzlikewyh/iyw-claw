@@ -1699,6 +1699,8 @@ mod tauri_app {
                 crate::commands::intelligent_ui::read_intelligent_ui_states,
                 crate::commands::intelligent_ui::save_intelligent_ui_state,
                 system_settings::get_system_proxy_settings,
+                crate::commands::network_diagnostics::get_network_traffic,
+                crate::commands::network_diagnostics::measure_network_speed,
                 system_settings::update_system_proxy_settings,
                 system_settings::get_system_language_settings,
                 system_settings::update_system_language_settings,

@@ -1,4 +1,27 @@
 {
+  "NetworkDiagnostics": {
+    "title": "Network diagnostics",
+    "open": "View live traffic and speed test results",
+    "localNetwork": "Local network",
+    "serverNetwork": "Server network",
+    "scope": "Current traffic from all apps on the selected interface, without adding multiple adapters together.",
+    "throughput": "Live download / upload",
+    "sampling": "Sampling…",
+    "unavailable": "Traffic unavailable",
+    "noInterfaces": "No network interface is available for sampling.",
+    "measurement": "Speed test",
+    "latency": "Request latency",
+    "download": "Download rate",
+    "upload": "Upload rate",
+    "targetHint": "Target: speed.cloudflare.com. About 1 MB downloaded and 256 KB uploaded; up to 8 seconds per step. This small sample includes request overhead and depends on the target and current proxy. It does not measure maximum line capacity.",
+    "start": "Start speed test",
+    "test": "Speed test",
+    "testing": "Measuring {phase}…",
+    "running": "Measuring…",
+    "failed": "Failed",
+    "notMeasured": "—",
+    "completed": "Last test: {time}"
+  },
   "ConversationTabs": {
     "title": "Conversation tabs",
     "limitLabel": "Maximum tabs per window",

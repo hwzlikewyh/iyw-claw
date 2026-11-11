@@ -11,6 +11,7 @@ import {
 } from "react"
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
+import { NetworkStatusBar } from "@/components/layout/network-status-bar"
 import { DetachedConversationShell } from "@/components/workspace/detached-conversation-shell"
 import { isDetachedConversationWindow } from "@/lib/conversation-window-state"
 import { useNewConversationBrowser } from "@/hooks/use-new-conversation-browser"
@@ -1024,6 +1025,7 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
         </FolderWorkspaceShell>
       )}
       <MobileAuxPanel mobile={isMobile} desktopSlot={auxSlot} />
+      <NetworkStatusBar />
       <AppToaster
         position="bottom-right"
         duration={TOAST_DURATION_MS}

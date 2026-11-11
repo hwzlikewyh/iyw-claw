@@ -80,6 +80,7 @@ mod mcp_catalog_persistence;
 pub mod mcp_catalog_sources;
 pub mod mcp_sync;
 pub mod model_provider;
+pub mod network_diagnostics;
 #[cfg(feature = "tauri-runtime")]
 pub mod notification;
 pub mod office_tools;
