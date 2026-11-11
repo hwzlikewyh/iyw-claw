@@ -5,6 +5,7 @@
 Var IywClawProcessError
 
 !include "${__FILEDIR__}\installer-node-process.nsh"
+!include "${__FILEDIR__}\installer-process-diagnostics.nsh"
 
 !macro IywClawDefineProcessFunctions Prefix
 Function ${Prefix}IywClawIssueKnownProcessKills
@@ -28,37 +29,7 @@ Function ${Prefix}IywClawRunKnownProcessCommand
   Call ${Prefix}IywClawRunKnownProcessCommandAt
 FunctionEnd
 
-Function ${Prefix}IywClawRunKnownProcessCommandAt
-  Pop $R8
-  Pop $R9
-  Call ${Prefix}IywClawWriteKnownProcessScript
-  Pop $R0
-  StrCmp $R0 "0" known_process_script_ready known_process_command_failed
-
-  known_process_script_ready:
-  ; 排除调用方本身，避免从 app 目录运行的卸载器被清理逻辑终止。
-  System::Call 'kernel32::GetCurrentProcessId() i.R7'
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-claw-process-control.ps1" -Action "$R8" -InstallDir "$R9" -InstallerProcessId $R7'
-  Pop $R0
-  Pop $R1
-  StrCmp $R0 "2" 0 +2
-    StrCpy $IywClawProcessError "$R1" 1500
-  Delete "$PLUGINSDIR\iyw-claw-process-control.ps1"
-  Delete "$PLUGINSDIR\iyw-restart-manager.cs"
-  StrCmp $R0 "0" known_process_command_result_ready 0
-  StrCmp $R0 "1" known_process_command_result_ready 0
-  StrCmp $R0 "2" known_process_command_result_ready 0
-  StrCpy $R0 "2"
-
-  known_process_command_result_ready:
-  Push $R0
-  Return
-
-  known_process_command_failed:
-    Delete "$PLUGINSDIR\iyw-claw-process-control.ps1"
-    Delete "$PLUGINSDIR\iyw-restart-manager.cs"
-    Push "2"
-FunctionEnd
+!insertmacro IywClawDefineProcessDiagnostics "${Prefix}"
 
 Function ${Prefix}IywClawWriteKnownProcessScript
   InitPluginsDir
@@ -228,7 +199,10 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  if ($$processSnapshots.Count -gt 0) { exit 1 }$\r$\n`
   FileWriteUTF16LE $R0 `  exit 0$\r$\n`
   FileWriteUTF16LE $R0 `} catch {$\r$\n`
-  FileWriteUTF16LE $R0 `  Write-Error $$_ -ErrorAction Continue$\r$\n`
+  ; 完整异常独立写盘，避免 nsExec 的字符串长度上限截断根因。
+  FileWriteUTF16LE $R0 `  $$failure = $$_$\r$\n`
+  FileWriteUTF16LE $R0 `  try { @($$failure.Exception.ToString(), $$failure.InvocationInfo.PositionMessage, ($$failure | Out-String -Width 240)) | Out-File -LiteralPath (Join-Path $$PSScriptRoot 'iyw-claw-process-control.log') -Encoding UTF8 -Width 240 -ErrorAction Stop } catch { Write-Warning ('Unable to save process diagnostics: {0}' -f $$_.Exception.Message) }$\r$\n`
+  FileWriteUTF16LE $R0 `  Write-Error $$failure -ErrorAction Continue$\r$\n`
   FileWriteUTF16LE $R0 `  exit 2$\r$\n`
   FileWriteUTF16LE $R0 `}$\r$\n`
   FileClose $R0
