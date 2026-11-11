@@ -3,7 +3,7 @@ import { mkdir, open, readFile, rename, stat, readdir, unlink, copyFile } from "
 import { createReadStream } from "node:fs"
 import { basename, extname, join } from "node:path"
 import { CanvasRuntimeError, invalid } from "./errors.js"
-import { assertWithin, pluginDataRoot, rejectSymlink, rejectSymlinkPath, storageRoot, workspacePath } from "./paths.js"
+import { assertWithin, rejectSymlink, rejectSymlinkPath, storageRoot, workspacePath } from "./paths.js"
 import type { AssetRef } from "./types.js"
 
 const CHUNK_BYTES = 128 * 1024
@@ -19,10 +19,11 @@ export class AssetStore {
     if (this.closing) throw new CanvasRuntimeError("runtime_unavailable", "asset store is closing")
     if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || !SHA_PATTERN.test(expectedSha256)) throw invalid("asset_upload_metadata_invalid")
     const id = randomUUID()
-    const root = join(pluginDataRoot(), "uploads")
+    // 暂存与最终资产位于同一目录，避免插件数据盘与工作区跨卷 rename 失败。
+    const root = join(storageRoot(), "assets")
     await rejectSymlinkPath(root)
     await mkdir(root, { recursive: true })
-    const path = join(root, `${id}.part`)
+    const path = join(root, `.upload-${id}.part`)
     const handle = await open(path, "wx")
     await handle.close()
     this.uploads.set(id, { id, path, name, mimeType, expectedBytes, expectedSha256, nextIndex: 0, bytes: 0, lock: Promise.resolve() })
@@ -35,10 +36,11 @@ export class AssetStore {
     return this.withUploadLock(upload, async () => {
       if (this.uploads.get(uploadId) !== upload) throw new CanvasRuntimeError("asset_upload_invalid", "upload is no longer active")
       if (chunkIndex !== upload.nextIndex) throw new CanvasRuntimeError("asset_upload_invalid", "upload chunk index is invalid")
+      await rejectSymlinkPath(upload.path)
       const data = decodeChunk(dataBase64)
       if (upload.bytes + data.byteLength > upload.expectedBytes) throw new CanvasRuntimeError("asset_upload_invalid", "asset exceeds declared size")
       const handle = await open(upload.path, "a")
-      try { await handle.write(data) } finally { await handle.close() }
+      try { await handle.writeFile(data) } finally { await handle.close() }
       upload.bytes += data.byteLength
       upload.nextIndex += 1
       return { bytes: upload.bytes, nextIndex: upload.nextIndex }
@@ -56,14 +58,16 @@ export class AssetStore {
         await this.discard(upload)
         throw new CanvasRuntimeError("asset_hash_mismatch", "asset hash does not match", { expectedSha256: upload.expectedSha256 })
       }
-      const target = await this.uniqueAssetPath(hash, upload.name)
-      const assetRoot = join(storageRoot(), "assets")
-      await rejectSymlinkPath(assetRoot)
-      await mkdir(assetRoot, { recursive: true })
-      if (target.existing) await unlink(upload.path)
-      else await rename(upload.path, target.path)
-      this.uploads.delete(uploadId)
-      return { sha256: hash, mimeType: upload.mimeType, bytes: upload.bytes, path: this.relativeAssetPath(target.path) }
+      try {
+        const target = await this.uniqueAssetPath(hash, upload.name)
+        await rejectSymlinkPath(target.path)
+        if (target.existing) {
+          if (await hashFile(target.path) !== hash) throw new CanvasRuntimeError("asset_hash_mismatch", "existing asset hash does not match")
+          await unlink(upload.path)
+        } else await rename(upload.path, target.path)
+        this.uploads.delete(uploadId)
+        return { sha256: hash, mimeType: upload.mimeType, bytes: upload.bytes, path: this.relativeAssetPath(target.path) }
+      } catch (error) { await this.discard(upload); throw error }
     })
   }
 
@@ -99,11 +103,20 @@ export class AssetStore {
   }
 
   async readChunk(sha256: string, offset: number, length: number): Promise<{ dataBase64: string; bytes: number; eof: boolean }> {
-    if (!SHA_PATTERN.test(sha256) || !Number.isInteger(offset) || !Number.isInteger(length) || offset < 0 || length < 1 || length > CHUNK_BYTES) throw invalid("asset_read_range_invalid")
+    if (!SHA_PATTERN.test(sha256) || !Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 1 || length > CHUNK_BYTES) throw invalid("asset_read_range_invalid")
     const path = await this.findAsset(sha256)
-    const data = await readFile(path)
-    const slice = data.subarray(offset, offset + length)
-    return { dataBase64: slice.toString("base64"), bytes: data.length, eof: offset + slice.length >= data.length }
+    const handle = await open(path, "r")
+    try {
+      const info = await handle.stat()
+      const data = Buffer.alloc(Math.min(length, Math.max(0, info.size - offset)))
+      let count = 0
+      while (count < data.length) {
+        const { bytesRead } = await handle.read(data, count, data.length - count, offset + count)
+        if (!bytesRead) throw new CanvasRuntimeError("asset_upload_incomplete", "asset changed while reading")
+        count += bytesRead
+      }
+      return { dataBase64: data.toString("base64"), bytes: info.size, eof: offset + count >= info.size }
+    } finally { await handle.close() }
   }
 
   async close(): Promise<void> {

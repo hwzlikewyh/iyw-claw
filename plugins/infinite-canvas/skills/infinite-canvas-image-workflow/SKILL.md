@@ -9,6 +9,13 @@ references `asset://<sha256>`. Keep the prompt and pending node when generation 
 retry only when the user explicitly asks. Never put base64 image data in a scene or call an external
 model endpoint from this Skill.
 
+For chunk uploads, first call `write-asset` with `name`, `mimeType`, `expectedBytes`, and
+`expectedSha256`, and use the returned `uploadId` unchanged. Send sequential `chunkIndex`
+values starting at zero, then finalize. To restart, begin a new upload instead of inventing an ID.
+For local import, pass only a workspace-relative `sourcePath` and file metadata; do not combine it
+with `uploadId`. If uploading fails, cancel the session and report the error. Never write files
+directly into the plugin asset directory or edit its installation records.
+
 For a failed request, keep the original `requestId` node with `status: "error"`. An explicit retry
 creates a new request ID and a new pending node; it must not replay billing or replace an existing
 successful image.

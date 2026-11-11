@@ -33,20 +33,50 @@ export class CanvasClient {
   apply(operations: CanvasOperation[], baseRevision: number): Promise<CanvasState> {
     const canvasId = this.getCanvasId()
     return this.enqueue(async () => {
-      try { return await this.call("apply_infinite_canvas_ops", { canvasId, baseRevision, operations }) as CanvasState } catch (error) {
+      try { return await this.applyAt(canvasId, baseRevision, operations) } catch (error) {
         const typed = error as { code?: string }
         if (typed.code !== "revision_conflict") throw error
         const latest = await this.getStateFor(canvasId)
         if (!latest) throw error
         if (!canReplayBatch(operations, latest)) throw error
-        return await this.call("apply_infinite_canvas_ops", { canvasId, baseRevision: latest.revision, operations }) as CanvasState
+        return this.applyAt(canvasId, latest.revision, operations)
       }
     })
   }
 
   saveSelection(revision: number, selectedNodeIds: string[]): Promise<void> {
     const canvasId = this.getCanvasId()
-    return this.enqueue(async () => { await this.call("save_infinite_canvas_selection", { canvasId, revision, selectedNodeIds }) })
+    const ids = [...selectedNodeIds]
+    return this.enqueue(async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const latest = await this.getStateFor(canvasId)
+        if (!latest || ids.some((id) => !latest.nodes.some((node) => node.id === id))) throw new Error("selection references a missing node")
+        revision = latest.revision
+        try { await this.call("save_infinite_canvas_selection", { canvasId, revision, selectedNodeIds: ids }); return }
+        catch (error) { if ((error as { code?: string }).code !== "revision_conflict" || attempt) throw error }
+      }
+    })
+  }
+
+  private async applyAt(canvasId: string, baseRevision: number, operations: CanvasOperation[]): Promise<CanvasState> {
+    const next = await this.call("apply_infinite_canvas_ops", { canvasId, baseRevision, operations }) as CanvasState
+    return next
+  }
+
+  setViewport(viewport: { x: number; y: number; k: number }): Promise<CanvasState> {
+    const canvasId = this.getCanvasId()
+    const value = { ...viewport }
+    return this.enqueue(async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const latest = await this.getStateFor(canvasId)
+        if (!latest) throw new Error("canvas state is unavailable")
+        const saved = latest.viewport as typeof value | undefined
+        if (saved && saved.x === value.x && saved.y === value.y && saved.k === value.k) return latest
+        try { return await this.applyAt(canvasId, latest.revision, [{ type: "set_viewport", viewport: value }]) }
+        catch (error) { if ((error as { code?: string }).code !== "revision_conflict" || attempt) throw error }
+      }
+      throw new Error("viewport save did not complete")
+    })
   }
 
   async readSelection(): Promise<{ revision: number; selectedNodeIds: string[] }> {
@@ -95,11 +125,9 @@ function canReplayBatch(operations: CanvasOperation[], scene: CanvasState): bool
   const connections = new Set((scene.connections as Array<Record<string, unknown>> | undefined)?.map((connection) => connection.id))
   for (const operation of operations) {
     if (operation.type === "add_node") { const node = operation.node as Record<string, unknown>; if (typeof node?.id !== "string" || nodes.has(node.id)) return false; nodes.add(node.id); continue }
-    if (operation.type === "update_node") { if (typeof operation.nodeId !== "string" || !nodes.has(operation.nodeId)) return false; continue }
-    if (operation.type === "remove_node") { if (typeof operation.nodeId !== "string" || !nodes.has(operation.nodeId)) return false; nodes.delete(operation.nodeId); continue }
+    // 节点覆盖/删除不能仅凭 ID 存在就在新 revision 上重放。
     if (operation.type === "add_connection") { const connection = operation.connection as Record<string, unknown>; if (typeof connection?.id !== "string" || connections.has(connection.id) || !nodes.has(connection.fromNodeId) || !nodes.has(connection.toNodeId)) return false; connections.add(connection.id); continue }
-    if (operation.type === "remove_connection") { if (typeof operation.connectionId !== "string" || !connections.has(operation.connectionId)) return false; connections.delete(operation.connectionId); continue }
-    if (operation.type !== "set_viewport") return false
+    return false
   }
   return true
 }

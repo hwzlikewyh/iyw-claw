@@ -1,7 +1,7 @@
 import type { CanvasClient } from "./canvas-client.js"
 
 type ExportNode = { id: string; type: string; x: number; y: number; width: number; height: number; metadata?: Record<string, unknown> }
-type ExportScene = { nodes: ExportNode[] }
+type ExportScene = { nodes: ExportNode[]; connections?: Array<{ fromNodeId: string; toNodeId: string }> }
 type PersistExport = (sha256: string, format: "png" | "svg") => Promise<string>
 
 const MAX_PIXELS = 16_000_000
@@ -15,12 +15,22 @@ export async function exportRenderedScene(client: CanvasClient, scene: ExportSce
 }
 
 async function sceneSvg(client: CanvasClient, scene: ExportScene): Promise<string> {
-  const width = Math.max(1600, ...scene.nodes.map((node) => Math.ceil(node.x + node.width)))
-  const height = Math.max(1000, ...scene.nodes.map((node) => Math.ceil(node.y + node.height)))
+  const left = Math.floor(Math.min(0, ...scene.nodes.map((node) => node.x)))
+  const top = Math.floor(Math.min(0, ...scene.nodes.map((node) => node.y)))
+  const width = Math.max(1600, ...scene.nodes.map((node) => Math.ceil(node.x + node.width))) - left
+  const height = Math.max(1000, ...scene.nodes.map((node) => Math.ceil(node.y + node.height))) - top
   if (width * height > MAX_PIXELS) throw new Error("canvas export exceeds 16 megapixel limit")
-  const content: string[] = [`<rect width="${width}" height="${height}" fill="#101318"/>`]
+  const content: string[] = [`<rect x="${left}" y="${top}" width="${width}" height="${height}" fill="#101318"/>`, connectionMarkup(scene)]
   for (const node of scene.nodes) content.push(await nodeSvg(client, node))
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${content.join("")}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${left} ${top} ${width} ${height}">${content.join("")}</svg>`
+}
+
+function connectionMarkup(scene: ExportScene): string {
+  const positions = new Map(scene.nodes.map((node) => [node.id, node]))
+  return (scene.connections ?? []).map((connection) => {
+    const from = positions.get(connection.fromNodeId), to = positions.get(connection.toNodeId)
+    return from && to ? `<line x1="${from.x + from.width / 2}" y1="${from.y + from.height / 2}" x2="${to.x + to.width / 2}" y2="${to.y + to.height / 2}" stroke="#72b7ff" stroke-width="2"/>` : ""
+  }).join("")
 }
 
 async function nodeSvg(client: CanvasClient, node: ExportNode): Promise<string> {

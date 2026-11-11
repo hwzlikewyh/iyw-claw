@@ -15,6 +15,7 @@ import { exportRenderedScene } from "./scene-export.js"
 import { renderScene, type NodeData, type Scene } from "./scene-renderer.js"
 import { installWidgetStyle } from "./widget-style.js"
 import { callCanvasTool } from "./host-call.js"
+import { bindViewportGestures } from "./viewport-gestures.js"
 const app = createCanvasApp()
 const pluginRegistry = registerBuiltinPlugins()
 const root = document.querySelector<HTMLElement>("#app")
@@ -52,8 +53,8 @@ function render() {
 const creative = new CreativeFlow({ app, client, assets: client.assetClient(), getScene: () => scene, getSelected: () => selected, setScene: (next) => { scene = next }, markMutation: () => { localMutationEpoch += 1 }, render, report: showError })
 type DragState = { nodeId: string; pointerId: number; startX: number; startY: number; originX: number; originY: number }
 let dragState: DragState | undefined
-type PanState = { pointerId: number; startX: number; startY: number; originX: number; originY: number }
-let panState: PanState | undefined
+const viewportGestures = bindViewportGestures({ surface: surfaceElement, sceneElement, client,
+  getScene: () => scene, setScene: (next) => { scene = next }, markMutation: () => { localMutationEpoch += 1 }, render, report: showError })
 sceneElement.addEventListener("pointerdown", (event) => {
   if ((event.target as HTMLElement).closest("[data-annotation-editor]")) return
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]")
@@ -84,51 +85,14 @@ async function finishDrag(): Promise<void> {
   if (!node || (node.x === current.originX && node.y === current.originY)) return
   gestureBatcher.add({ type: "update_node", nodeId: node.id, patch: { x: node.x, y: node.y } })
   try { await gestureBatcher.flush(async (operations) => { const next = await sceneClient.applyOps(operations, scene.revision); scene = { ...scene, ...(next as unknown as Scene) }; render() }) }
-  catch (error) { node.x = current.originX; node.y = current.originY; render(); throw error }
-}
-surfaceElement.addEventListener("wheel", (event) => {
-  if ((event.target as HTMLElement).closest(".node")) return
-  event.preventDefault()
-  const nextK = Math.max(0.05, Math.min(5, scene.viewport.k * (event.deltaY > 0 ? 0.9 : 1.1)))
-  if (nextK === scene.viewport.k) return
-  void client.apply([{ type: "set_viewport", viewport: { ...scene.viewport, k: nextK } }], scene.revision).then((next) => { scene = { ...scene, ...(next as unknown as Scene) }; render() }).catch(showError)
-}, { passive: false })
-surfaceElement.addEventListener("pointerdown", (event) => {
-  if ((event.target as HTMLElement).closest(".node")) return
-  panState = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: scene.viewport.x, originY: scene.viewport.y }
-  localMutationEpoch += 1
-  surfaceElement.setPointerCapture(event.pointerId)
-  event.preventDefault()
-})
-surfaceElement.addEventListener("pointermove", (event) => {
-  if (!panState || panState.pointerId !== event.pointerId) return
-  scene.viewport.x = panState.originX + event.clientX - panState.startX
-  scene.viewport.y = panState.originY + event.clientY - panState.startY
-  sceneElement.style.transform = `translate(${scene.viewport.x}px, ${scene.viewport.y}px) scale(${scene.viewport.k})`
-})
-surfaceElement.addEventListener("pointerup", (event) => { if (panState?.pointerId === event.pointerId) void finishPan().catch(showError) })
-surfaceElement.addEventListener("pointercancel", (event) => { if (panState?.pointerId === event.pointerId) panState = undefined })
-async function finishPan(): Promise<void> {
-  const current = panState
-  panState = undefined
-  if (!current) return
-  if (surfaceElement.hasPointerCapture(current.pointerId)) surfaceElement.releasePointerCapture(current.pointerId)
-  try {
-    const next = await client.apply([{ type: "set_viewport", viewport: scene.viewport }], scene.revision)
-    scene = { ...scene, ...(next as unknown as Scene) }
-    render()
-  } catch (error) {
-    scene.viewport = { x: current.originX, y: current.originY, k: scene.viewport.k }
-    render()
-    throw error
-  }
+  catch (error) { await refresh(); render(); throw error }
 }
 function showError(error: unknown) {
   statusElement.textContent = error instanceof Error ? error.message : "Canvas runtime error"
   statusElement.classList.add("error")
 }
 async function refresh() {
-  if (client.hasPendingWrites()) return
+  if (client.hasPendingWrites() || dragState || viewportGestures.pending()) return
   const epoch = sceneEpoch
   const mutationEpoch = localMutationEpoch
   const requestedCanvasId = canvasId
@@ -274,6 +238,7 @@ shell.addEventListener("click", (event) => {
 app.ontoolinput = (input) => {
   if (typeof input.arguments?.canvasId === "string") {
     if (input.arguments.canvasId !== canvasId) {
+      viewportGestures.reset()
       selected = new Set()
       sceneLoaded = false
       sceneEpoch += 1
@@ -285,7 +250,7 @@ app.ontoolinput = (input) => {
 }
 app.ontoolresult = (result) => { void creative.handleToolResult(result).catch(showError) }
 let stopPolling: () => void = () => undefined
-app.onteardown = async () => { stopPolling(); presenterCleanup?.(); await gestureBatcher.dispose(); client.dispose(); return {} }
+app.onteardown = async () => { stopPolling(); viewportGestures.dispose(); presenterCleanup?.(); await gestureBatcher.dispose(); client.dispose(); return {} }
 let started = false
-async function start() { if (started) return; started = true; try { await app.connect(); await refresh(); const storedSelection = await sceneClient.readSelection(); selected = new Set(storedSelection.selectedNodeIds.filter((id) => scene.nodes.some((node) => node.id === id))); render(); stopPolling = client.startPolling(refresh); window.addEventListener("unload", () => { stopPolling(); presenterCleanup?.(); void gestureBatcher.dispose(); client.dispose() }, { once: true }) } catch (error) { started = false; showError(error) } }
+async function start() { if (started) return; started = true; try { await app.connect(); await refresh(); const storedSelection = await sceneClient.readSelection(); selected = new Set(storedSelection.selectedNodeIds.filter((id) => scene.nodes.some((node) => node.id === id))); render(); stopPolling = client.startPolling(refresh); window.addEventListener("unload", () => { stopPolling(); viewportGestures.dispose(); presenterCleanup?.(); void gestureBatcher.dispose(); client.dispose() }, { once: true }) } catch (error) { started = false; showError(error) } }
 void start().catch(showError)
