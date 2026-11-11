@@ -11,6 +11,7 @@ import { getTransport } from "@/lib/transport"
 import { launchPluginPanel, type PluginPanelChoice } from "@/lib/plugin-panel"
 import type { PluginAppOpenResponse } from "@/lib/api"
 import { requestPluginAppTeardown } from "@/lib/plugin-app-teardown"
+import { usePluginPanelRegistry } from "@/stores/plugin-panel-registry"
 import { pluginPanelError } from "./use-plugin-panel-choices"
 import { usePluginPanelRetry } from "./use-plugin-panel-retry"
 
@@ -45,6 +46,19 @@ export function usePluginPanelTabs(
     onError: setError,
   })
   useEffect(() => {
+    usePluginPanelRegistry.getState().setPanels(
+      tabs.map(({ id, label, pluginSlug, appKey, conversationId, response }) => ({
+        id,
+        label,
+        pluginSlug,
+        appKey,
+        conversationId,
+        resourceUri: response.launch.resourceUri,
+        pluginVersion: response.launch.pluginVersion,
+      }))
+    )
+  }, [tabs])
+  useEffect(() => {
     const ids = new Set(conversations.split(",").map(Number))
     const timer = setTimeout(
       () =>
@@ -69,6 +83,15 @@ export function usePluginPanelTabs(
       setBusy: (value) => setBusyConversation(value ? conversationId : null),
       setError,
       commit: (tab) => {
+        usePluginPanelRegistry.getState().registerPanel({
+          id: tab.id,
+          label: tab.label,
+          pluginSlug: tab.pluginSlug,
+          appKey: tab.appKey,
+          conversationId: tab.conversationId,
+          resourceUri: tab.response.launch.resourceUri,
+          pluginVersion: tab.response.launch.pluginVersion,
+        })
         setTabs((values) => [...values, tab])
         if (width < PANEL_MIN_WIDTH) setWidth(PANEL_OPEN_WIDTH)
         openTab(`app:${tab.id}`)

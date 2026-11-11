@@ -92,7 +92,9 @@ function PreparationContent(props: ContextProps) {
         contextBusy={context.busy}
         onBind={() => void context.bind()}
         onReview={(enabled) => {
-          if (state.view) setReview({ view: state.view, enabled })
+          if (!state.view) return
+          if (enabled) void state.mutate(state.view, true)
+          else setReview({ view: state.view, enabled })
         }}
       />
       <Button

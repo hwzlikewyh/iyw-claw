@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useTabStore, type TabItem } from "@/contexts/tab-context"
 import { usePluginWorkspace } from "./use-plugin-workspace"
+import { usePluginComposerContext } from "@/lib/plugin-composer-context"
 
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
@@ -51,6 +52,7 @@ const draft: TabItem = {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  usePluginComposerContext.setState({ entries: {} })
   useTabStore.setState({
     activeTabId: "draft",
     rawTabs: [{ ...draft }],
@@ -127,6 +129,9 @@ describe("plugin workspace binding", () => {
     })
     expect(mocks.prepare).toHaveBeenCalledTimes(1)
     expect(task.bind).toHaveBeenCalledTimes(1)
+    expect(
+      usePluginComposerContext.getState().entries.draft?.preparedConversationId
+    ).toBe(42)
     view.unmount()
   })
   it("reuses a conversation already bound by a concurrent message", async () => {
@@ -144,6 +149,7 @@ describe("plugin workspace binding", () => {
       expect(await first).toBe(99)
     })
     expect(task.bind).not.toHaveBeenCalled()
+    expect(usePluginComposerContext.getState().entries.draft).toBeUndefined()
     view.unmount()
   })
   it("cancels after a working directory changes away and back", async () => {

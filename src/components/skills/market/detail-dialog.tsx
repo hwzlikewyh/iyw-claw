@@ -43,14 +43,14 @@ export function SkillMarketDetailDialog({
         onOpenChange(value)
       }}
     >
-      <DialogContent className="flex h-[min(52rem,calc(100dvh-2rem))] w-[min(76rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden rounded-lg p-0">
+      <DialogContent className="flex h-[min(52rem,calc(100dvh-2rem))] w-[min(37.5rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden rounded-lg p-0">
         <DialogTitle className="sr-only">
           {detailProps.detail?.displayName ?? t("catalogTitle")}
         </DialogTitle>
         <DialogDescription className="sr-only">
           {detailProps.detail?.summary ?? t("detail.selectHint")}
         </DialogDescription>
-        <SkillMarketDetail {...detailProps} />
+        <SkillMarketDetail {...detailProps} compact />
       </DialogContent>
     </Dialog>
   )

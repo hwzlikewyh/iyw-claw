@@ -9,6 +9,9 @@ use crate::app_error::AppCommandError;
 use crate::commands::skill_market::SkillPluginManifest;
 use crate::db::service::plugin_installation_service::{self, PluginInstallationRecord};
 
+#[path = "registry_defaults.rs"]
+mod defaults;
+
 static GLOBAL_REGISTRY: OnceLock<PluginRegistry> = OnceLock::new();
 static MUTATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static RECONCILE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -185,7 +188,7 @@ pub fn market_skill_state_global(market_skill_id: i64) -> Option<(bool, bool)> {
 }
 
 fn descriptor(
-    record: PluginInstallationRecord,
+    mut record: PluginInstallationRecord,
     scope: Option<&str>,
 ) -> Result<(String, PluginDescriptor), AppCommandError> {
     let manifest: SkillPluginManifest = serde_json::from_str(&record.installation.manifest_json)
@@ -200,6 +203,9 @@ fn descriptor(
         && record.installation.status == "installed"
         && record.installation.reconcile_state == "ready"
         && (manifest.schema_version < 2 || record.installation.trust_state == "trusted");
+    if available && manifest.schema_version >= 2 {
+        defaults::apply(&mut record, &manifest)?;
+    }
     let slug = record.installation.slug.clone();
     let activations = activation_descriptors(record.activations);
     let permission_grants = permission_descriptors(record.permission_grants);

@@ -106,6 +106,12 @@ fn apply_account_environment(
 }
 
 fn runtime_program(kind: &str, entrypoint: &Path) -> Result<PathBuf, PluginInvokeError> {
+    #[cfg(feature = "tauri-runtime")]
+    if kind == "node" {
+        return crate::managed_environment::require_tool_entrypoint(kind).map_err(|reason| {
+            PluginInvokeError::before_effect("plugin_runtime_unavailable", reason)
+        });
+    }
     if kind == "binary"
         && entrypoint.extension().is_some_and(|extension| {
             matches!(

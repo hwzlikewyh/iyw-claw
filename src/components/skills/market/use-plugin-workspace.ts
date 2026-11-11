@@ -7,6 +7,7 @@ import { prepareConnectorConversation } from "@/lib/conversation-connectors"
 import { getTransport } from "@/lib/transport"
 import { onNewConversationOpened } from "@/stores/tab-store"
 import type { TabItem } from "@/contexts/tab-context"
+import { preparePluginDraft } from "@/lib/plugin-composer-context"
 
 export function usePluginWorkspace(tabId: string | null) {
   const t = useTranslations("PluginPreparation")
@@ -95,6 +96,7 @@ function bindPreparedContext(
     current.workingDir !== original.workingDir
   )
     return null
+  preparePluginDraft(original.id, prepared.id)
   prepared.bind()
   return (
     useTabStore.getState().rawTabs.find((tab) => tab.id === original.id)

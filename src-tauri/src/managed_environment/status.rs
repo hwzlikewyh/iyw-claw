@@ -32,7 +32,7 @@ pub struct ManagedComponentStatus {
 }
 
 pub fn init_status_report() -> ManagedEnvironmentStatusReport {
-    let root = crate::paths::iyw_claw_user_dir();
+    let root = super::location::root();
     let raw = std::fs::read(root.join("inventory/environment-current.json")).unwrap_or_default();
     let parsed = super::snapshot::load(&root);
     let error = parsed.as_ref().err().cloned();

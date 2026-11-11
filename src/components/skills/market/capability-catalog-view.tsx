@@ -229,9 +229,9 @@ function CatalogCard({
       <SkillCard
         item={entry.item}
         selected={false}
-        onSelect={(item) => route.openSkillMarket(item.id, item.packageType)}
+        onSelect={(item) => route.openSkillMarket(item.slug, item.packageType)}
         onPrimaryAction={(item) =>
-          route.openSkillMarket(item.id, item.packageType)
+          route.openSkillMarket(item.slug, item.packageType)
         }
       />
     )

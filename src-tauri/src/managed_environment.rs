@@ -4,6 +4,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 mod file_stamp;
+mod location;
 mod repair;
 mod snapshot;
 mod status;
@@ -80,7 +81,7 @@ struct ManagedFile {
 
 pub fn entrypoint(component: &str, name: &str) -> Option<PathBuf> {
     const RETRIES: usize = 3;
-    let root = crate::paths::iyw_claw_user_dir();
+    let root = location::root();
     for attempt in 0..RETRIES {
         if let Some(path) = entrypoint_once(&root, component, name) {
             return Some(path);
@@ -102,7 +103,7 @@ fn entrypoint_once(root: &Path, component_id: &str, name: &str) -> Option<PathBu
 }
 
 pub fn component_root(component: &str) -> Option<PathBuf> {
-    let root = crate::paths::iyw_claw_user_dir();
+    let root = location::root();
     let snapshot = snapshot::load(&root).ok()?;
     let component = snapshot
         .components
@@ -113,7 +114,7 @@ pub fn component_root(component: &str) -> Option<PathBuf> {
 }
 
 pub fn component_version(component: &str) -> Option<String> {
-    let root = crate::paths::iyw_claw_user_dir();
+    let root = location::root();
     let snapshot = snapshot::load(&root).ok()?;
     snapshot
         .components
@@ -133,6 +134,17 @@ pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
         "cua-driver" => entrypoint("cua-driver", "cua-driver"),
         _ => None,
     }
+}
+
+pub(crate) fn require_tool_entrypoint(name: &str) -> Result<PathBuf, String> {
+    let root = location::root();
+    let snapshot = snapshot::load(&root)?;
+    let component = snapshot
+        .components
+        .iter()
+        .find(|item| item.component_id == name)
+        .ok_or_else(|| format!("缺少受管 {name} 运行时，请在设置中修复运行环境"))?;
+    status::component_entrypoint(&root, component, name)
 }
 
 fn environment_helper() -> Option<PathBuf> {

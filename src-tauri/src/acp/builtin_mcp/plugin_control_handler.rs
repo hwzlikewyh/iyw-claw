@@ -59,7 +59,7 @@ impl BuiltinMcpHandler {
         let candidate = load_install_candidate(&database, &request).await?;
         if installed_plugin(&candidate.name).is_some() {
             return Err(ErrorData::invalid_params(
-                "plugin is already installed; request workspace enable approval instead",
+                "plugin is already installed; enable the installed plugin instead",
                 Some(json!({"code": "plugin_already_installed"})),
             ));
         }
@@ -99,9 +99,9 @@ impl BuiltinMcpHandler {
     async fn enable_plugin(
         &self,
         authority: SessionContext,
-        delivery: Option<RelayDelivery>,
+        _delivery: Option<RelayDelivery>,
         request: PluginEnableRequest,
-        request_id: Value,
+        _request_id: Value,
         request_cancel: CancellationToken,
     ) -> Result<CallToolResult, ErrorData> {
         ensure_active(&authority, &request_cancel)?;
@@ -111,32 +111,6 @@ impl BuiltinMcpHandler {
                 Some(json!({"code": "plugin_unavailable"})),
             )
         })?;
-        let permissions = plugin
-            .manifest
-            .permissions
-            .as_ref()
-            .ok_or_else(|| ErrorData::invalid_params("plugin permissions are missing", None))?;
-        let prompt = format!(
-            "Enable plugin {} version {} for this workspace and Agent? Permissions: {}",
-            plugin.slug,
-            plugin.version,
-            permission_summary(permissions)
-        );
-        let answer = self
-            .ask_plugin_approval(PluginApproval {
-                authority: authority.clone(),
-                delivery,
-                request_id,
-                request_cancel: request_cancel.clone(),
-                question_id: "plugin-enable-approval",
-                header: "Enable plugin",
-                question: prompt,
-                approve_label: "Enable",
-            })
-            .await?;
-        if !approved(&answer, "Enable") {
-            return Ok(answer);
-        }
         ensure_active(&authority, &request_cancel)?;
         let database = plugin_database()?;
         approve_scope(&database, &plugin, &authority).await?;

@@ -21,6 +21,7 @@ import { getAgentLabel } from "@/lib/custom-agents"
 import { cn } from "@/lib/utils"
 
 interface Props {
+  compact?: boolean
   detail: SkillMarketV2Detail
   activeVersion: SkillMarketV2Version
   versions: SkillMarketV2Version[]
@@ -190,21 +191,33 @@ export function DetailInspectorTabs(props: Props) {
   return (
     <Tabs
       defaultValue="overview"
-      orientation="vertical"
-      className="min-h-0 min-w-0 flex-1 flex-col gap-0 md:grid md:grid-cols-[11rem_minmax(0,1fr)]"
+      orientation={props.compact ? "horizontal" : "vertical"}
+      className={
+        props.compact
+          ? "flex min-h-0 min-w-0 flex-col gap-0"
+          : "min-h-0 min-w-0 flex-1 flex-col gap-0 md:grid md:grid-cols-[11rem_minmax(0,1fr)]"
+      }
       onValueChange={(value) => {
         if (value === "files" && !props.files.requested) props.onOpenFiles()
       }}
     >
       <TabsList
         variant="line"
-        className="!h-11 !w-full shrink-0 !flex-row justify-start overflow-x-auto border-b bg-muted/10 px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:!h-full md:!w-44 md:!flex-col md:items-stretch md:justify-start md:overflow-visible md:border-r md:border-b-0 md:p-3"
+        className={
+          props.compact
+            ? "!h-11 !w-full shrink-0 !flex-row justify-start overflow-x-auto border-b bg-muted/10 px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            : "!h-11 !w-full shrink-0 !flex-row justify-start overflow-x-auto border-b bg-muted/10 px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:!h-full md:!w-44 md:!flex-col md:items-stretch md:justify-start md:overflow-visible md:border-r md:border-b-0 md:p-3"
+        }
       >
         {tabs.map((tab) => (
           <TabsTrigger
             key={tab.id}
             value={tab.id}
-            className="!h-9 !w-auto flex-none rounded-md px-3 text-xs md:!w-full"
+            className={
+              props.compact
+                ? "!h-9 !w-auto flex-none rounded-md px-3 text-xs"
+                : "!h-9 !w-auto flex-none rounded-md px-3 text-xs md:!w-full"
+            }
           >
             <TabLabel label={t(`detail.${tab.id}`)} count={tab.count} />
           </TabsTrigger>

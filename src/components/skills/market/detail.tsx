@@ -17,6 +17,7 @@ import {
 import type { SkillMarketActivationSummary } from "@/lib/skill-market-activation"
 
 export interface SkillMarketDetailProps {
+  compact?: boolean
   detail: SkillMarketV2Detail | null
   versions: SkillMarketV2Version[]
   versionsLoading: boolean
@@ -120,6 +121,7 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
     <div className="flex h-full min-h-0 flex-col bg-background">
       <DetailHeader
         detail={detail}
+        compact={props.compact}
         activeVersion={activeVersion}
         versions={versions}
         versionsLoading={props.versionsLoading}
@@ -135,9 +137,16 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
         onEditMetadata={() => props.onEditMetadata(detail)}
         onDelete={() => props.onDelete(detail)}
       />
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_19rem] lg:overflow-hidden">
+      <div
+        className={
+          props.compact
+            ? "min-h-0 flex-1 overflow-y-auto"
+            : "grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_19rem] lg:overflow-hidden"
+        }
+      >
         <DetailInspectorTabs
           detail={detail}
+          compact={props.compact}
           activeVersion={activeVersion}
           versions={versions}
           files={props.files}
@@ -148,6 +157,7 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
           }
         />
         <DetailSidePanel
+          compact={props.compact}
           detail={detail}
           version={activeVersion}
           activation={props.activation}

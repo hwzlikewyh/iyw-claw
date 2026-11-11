@@ -1,5 +1,11 @@
 "use client"
 
+import { useEffect } from "react"
+import {
+  clearPluginComposerContext,
+  usePluginComposerContext,
+} from "@/lib/plugin-composer-context"
+import { usePluginPanelRegistry } from "@/stores/plugin-panel-registry"
 import { useTabStore } from "@/contexts/tab-context"
 import { usePluginPanelChoices } from "./use-plugin-panel-choices"
 import { usePluginPanelTabs } from "./use-plugin-panel-tabs"
@@ -8,6 +14,18 @@ import { usePluginPanelOpenIntent } from "./use-plugin-panel-open-intent"
 export type { PluginPanelTab } from "./use-plugin-panel-tabs"
 
 export function usePluginPanels() {
+  useEffect(() => {
+    const tabs = useTabStore.subscribe((state) => {
+      for (const id of Object.keys(usePluginComposerContext.getState().entries))
+        if (!state.rawTabs.some((tab) => tab.id === id))
+          clearPluginComposerContext(id)
+    })
+    return () => {
+      tabs()
+      clearPluginComposerContext()
+      usePluginPanelRegistry.getState().clear()
+    }
+  }, [])
   const conversationId = useTabStore(
     (store) =>
       store.tabs.find((tab) => tab.id === store.activeTabId)?.conversationId ??

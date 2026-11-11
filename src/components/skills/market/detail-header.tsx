@@ -32,6 +32,7 @@ import type { SkillMarketActivationSummary } from "@/lib/skill-market-activation
 import { cn } from "@/lib/utils"
 
 interface DetailHeaderProps {
+  compact?: boolean
   detail: SkillMarketV2Detail
   activeVersion: SkillMarketV2Version
   versions: SkillMarketV2Version[]
@@ -163,7 +164,13 @@ export function DetailHeader(props: DetailHeaderProps) {
   ]
   return (
     <header className="shrink-0 bg-background px-5 pt-5 pr-14 sm:px-6 sm:pt-6 sm:pr-16">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div
+        className={
+          props.compact
+            ? "flex flex-col gap-3"
+            : "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        }
+      >
         <div className="flex min-w-0 gap-3.5">
           <MarketItemIcon
             name={props.detail.displayName}
@@ -173,7 +180,8 @@ export function DetailHeader(props: DetailHeaderProps) {
           />
           <div className="min-w-0">
             <p className="truncate text-[10px] text-muted-foreground">
-              {props.detail.organizationName ?? props.detail.category}
+              {props.detail.organizationName ||
+                t(`filters.${props.detail.publisher}`)}
             </p>
             <h2 className="mt-0.5 truncate text-lg font-semibold">
               {props.detail.displayName}
@@ -181,18 +189,28 @@ export function DetailHeader(props: DetailHeaderProps) {
                 {props.detail.slug}
               </span>
             </h2>
-            <p className="mt-1.5 line-clamp-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              {props.detail.summary}
-            </p>
+            {!props.compact && (
+              <p className="mt-1.5 line-clamp-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+                {props.detail.summary}
+              </p>
+            )}
           </div>
         </div>
-        <ActivationControl
-          activation={props.activation}
-          busy={props.activationBusy}
-          onToggle={props.onToggleActivation}
-        />
+        {!props.compact && (
+          <ActivationControl
+            activation={props.activation}
+            busy={props.activationBusy}
+            onToggle={props.onToggleActivation}
+          />
+        )}
       </div>
-      <div className="mt-4 flex min-w-0 flex-col gap-3 border-t py-3 sm:flex-row sm:items-center">
+      <div
+        className={
+          props.compact
+            ? "mt-3 flex min-w-0 flex-col gap-3 border-t py-3"
+            : "mt-4 flex min-w-0 flex-col gap-3 border-t py-3 sm:flex-row sm:items-center"
+        }
+      >
         <MarketBadgeGroup
           badges={badges}
           limit={3}

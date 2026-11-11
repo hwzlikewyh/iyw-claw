@@ -101,7 +101,10 @@ async fn repair_selection(request: &RepairRequest<'_>) -> Result<Option<String>,
         .any(|item| item.component_id == "environment")
     {
         // 清单缺失或版本不匹配时无法安全复用，沿用完整环境恢复入口。
-        if request.component.is_some_and(|id| matches!(id, "chromix" | "agent-browser")) {
+        if request
+            .component
+            .is_some_and(|id| matches!(id, "chromix" | "agent-browser"))
+        {
             return Ok(Some("chromix,agent-browser".to_string()));
         }
         return Ok(None);
@@ -196,12 +199,8 @@ fn spawn_helper(command: &str, components: Option<&str>) -> Result<tokio::proces
     let helper = super::environment_helper()
         .ok_or_else(|| "安装目录缺少环境修复程序，请重新安装应用".to_string())?;
     let mut process = crate::process::tokio_command(helper);
-    process.args([
-        command,
-        "--app-version",
-        env!("CARGO_PKG_VERSION"),
-        "--json",
-    ]);
+    let version = super::location::version()?;
+    process.args([command, "--app-version", &version, "--json"]);
     if let Some(components) = components {
         process.args(["--components", components]);
     }

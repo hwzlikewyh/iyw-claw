@@ -12,6 +12,8 @@ import {
 import { onNewConversationOpened } from "@/stores/tab-store"
 import { pluginPanelError } from "./use-plugin-panel-choices"
 import { usePluginMarketNavigation } from "./use-plugin-market-navigation"
+import { selectComposerPlugin } from "@/lib/plugin-composer-context"
+import { usePluginPanelRegistry } from "@/stores/plugin-panel-registry"
 
 interface OpenIntent {
   tabId: string
@@ -50,6 +52,7 @@ export function usePluginPanelOpenIntent(options: Options) {
 
   const open = async (app: PluginPanelChoice) => {
     if (!tabId || pending.current) return
+    selectComposerPlugin(tabId, app)
     const request: OpenIntent = {
       tabId,
       app,
@@ -72,8 +75,19 @@ export function usePluginPanelOpenIntent(options: Options) {
   }
 
   useAdvanceIntent({ options, pending, latest, revision, setError, setBusy })
-  useApplicationOpenRequest((app) => {
+  useApplicationOpenRequest(async (app) => {
     route.openConversations()
+    if (tabId) selectComposerPlugin(tabId, app)
+    const existing = usePluginPanelRegistry.getState().panels.find(
+      (entry) =>
+        entry.conversationId === options.conversationId &&
+        entry.pluginSlug === app.pluginSlug &&
+        entry.appKey === app.appKey
+    )
+    if (existing) {
+      openTab(`app:${existing.id}`)
+      return
+    }
     openTab("home")
     return open(app)
   })
