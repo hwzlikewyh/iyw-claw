@@ -1,6 +1,6 @@
 # 知识库、自动报告与提示词
 
-新版管理流程优先读 [知识库全套](iyw-api-knowledge-full.md) 和 [趋势推送新版](iyw-api-trend-push-full.md)。下方旧表保留历史证据；新版 folders/list 用 category+parentId 字符串，reset 分享只传 run_id，列表筛选见新版详细表。
+知识文档导入、解析、检索和引用先读 [工作流](knowledge-workflows.md)，客户端集成见 [宿主接口](knowledge-host-integration.md)；云端字段见 [知识库全套](iyw-api-knowledge-full.md)，报告业务读 [趋势推送新版](iyw-api-trend-push-full.md)。下方旧表保留历史证据；新版 folders/list 用 category+parentId 字符串，reset 分享只传 run_id，列表筛选见新版详细表。
 
 资料来源：用户提供的 2026-09-09 接口详细版（线上前端包 + 部分登录态实测）。表中的“实测”是原资料的证据标记，不表示本次已调用。未明确的必填字段、类型、枚举、完整表单仍须结合实际页面请求确认。
 
@@ -10,10 +10,10 @@
 
 检索词：知识库目录、文件、解析状态、自动报告、趋势推送、分享、口令、prompt、refine。
 
-流程：根目录从 `folderId:0` 开始，先列表取得 ID，再筛选文件。知识正文检索已有 `search_iyw_knowledge` 专用工具；这里的目录/文件/报告接口均走 fetch。报告分享、关分享、重置密码是状态变更，不随查询隐式执行。`runs/query` 的筛选字段在原资料中不完整，应从当前页面确认。
+流程：目录从 `category:0,parentId:"0"` 开始，先列表取得 ID，再筛选文件。知识正文检索已有 `search_iyw_knowledge` 专用工具；这里的目录/文件/报告接口均走 fetch。报告分享、关分享、重置密码是状态变更，不随查询隐式执行。`runs/query` 的筛选字段在原资料中不完整，应从当前页面确认。
 
 ```json
-{"description":"查询知识库根目录","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/folders/list","body":{"folderId":0,"includeChildren":false,"sortBy":"name","sortOrder":"asc","page":1,"pageSize":20}}
+{"description":"查询个人知识库根目录","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/folders/list","body":{"category":0,"parentId":"0"}}
 ```
 
 ```json

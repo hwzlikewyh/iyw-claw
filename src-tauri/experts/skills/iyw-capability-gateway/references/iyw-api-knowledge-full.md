@@ -2,6 +2,8 @@
 
 来源：2026-09-10《爱原物接口文档·分层详版（补充篇）》；前端反解和原采集者实测标记，不表示本次已调用。只读取当前任务相关小节；其他领域见 [接口索引](iyw-api-index.md)，冲突和认证/签名边界见 [调用约定补充](iyw-api-access-contracts.md)。
 
+2026-11-11补充当前宿主契约核对：[从导入到引用的工作流](knowledge-workflows.md)、[客户端选择与分块上传](knowledge-host-integration.md)。本页保留云接口字段证据；云端与直接检索工具的范围限制分别描述，不能互相覆盖。历史“23个接口”汇总有误，下表实际8＋9＋5＋4＝26个唯一端点。
+
 管理业务统一用 fetch_iyw_url；原有 search_iyw_knowledge 保留正文检索专用能力。先选择 category 0/1，再从 parentId:"0" 查根目录；文件夹/文件 ID 使用实际返回字符串。删除文件夹必须依照 delete-plan 返回内容和用户选择的 delete_all/move_files 执行，completed 与 syncFailedFiles 都要检查。
 
 通用上传工具仍限制 1 GiB；还要遵守知识库更小的限制，例如图片 8 MB、Markdown/文本 10 MB。上传后可以使用返回 URL 调 files/create，至少提供实际 fileUrl/uri/tosUrl 之一，不能猜 bucket、tosPath 或内部 URI。files/upload-token 只记录为主机凭证流程，不让代理读出 STS。知识库不接受 URL 时应明确缺少所需服务支持。
@@ -18,14 +20,14 @@ files/create、batch-move、batch-delete、folders/delete-tree 可用 timeout_se
 
 ## 来源详细资料
 
-## 五、知识库全套（`ai-agent-new/api/knowledge`，23 个接口）
+## 五、知识库全套（`ai-agent-new/api/knowledge`，26 个接口）
 
 `ai.iyw.cn` 的「知识库」页面（左侧库分类 0/1，即「我的知识库 / 企业知识库」两套）。源码位置：`ai_8624.de297001.js`（页面）、`ai_7323.d6740932.js`、`ai_8007.9e20690a.js`（内嵌版）。**全部 POST**，路径同样有两套前缀：
 
 | 前缀 | 环境 |
 | --- | --- |
 | `/ai-agent-new/api/knowledge` | 线上默认 |
-| `/api/knowledge` | 开发模式（Cookie `agent_new_dev_token`），带 `token` + `tokenInfo` |
+| `/api/knowledge` | 历史开发页面前缀；账号凭据由原客户端处理，代理不读取或自行构造tokenInfo |
 
 ### 5.0 公共约定
 
@@ -83,3 +85,91 @@ files/create、batch-move、batch-delete、folders/delete-tree 可用 timeout_se
 | POST | `/attachments/refresh` | 同步刷新某个文件的附件链接 | `category`、`fileId` | 返回同列表项结构 |
 | POST | `/attachments/refresh-stream` | **流式**刷新附件链接 | `category` 等 | 用 `fetch` + `text/event-stream`，逐块解析 `event: item / item_error / done`；回调 `onItem`、`onItemError`、`onDone`、`onError` |
 | POST | `/storage/stats` | 存储统计 | `category` | 返回 `data.total` 或 `data.current`，字段兼容 `fileCount`/`file_count`、`fileSizeBytes`/`file_size_bytes`/`fileSize`/`file_size`；配额另由 `I19` 计算 |
+
+## 实际调用模板
+
+下面均为fetch_iyw_url参数；默认POST，主机注入登录态。尖括号换成实际返回ID，不能直接执行占位符；一次只执行用户需要的动作。创建、修改和删除均有副作用。
+
+### 定位、建目录与容量
+
+```json
+{"description":"查看企业知识库文件夹树","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/folders/tree","body":{"category":1}}
+```
+
+```json
+{"description":"查看知识库目录路径","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/folders/path","body":{"category":0,"folderId":"<返回的文件夹ID>"}}
+```
+
+```json
+{"description":"在指定知识目录新建子文件夹","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/folders/create","body":{"category":0,"parentId":"<允许新建的父文件夹ID>","folderName":"产品规范"}}
+```
+
+```json
+{"description":"查看个人知识库已用容量","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/storage/stats","body":{"category":0}}
+```
+
+folders/tree的data.folderTree是目录树；folderId="0"是默认目录，不能把“默认目录文件列表”当整库全部文件。folders/list返回当前层data.list；path返回data.path。只认实际可写父目录，不能无视默认目录限制强建根层。
+
+### 查文件与批量处理
+
+```json
+{"description":"按名称查找指定目录中的PDF","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/files/list","body":{"category":0,"folderId":"<实际目录ID>","searchText":"规范","includeChildren":false,"fileCategories":["pdf"],"sortBy":"name","sortOrder":"asc","page":1,"pageSize":20}}
+```
+
+```json
+{"description":"批量刷新文档解析状态","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/files/batch-refresh-status","body":{"category":0,"fileIds":["<文件ID1>","<文件ID2>"],"forceRefresh":false}}
+```
+
+```json
+{"description":"将选中文档移动到指定目录","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/files/batch-move","timeout_seconds":600,"body":{"category":0,"fileIds":["<实际文件ID>"],"folderId":"<真实目标目录ID>"}}
+```
+
+单文件重命名／移动用files/update，body={category,fileId,fileName,folderId}，按实际编辑内容保留其余属性。批量操作不能把fileIds填成docId或pointId；超时先回读原目录和目标目录。
+
+### 切片的查询与编辑
+
+```json
+{"description":"查看文档前100个知识切片","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/points/list","body":{"category":0,"fileId":"<实际文件ID>","offset":0,"limit":100,"getAttachmentLink":true}}
+```
+
+```json
+{"description":"查看指定知识切片详情","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/points/info","body":{"category":0,"fileId":"<实际文件ID>","pointId":"<列表返回pointId>","getAttachmentLink":true}}
+```
+
+```json
+{"description":"增加用户确认的包装规范切片","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/points/create","body":{"category":0,"fileId":"<实际文件ID>","chunkType":"text","chunkTitle":"包装留白","content":"<用户提供或已核实的规范原文>","question":"<该原文能够回答的问题>"}}
+```
+
+编辑points/update使用category、fileId、pointId、chunkTitle、content、question；删除points/delete仅使用category、fileId、pointId。先读原切片，修改后回读并重新检索；不能把模型建议写成既有规范。
+
+### 检索与附件
+
+Agent正文检索优先直接search_iyw_knowledge；下列原始/search仅供无宿主选择限制的受授权云客户端集成，不用于绕过当前会话范围：
+
+```json
+{"description":"在指定知识目录检索包装要求","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/search","body":{"category":0,"query":"包装留白要求","folderId":"<真实文件夹ID>","limit":5,"denseWeight":0.5}}
+```
+
+当前宿主处理搜索响应时，先检查外层code=1，再从data.result.code=0、data.result.data.result_list读取命中；宿主直接工具会归一化为count／results。不把内层code=0误判失败，也不把外层code=0当本服务成功。返回结构变化时按实际契约核对。
+
+当前宿主还支持fileId过滤；云页面历史表仅记folderId。直接工具允许的较大query／limit范围详见[检索工作流](knowledge-workflows.md)，不能把两个调用面参数上限混用。
+
+```json
+{"description":"刷新指定文档的附件链接","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/attachments/refresh","body":{"category":0,"fileId":"<实际文件ID>"}}
+```
+
+refresh-stream的完整入参未在来源中确认，仅知道SSE事件；不能把“category等”当完整schema。同步refresh可满足时使用已知入口；真正需要流式客户端时先核对当前正式契约和SSE传输支持。
+
+### 删除预检与结果
+
+```json
+{"description":"检查删除知识目录的影响范围","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/folders/delete-plan","body":{"category":0,"folderId":"<用户指定目录ID>"}}
+```
+
+```json
+{"description":"移动文件并删除已确认的知识目录","url":"https://gateway.iyw.cn/ai-agent-new/api/knowledge/folders/delete-tree","timeout_seconds":600,"body":{"category":0,"folderId":"<已预检目录ID>","mode":"move_files","targetFolderId":"<用户选定保留目录ID>"}}
+```
+
+仅在用户明确选择连内容删除时，mode改为delete_all并省略targetFolderId；不因为删除空目录失败就自动升级到连文件删除。检查completed、syncFailedFiles和实际目录／文件状态，部分成功单独报告。
+
+files/delete用{category,fileId}；files/batch-delete用{category,fileIds}并检查deletedCount／failedCount；folders/delete用于已确认空目录。删除和存储回收、索引同步可能不同步，不用列表消失推断容量立即全部释放。
