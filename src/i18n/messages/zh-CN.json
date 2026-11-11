@@ -1,4 +1,27 @@
 {
+  "NetworkDiagnostics": {
+    "title": "网络诊断",
+    "open": "查看实时网速和测速结果",
+    "localNetwork": "本机网络",
+    "serverNetwork": "服务端网络",
+    "scope": "显示所选接口上所有应用的当前流量，不重复累加多个网卡。",
+    "throughput": "实时上下行",
+    "sampling": "采样中…",
+    "unavailable": "网速不可用",
+    "noInterfaces": "未找到可采样的网卡接口。",
+    "measurement": "主动测速",
+    "latency": "请求延迟",
+    "download": "下载速率",
+    "upload": "上传速率",
+    "targetHint": "测速目标：speed.cloudflare.com。下载约 1 MB、上传约 256 KB；每项最多等待 8 秒。小流量测试结果受目标服务和当前代理影响，包含请求开销，不代表线路最大带宽。",
+    "start": "开始测速",
+    "test": "测速",
+    "testing": "正在测量{phase}…",
+    "running": "测量中…",
+    "failed": "失败",
+    "notMeasured": "—",
+    "completed": "最近测速：{time}"
+  },
   "ConversationTabs": {
     "title": "会话标签",
     "limitLabel": "每个窗口的最大标签数",

@@ -60,6 +60,14 @@ pub fn build_router(
         .merge(handlers::computer_routes::routes())
         .route("/health", post(health_check))
         .route(
+            "/get_network_traffic",
+            post(handlers::network_diagnostics::get_network_traffic),
+        )
+        .route(
+            "/measure_network_speed",
+            post(handlers::network_diagnostics::measure_network_speed),
+        )
+        .route(
             "/fetch_remote_image",
             post(handlers::remote_image::fetch_remote_image),
         )
