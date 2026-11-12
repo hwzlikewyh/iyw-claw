@@ -9,7 +9,7 @@ try {
     try { [xml]$package = $reader.ReadToEnd() } finally { $reader.Dispose() }
     [xml]$executable = Get-Content -LiteralPath $ExecutableManifest -Encoding UTF8 -Raw
     $identity = $package.Package.Identity; $application = $package.Package.Applications.Application; $msix = $executable.assembly.msix
-    if ($identity.Name -ne 'IywAssistant.ShareTarget' -or $application.Id -ne 'Share' -or $msix.packageName -ne $identity.Name -or $msix.publisher -ne $identity.Publisher -or $msix.applicationId -ne $application.Id -or $application.Executable -ne 'iyw-share-target.exe') { throw 'Share receiver EXE identity does not match the MSIX manifest' }
+    if ($identity.Name -ne 'IywAssistant.ShareTarget' -or $application.Id -ne 'Share.Hub' -or $msix.packageName -ne $identity.Name -or $msix.publisher -ne $identity.Publisher -or $msix.applicationId -ne $application.Id -or $application.Executable -ne 'iyw-share-target.exe') { throw 'Share receiver EXE identity does not match the MSIX manifest' }
     $config = Get-Content -LiteralPath (Join-Path $Directory 'config.json') -Encoding UTF8 -Raw | ConvertFrom-Json
     if ($identity.Version -ne $config.packageVersion) { throw 'Share package version mismatch' }
     $namespaces = New-Object Xml.XmlNamespaceManager($package.NameTable); $namespaces.AddNamespace('uap', 'http://schemas.microsoft.com/appx/manifest/uap/windows10')
