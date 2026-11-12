@@ -37,8 +37,8 @@ async function inlineWorkbench(directory) {
   const styleTag = html.match(/<link[^>]+stylesheet[^>]+href="([^"]+)"[^>]*>/)
   if (!scriptTag || !styleTag) throw new Error("workbench html does not reference its bundles")
   const result = html
-    .replace(scriptTag[0], `<script type="module">${embeddedScript.replaceAll("</script>", "<\\/script>")}</script>`)
-    .replace(styleTag[0], `<style>${styles}</style>`)
+    .replace(scriptTag[0], () => `<script type="module">${embeddedScript.replaceAll("</script>", "<\\/script>")}</script>`)
+    .replace(styleTag[0], () => `<style>${styles}</style>`)
     .replace(/<link[^>]+modulepreload[^>]*>/g, "")
   return result
 }

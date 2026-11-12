@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "name": "infinite-canvas",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "minClientVersion": "0.1.332",
   "targets": ["iyw-claw"],
   "components": {
