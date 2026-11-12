@@ -24,6 +24,14 @@ pub fn current_target() -> &'static str {
     TARGET
 }
 
+pub(super) fn current_agent_target() -> &'static str {
+    // Agent 发布记录使用 macos，运行环境和工具镜像继续使用 darwin。
+    match current_target() {
+        "darwin" => "macos",
+        target => target,
+    }
+}
+
 pub fn current_target_triple() -> &'static str {
     TARGET_TRIPLE
 }
@@ -74,10 +82,13 @@ pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {
         .ok_or_else(|| "unknown Agent registry id".to_string())?;
     validate_version(&offer.version)?;
     validate_delivery_dimensions(
-        &offer.delivery.runtime,
-        &offer.delivery.target,
-        &offer.delivery.arch,
+        (
+            &offer.delivery.runtime,
+            &offer.delivery.target,
+            &offer.delivery.arch,
+        ),
         offer.delivery.recipe_schema_version,
+        current_agent_target(),
     )?;
     let meta = registry::get_agent_meta(agent);
     crate::acp::deepseek_config::validate_tool_version(agent, &offer.version)?;
@@ -128,10 +139,13 @@ pub fn validate_tool_offer(offer: &ToolOffer) -> Result<(), String> {
     }
     validate_version(&offer.version)?;
     validate_delivery_dimensions(
-        &offer.artifact.runtime,
-        &offer.artifact.target,
-        &offer.artifact.arch,
+        (
+            &offer.artifact.runtime,
+            &offer.artifact.target,
+            &offer.artifact.arch,
+        ),
         CATALOG_SCHEMA_VERSION,
+        current_target(),
     )?;
     if offer.artifact.package_kind != "zip" || offer.artifact.size <= 0 {
         return Err("managed tool artifact is not an approved ZIP".to_string());
@@ -208,12 +222,11 @@ fn validate_version(value: &str) -> Result<(), String> {
 }
 
 fn validate_delivery_dimensions(
-    runtime: &str,
-    target: &str,
-    arch: &str,
+    (runtime, target, arch): (&str, &str, &str),
     schema_version: u32,
+    expected_target: &str,
 ) -> Result<(), String> {
-    if runtime != RUNTIME || target != current_target() || arch != current_arch() {
+    if runtime != RUNTIME || target != expected_target || arch != current_arch() {
         return Err("release dimensions do not match this client".to_string());
     }
     if schema_version != CATALOG_SCHEMA_VERSION {

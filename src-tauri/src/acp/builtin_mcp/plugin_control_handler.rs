@@ -139,7 +139,7 @@ impl BuiltinMcpHandler {
         }
         ensure_active(&authority, &request_cancel)?;
         let database = plugin_database()?;
-        approve_scope(&database, &plugin.slug, &authority).await?;
+        approve_scope(&database, &plugin, &authority).await?;
         Ok(control_result("enabled"))
     }
 

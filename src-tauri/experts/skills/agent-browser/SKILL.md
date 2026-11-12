@@ -239,5 +239,6 @@ prerequisite and follow the documented fallback policy.
 Only currently enabled domain Skills may supply page-specific workflows.
 Never load retired Skills from old references or local copies. For IYW business,
 use `iyw-capability-gateway` and its current direct tools first; apply this Skill
-only when the task actually requires browser interaction. Built-in image-to-3d
-is disabled and must not be invoked through browser UI as a fallback.
+only when the task actually requires browser interaction. The built-in
+image-to-3d endpoint is disabled and must not be invoked through browser UI as a
+fallback; this does not prohibit local Three.js modeling in code tasks.

@@ -20,6 +20,13 @@ pub(super) fn timeout_for(tool_name: &str, arguments: Option<&Map<String, Value>
         return REMOTE_DIRECTORY_TIMEOUT;
     }
     if name.ends_with("invoke_iyw_capability") || name.contains("iyw_remote_") {
+        if let Some(timeout) = arguments
+            .and_then(|args| args.get("capability_id"))
+            .and_then(Value::as_str)
+            .and_then(crate::plugin_runtime::native_compat::capability_timeout)
+        {
+            return timeout;
+        }
         return REMOTE_INVOKE_TIMEOUT;
     }
     if name.ends_with("generate_iyw_image") {

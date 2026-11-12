@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react"
 import {
   EllipsisVertical,
-  Globe2,
   Menu,
   PanelRight,
   Search,
@@ -13,7 +12,6 @@ import {
 import { useTranslations } from "next-intl"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useActiveFolder } from "@/contexts/active-folder-context"
-import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { isDesktop, isLocalDesktop, openFileDialog } from "@/lib/platform"
 import { openSettingsWindow } from "@/lib/api"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
@@ -36,6 +34,8 @@ import { AccountWorkspaceSwitch } from "@/components/account/account-workspace-s
 import { BranchDropdown } from "./branch-dropdown"
 import { NewFolderDropdown } from "./new-folder-dropdown"
 import { TitleBarUpdateControl } from "./title-bar-update-control"
+import { BrowserTitleButton } from "./folder-title-bar-browser-button"
+import { NetworkStatusBar } from "./network-status-bar"
 import { SearchCommandDialog } from "@/components/conversations/search-command-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -55,7 +55,6 @@ export function FolderTitleBar() {
   const tTitleBar = useTranslations("Folder.folderTitleBar")
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
   const { activeFolder } = useActiveFolder()
-  const isChatMode = useIsActiveChatMode()
   const { toggle } = useSidebarContext()
   const { isOpen: auxPanelOpen, toggle: toggleAuxPanel } = useAuxPanelContext()
   const { toggle: toggleTerminal } = useTerminalContext()
@@ -76,6 +75,10 @@ export function FolderTitleBar() {
   const searchLabel = tTitleBar("withShortcut", {
     label: tTitleBar("search"),
     shortcut: formatShortcutLabel(shortcuts.toggle_search, isMac),
+  })
+  const auxPanelLabel = tTitleBar("withShortcut", {
+    label: tTitleBar("toggleAuxPanel"),
+    shortcut: formatShortcutLabel(shortcuts.toggle_aux_panel, isMac),
   })
 
   const handleOpenFolder = useCallback(async () => {
@@ -120,9 +123,6 @@ export function FolderTitleBar() {
         return
       }
       if (matchShortcutEvent(e, shortcuts.toggle_aux_panel)) {
-        // Chat mode hides the aux panel + its toggle; the shortcut must not
-        // re-open it either.
-        if (isChatMode) return
         e.preventDefault()
         toggleAuxPanel()
         return
@@ -156,7 +156,6 @@ export function FolderTitleBar() {
     shortcuts,
     toggle,
     toggleAuxPanel,
-    isChatMode,
   ])
 
   const isMobile = useIsMobile()
@@ -196,6 +195,17 @@ export function FolderTitleBar() {
             <div className="flex items-center gap-1">
               <AccountWorkspaceSwitch mobile />
               <TitleBarUpdateControl mobile />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={toggleAuxPanel}
+                title={auxPanelLabel}
+                aria-label={auxPanelLabel}
+                aria-pressed={auxPanelOpen}
+              >
+                <PanelRight className="h-4 w-4" />
+              </Button>
               {browserVisible &&
               isLocalDesktop() &&
               browserState?.capability.supported ? (
@@ -224,16 +234,6 @@ export function FolderTitleBar() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {/* Folderless chat conversations hide the aux panel entirely. */}
-                  {!isChatMode && (
-                    <DropdownMenuItem
-                      onClick={toggleAuxPanel}
-                      disabled={!activeFolder}
-                    >
-                      <PanelRight className="h-3.5 w-3.5" />
-                      {tTitleBar("toggleAuxPanel")}
-                    </DropdownMenuItem>
-                  )}
                   <DropdownMenuItem
                     onClick={() => toggleTerminal()}
                     disabled={!activeFolder}
@@ -251,25 +251,17 @@ export function FolderTitleBar() {
           ) : (
             <div className="flex items-center gap-2">
               <AccountWorkspaceSwitch />
-              {/* Folderless chat conversations hide the aux panel entirely. */}
-              {!isChatMode && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-6 w-6 hover:text-foreground/80 ${auxPanelOpen ? "bg-accent" : ""}`}
-                  onClick={toggleAuxPanel}
-                  disabled={!activeFolder}
-                  title={tTitleBar("withShortcut", {
-                    label: tTitleBar("toggleAuxPanel"),
-                    shortcut: formatShortcutLabel(
-                      shortcuts.toggle_aux_panel,
-                      isMac
-                    ),
-                  })}
-                >
-                  <PanelRight className="h-3.5 w-3.5" />
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-6 w-6 hover:text-foreground/80 ${auxPanelOpen ? "bg-accent" : ""}`}
+                onClick={toggleAuxPanel}
+                title={auxPanelLabel}
+                aria-label={auxPanelLabel}
+                aria-pressed={auxPanelOpen}
+              >
+                <PanelRight className="h-3.5 w-3.5" />
+              </Button>
               <TitleBarUpdateControl />
               {browserVisible &&
               isLocalDesktop() &&
@@ -291,6 +283,7 @@ export function FolderTitleBar() {
               >
                 <Search className="h-3.5 w-3.5" />
               </Button>
+              <NetworkStatusBar />
             </div>
           )
         }
@@ -306,36 +299,5 @@ export function FolderTitleBar() {
         }}
       />
     </>
-  )
-}
-
-function BrowserTitleButton({
-  active,
-  status,
-  label,
-  onClick,
-  mobile = false,
-}: {
-  active: boolean
-  status?: string
-  label: string
-  onClick: () => void
-  mobile?: boolean
-}) {
-  const alert = status === "failed" || status === "missing"
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className={`${mobile ? "h-8 w-8" : "h-6 w-6"} relative hover:text-foreground/80 ${active ? "bg-accent" : ""}`}
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-    >
-      <Globe2 className={mobile ? "h-4 w-4" : "h-3.5 w-3.5"} />
-      {alert ? (
-        <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />
-      ) : null}
-    </Button>
   )
 }

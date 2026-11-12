@@ -1,4 +1,5 @@
 import type { PluginAppResourceMeta } from "@/lib/api"
+import { createPluginAppTeardown } from "./plugin-app-teardown"
 
 export type JsonRpcId = string | number
 
@@ -23,11 +24,14 @@ type PluginAppResponse = {
   error?: { code: number; message: string }
 }
 
-const MAX_MESSAGE_BYTES = 256 * 1024
+// 32 MB 模型经过 base64 编码后仍需完整传到应用，保持明确的传输上限。
+const MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+const MAX_RESOURCE_BYTES = 8 * 1024 * 1024
 const METHODS = new Set([
   "initialize",
   "ui/initialize",
   "ui/open-link",
+  "ui/download-file",
   "ui/message",
   "ui/request-display-mode",
   "ui/update-model-context",
@@ -55,15 +59,20 @@ export class PluginAppBridge {
     message: PluginAppMessage
   ) => Promise<PluginAppResponse>
   private readonly onInitialized?: () => void
+  private readonly onFailure?: () => void
   private port: MessagePort | null = null
   private initialized = false
+  private active = true
+  private teardown = createPluginAppTeardown((message) => this.send(message))
 
   constructor(
     onMessage: (message: PluginAppMessage) => Promise<PluginAppResponse>,
-    onInitialized?: () => void
+    onInitialized?: () => void,
+    onFailure?: () => void
   ) {
     this.onMessage = onMessage
     this.onInitialized = onInitialized
+    this.onFailure = onFailure
   }
 
   attach(port: MessagePort): void {
@@ -83,13 +92,12 @@ export class PluginAppBridge {
     html: string,
     resourceMeta?: PluginAppResourceMeta
   ): boolean {
-    if (!this.port || byteLength(html) > 8 * 1024 * 1024) return false
+    if (!this.port || byteLength(html) > MAX_RESOURCE_BYTES) return false
     const message = {
       jsonrpc: "2.0",
       method: "ui/notifications/sandbox-resource-ready",
       params: { html, ...resourceMeta },
     }
-    if (!withinLimit(message)) return false
     this.port.postMessage(message)
     return true
   }
@@ -98,7 +106,13 @@ export class PluginAppBridge {
     return this.initialized && this.send(message)
   }
 
+  requestTeardown(): Promise<boolean> {
+    return this.initialized ? this.teardown.request() : Promise.resolve(true)
+  }
+
   dispose(): void {
+    this.teardown.dispose()
+    this.active = false
     if (this.initialized) {
       this.send({
         jsonrpc: "2.0",
@@ -116,10 +130,19 @@ export class PluginAppBridge {
   }
 
   private async handleMessage(value: unknown): Promise<void> {
+    if (!this.active || !withinLimit(value) || this.teardown.accept(value))
+      return
     const request = parseMessage(value)
     if (!request) return
     try {
       const response = await this.onMessage(request)
+      if (!this.active) return
+      if (
+        response.error &&
+        !this.initialized &&
+        isInitialization(request.method)
+      )
+        this.onFailure?.()
       if (
         !response.error &&
         request.method === "ui/notifications/initialized"
@@ -128,12 +151,25 @@ export class PluginAppBridge {
         this.onInitialized?.()
       }
       if (request.id === undefined) return
-      this.send(
+      const sent = this.send(
         response.error
           ? { jsonrpc: "2.0", id: request.id, error: response.error }
           : { jsonrpc: "2.0", id: request.id, result: response.result ?? {} }
       )
+      if (!sent) {
+        this.send({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {
+            code: -32000,
+            message: "Plugin app response exceeds the size limit",
+          },
+        })
+      }
     } catch (error) {
+      if (!this.active) return
+      if (!this.initialized && isInitialization(request.method))
+        this.onFailure?.()
       if (request.id === undefined) return
       this.send({
         jsonrpc: "2.0",
@@ -148,6 +184,14 @@ export class PluginAppBridge {
       })
     }
   }
+}
+
+function isInitialization(method: string) {
+  return [
+    "ui/initialize",
+    "ui/notifications/sandbox-proxy-ready",
+    "ui/notifications/initialized",
+  ].includes(method)
 }
 
 function parseMessage(value: unknown): PluginAppMessage | null {
@@ -185,9 +229,24 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength
 }
 
-export function buildPluginAppProxyDocument(): string {
+export function buildPluginAppProxyDocument(
+  resourceMeta?: PluginAppResourceMeta
+): string {
   const methods = JSON.stringify([...METHODS, ...HOST_METHODS])
-  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-src data: blob:; object-src 'none'; base-uri 'self';"><script>
+  const sources = (values?: string[], local = false) =>
+    (values ?? [])
+      .filter(
+        (value) =>
+          (/^https:\/\//i.test(value) ||
+            (local && ["data:", "blob:"].includes(value))) &&
+          !/[\s<>"']/.test(value)
+      )
+      .join(" ")
+  const resources = sources(resourceMeta?.csp?.resourceDomains, true)
+  const wasm =
+    resourceMeta?.csp?.wasmUnsafeEval === true ? "'wasm-unsafe-eval'" : ""
+  const policy = `default-src 'none'; style-src 'unsafe-inline' ${resources}; script-src 'unsafe-inline' ${wasm} ${resources}; img-src data: blob: ${resources}; font-src data: ${resources}; media-src data: blob: ${resources}; connect-src ${sources(resourceMeta?.csp?.connectDomains) || "'none'"}; frame-src data: blob: ${sources(resourceMeta?.csp?.frameDomains)}; object-src 'none'; base-uri 'self' ${sources(resourceMeta?.csp?.baseUriDomains)};`
+  return String.raw`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{height:100%;margin:0;overflow:hidden}</style><script>
 const MAX=${MAX_MESSAGE_BYTES};
 const RESOURCE_MAX=8*1024*1024;
 const METHODS=new Set(${methods});
@@ -210,13 +269,15 @@ function loadFrame(html,meta){
   if(allow)frame.setAttribute("allow",allow);
   frame.style.cssText="border:0;width:100%;height:100%;display:block";
   const csp=meta?.csp&&typeof meta.csp==="object"?meta.csp:{};
-  const list=(key)=>Array.isArray(csp[key])?csp[key].filter(value=>typeof value==="string"&&/^https:\/\//i.test(value)&&!/[\s<>"']/.test(value)):[];
+  const list=(key)=>Array.isArray(csp[key])?csp[key].filter(value=>typeof value==="string"&&(/^https:\/\//i.test(value)||(key==="resourceDomains"&&(value==="data:"||value==="blob:")))&&!/[\s<>"']/.test(value)):[];
   const connect=list("connectDomains");
   const resources=list("resourceDomains");
   const frames=list("frameDomains");
   const base=list("baseUriDomains");
   const sources=(fallback,values)=>values.length?values.join(" "):fallback;
-  const policy=["default-src 'none'","script-src 'unsafe-inline' "+resources.join(" "),"style-src 'unsafe-inline' "+resources.join(" "),"img-src data: blob: "+resources.join(" "),"font-src data: "+resources.join(" "),"media-src data: blob: "+resources.join(" "),"connect-src "+sources("'none'",connect),"frame-src "+sources("'none'",frames),"object-src 'none'","base-uri 'self' "+base.join(" ")].join(";");
+  const remoteResources=resources.filter(value=>value!=="data:"&&value!=="blob:");
+  const wasm=csp.wasmUnsafeEval===true?"'wasm-unsafe-eval'":"";
+  const policy=["default-src 'none'","script-src 'unsafe-inline' "+wasm+" "+resources.join(" "),"style-src 'unsafe-inline' "+remoteResources.join(" "),"img-src data: blob: "+remoteResources.join(" "),"font-src data: "+resources.join(" "),"media-src data: blob: "+remoteResources.join(" "),"connect-src "+sources("'none'",connect),"frame-src "+sources("'none'",frames),"object-src 'none'","base-uri 'self' "+base.join(" ")].join(";");
   frame.srcdoc='<meta http-equiv="Content-Security-Policy" content="'+policy+'">'+html;
   document.body.style.margin="0";
   document.body.appendChild(frame);

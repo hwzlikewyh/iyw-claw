@@ -8,6 +8,14 @@ pub struct SkillPluginManifest {
     pub version: String,
     #[serde(default, deserialize_with = "deserialize_null_vec")]
     pub targets: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_null_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub platforms: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub min_client_version: String,
     #[serde(default, deserialize_with = "deserialize_null_vec")]
     pub components: Vec<SkillPluginComponent>,
     #[serde(default, deserialize_with = "deserialize_null_vec")]

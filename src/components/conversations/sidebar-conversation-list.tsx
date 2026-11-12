@@ -1416,7 +1416,7 @@ export function SidebarConversationList({
       // Selecting a conversation returns to the conversation workspace if a
       // workbench route (e.g. Automations) was taking over the content region.
       openConversations()
-      openTab(folderId, id, agentType as Parameters<typeof openTab>[2], false)
+      openTab(folderId, id, agentType as Parameters<typeof openTab>[2], true)
     },
     [openTab, openConversations]
   )

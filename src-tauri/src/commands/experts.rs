@@ -88,7 +88,7 @@ pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 8] = [
 /// Directories that hold installed runtime dependencies. They are expensive to
 /// rebuild (network installs, native compilation), so refreshes preserve them
 /// in place and never include them in the replaced Skill content.
-pub(crate) const RUNTIME_ENV_DIR_NAMES: [&str; 2] = [".venv", "node_modules"];
+pub(crate) use crate::acp::skill_package::RUNTIME_ENV_DIR_NAMES;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

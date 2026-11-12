@@ -15,7 +15,7 @@ import {
 } from "@/lib/panel-state-storage"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 
-export type AuxPanelTab = "file_tree" | "artifacts"
+export type AuxPanelTab = "home" | "file_tree" | "artifacts" | `app:${string}`
 
 const STORAGE_KEY = "workspace:right-sidebar"
 
@@ -32,7 +32,7 @@ interface AuxPanelContextValue {
   maxWidth: number
   activeTab: AuxPanelTab
   toggle: () => void
-  /** Imperatively set the panel open/closed (used by the chat-mode auto-hide). */
+  /** 显式设置面板开关，供右侧入口协调布局。 */
   setOpen: (open: boolean) => void
   setWidth: (w: number) => void
   setActiveTab: (tab: AuxPanelTab) => void
@@ -66,7 +66,7 @@ export function AuxPanelProvider({ children }: AuxPanelProviderProps) {
   const [isOpen, setIsOpen] = useState(DEFAULT_IS_OPEN)
   const [width, setWidthState] = useState(DEFAULT_WIDTH)
   const [restored, setRestored] = useState(false)
-  const [activeTab, setActiveTab] = useState<AuxPanelTab>("file_tree")
+  const [activeTab, setActiveTab] = useState<AuxPanelTab>("home")
   const [pendingRevealPath, setPendingRevealPath] = useState<string | null>(
     null
   )

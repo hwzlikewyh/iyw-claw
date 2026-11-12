@@ -16,6 +16,7 @@ static MODEL_REF_SALT: OnceLock<uuid::Uuid> = OnceLock::new();
 
 pub(super) mod cache;
 mod capabilities;
+mod guidance;
 pub(super) use capabilities::dimensions as image_dimensions;
 pub(super) use capabilities::summary as image_capabilities;
 
@@ -174,8 +175,11 @@ fn model_summary(model: &Value, catalog: &[Value]) -> Value {
             "image_editing": supports_operation(model, true)
         }
     });
-    if let Some(description) = public_text(model, "description", catalog) {
-        summary["description"] = Value::String(description.to_string());
+    if let Some(description) = guidance::with_selection_guidance(
+        model.get("id").and_then(Value::as_str),
+        public_text(model, "description", catalog),
+    ) {
+        summary["description"] = Value::String(description);
     }
     summary
 }

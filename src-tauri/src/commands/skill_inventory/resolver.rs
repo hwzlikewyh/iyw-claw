@@ -30,6 +30,9 @@ async fn apply_plugin_availability(
     conn: &DatabaseConnection,
     skills: &mut [LogicalSkillInventoryItem],
 ) -> Result<(), AcpError> {
+    crate::plugin_runtime::registry::reconcile_global(conn).await
+        .map_err(|error| AcpError::protocol(error.to_string()))?;
+    let runtime = crate::plugin_runtime::registry::global_snapshot();
     let installations = plugin_installation_service::list_installations(conn)
         .await
         .map_err(|error| AcpError::protocol(error.to_string()))?;
@@ -37,6 +40,10 @@ async fn apply_plugin_availability(
         .into_iter()
         .filter(|value| matches!(value.status.as_str(), "installed" | "degraded"))
         .filter(|value| Path::new(&value.install_root).is_dir())
+        .filter(|value| runtime.as_ref().map_or(value.schema_version < 2, |snapshot|
+            snapshot.plugins.get(&value.slug).is_some_and(|plugin|plugin.version == value.version && plugin.available)))
+        .filter(|value|serde_json::from_str::<crate::commands::skill_market::SkillPluginManifest>(&value.manifest_json)
+            .is_ok_and(|manifest|crate::commands::skill_market::plugin_platforms::supported_current(&manifest.platforms)))
         .map(|value| value.slug)
         .collect::<BTreeSet<_>>();
     for skill in skills {

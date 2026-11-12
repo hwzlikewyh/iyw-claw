@@ -30,6 +30,7 @@ import {
 import { getTransport } from "@/lib/transport"
 import { createFixtureSkillMarketSource } from "@/lib/skill-market-fixtures"
 import { compareSemVer } from "@/components/skills/skill-market-semver"
+import { orderSkillCatalog } from "./skill-market-catalog-order"
 
 // ---------------------------------------------------------------------------
 // Skill Market data source seam (Task 10)
@@ -266,8 +267,14 @@ function buildFileTree(
 // JSON; the TypeScript v1 types just didn't declare them.
 // ---------------------------------------------------------------------------
 
-function catalogPageNumber(cursor: string | null): number {
+function catalogPageNumber(cursor: string | null, limit: number): number {
   if (!cursor) return 1
+  if (/^\d+$/.test(cursor)) {
+    const offset = Number(cursor)
+    return Number.isSafeInteger(offset) && offset >= 0 && offset % limit === 0
+      ? offset / limit + 1
+      : 1
+  }
   try {
     const match = /^page:(\d+)$/.exec(atob(cursor))
     const page = match ? Number(match[1]) : 1
@@ -299,7 +306,7 @@ class TransportSkillMarketSource implements SkillMarketSource {
         offline: false,
       }
     }
-    const page = catalogPageNumber(query.cursor)
+    const page = catalogPageNumber(query.cursor, query.limit)
     const params: SkillMarketListParams = {
       view: query.view === "mine" ? "mine" : "market",
       category: query.category ?? undefined,
@@ -312,20 +319,28 @@ class TransportSkillMarketSource implements SkillMarketSource {
       query.view === "installed" || query.view === "needs_update"
     const audienceView =
       query.view === "market" || query.view === "organization"
+    const complete =
+      localInstallView ||
+      audienceView ||
+      query.compatibility !== "all" ||
+      query.distribution !== "all" ||
+      query.sort !== "recommended"
     // 接口返回所有可访问的受众，须先分组再分页，避免空页和总数混用。
-    const result =
-      localInstallView || audienceView
-        ? await listCompleteCatalog(params)
-        : await skillMarketList(params)
-    const items = result.items
-      .map(mapItemV1ToV2)
-      .filter((item) => matchesCatalogView(item, query.view))
-    const total = localInstallView || audienceView ? items.length : result.total
+    const result = complete
+      ? await listCompleteCatalog(params)
+      : await skillMarketList(params)
+    const items = orderSkillCatalog(
+      result.items
+        .map(mapItemV1ToV2)
+        .filter((item) => matchesCatalogView(item, query.view)),
+      query
+    )
+    const total = complete ? items.length : result.total
     const end = page * query.limit
-    const hasMore = !localInstallView && end < total
+    const hasMore = end < total
     const nextCursor = hasMore ? btoa(`page:${page + 1}`) : null
     return {
-      items: audienceView ? items.slice(end - query.limit, end) : items,
+      items: complete ? items.slice(end - query.limit, end) : items,
       nextCursor,
       total,
       catalogRevision: "1",
@@ -350,7 +365,7 @@ class TransportSkillMarketSource implements SkillMarketSource {
       installTargets: d.installTargets ?? [],
       ownership: { source: "market" as const, managed: d.ownedByMe },
       compatibilityDetail: {
-        minClientVersion: null,
+        minClientVersion: d.currentVersion.plugin?.minClientVersion || null,
         osArch: null,
         reason: null,
         deadline: null,

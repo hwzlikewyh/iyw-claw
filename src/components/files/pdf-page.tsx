@@ -1,6 +1,6 @@
 "use client"
 
-import { useImperativeHandle, type Ref } from "react"
+import { useEffect, useImperativeHandle, type Ref } from "react"
 import { useTranslations } from "next-intl"
 import type { PDFDocumentProxy } from "pdfjs-dist"
 import { usePdfViewer } from "./use-pdf-viewer"
@@ -17,12 +17,14 @@ export function PdfPages({
   initialPage,
   zoom,
   onPageChange,
+  onError,
 }: {
   ref: Ref<PdfPagesHandle>
   document: PDFDocumentProxy
   initialPage: number
   zoom: number
   onPageChange: (pageNumber: number) => void
+  onError?: () => void
 }) {
   const { containerRef, error, goToPage } = usePdfViewer({
     document,
@@ -31,6 +33,9 @@ export function PdfPages({
     onPageChange,
   })
   useImperativeHandle(ref, () => ({ goToPage }), [goToPage])
+  useEffect(() => {
+    if (error) onError?.()
+  }, [error, onError])
   const t = useTranslations("Folder.chat.workspaceFiles")
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-muted/30">

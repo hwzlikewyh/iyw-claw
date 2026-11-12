@@ -5,6 +5,8 @@ import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-r
 import { getFolderConversation } from "@/lib/api"
 import { resolveDefaultAgent } from "@/lib/resolve-default-agent"
 import { formatConversationTitle } from "@/lib/conversation-title"
+import { canOpenConversationTab } from "@/lib/conversation-tab-preferences"
+import { isConversationWindowPending } from "@/lib/conversation-window-state"
 import {
   firstLeafId,
   neighborGroupId,
@@ -468,7 +470,7 @@ function initialTabState() {
 export const useTabStore = create<TabStoreState>()((set, get) => ({
   ...initialTabState(),
 
-  openTab: (folderId, conversationId, agentType, pin = false, title) => {
+  openTab: (folderId, conversationId, agentType, pin = true, title) => {
     const prevState = get()
     const existingIndex = findTabIndexForConversation(
       prevState.rawTabs,
@@ -490,6 +492,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       return
     }
 
+    if (!canOpenConversationTab(prevState.rawTabs.length)) return
     const targetGroup = resolveTargetGroup(prevState)
 
     // Format the seed title so a draft/conversation title carrying an inline
@@ -739,6 +742,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     const state = get()
     const tab = state.rawTabs.find((item) => item.id === tabId)
     if (!tab) return
+    if (!canOpenConversationTab(state.rawTabs.length)) return
     const mutation = beginGroupSplit(state, tabId, direction)
     if (!mutation) return
     set({ groupLayout: mutation.groupLayout })
@@ -862,6 +866,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     )
 
     if (!existingTab) {
+      if (!canOpenConversationTab(prevState.rawTabs.length)) return
       const newTab: TabItemInternal = {
         id: tabId,
         kind: "conversation",
@@ -1000,6 +1005,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     )
 
     if (!existingTab) {
+      if (!canOpenConversationTab(prevState.rawTabs.length)) return
       const newTab: TabItemInternal = {
         id: tabId,
         kind: "conversation",
@@ -1210,7 +1216,9 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
 
   hydrate: () => {
     if (get().tabsHydrated) return
-    if (get().rawTabs.length === 0) get().openChatModeTab()
+    if (get().rawTabs.length === 0 && !isConversationWindowPending()) {
+      get().openChatModeTab()
+    }
     set({ tabsHydrated: true })
     applyGroupInvariants()
     console.info("[TabStore] 新会话页签已初始化，未恢复历史页签")

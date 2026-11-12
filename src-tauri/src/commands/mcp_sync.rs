@@ -54,7 +54,8 @@ where
         if !entry.managed {
             continue;
         }
-        if agent_enabled && entry.enabled && entry.spec.get("iyw_market").is_none() {
+        if agent_enabled && entry.enabled && entry.spec.get("iyw_market").is_none()
+            && super::mcp_catalog_sources::require_platform(entry).is_ok() {
             if let Err(error) = upsert(server_id, &entry.spec) {
                 failures.push(format_reconcile_failure("upsert", server_id, &error));
             }

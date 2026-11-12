@@ -34,31 +34,103 @@ pub fn build_router(
     let token_for_ws = token.clone();
 
     let api = Router::new()
-        .route("/conversation_share_action", post(handlers::conversation_share::action).layer(DefaultBodyLimit::max(9 * 1024 * 1024)))
+        .route(
+            "/conversation_share_action",
+            post(handlers::conversation_share::action)
+                .layer(DefaultBodyLimit::max(9 * 1024 * 1024)),
+        )
         .route("/knowledge_folders", post(handlers::knowledge::folders))
         .route("/knowledge_files", post(handlers::knowledge::files))
-        .route("/knowledge_selection_get", post(handlers::knowledge::get_selection))
-        .route("/knowledge_selection_set", post(handlers::knowledge::set_selection))
-        .route("/knowledge_library_folders", post(handlers::knowledge_library::folders))
-        .route("/knowledge_library_files", post(handlers::knowledge_library::files))
-        .route("/knowledge_library_refresh", post(handlers::knowledge_library::refresh))
-        .route("/knowledge_library_file_update", post(handlers::knowledge_library::file_update))
-        .route("/knowledge_library_file_delete", post(handlers::knowledge_library::file_delete))
-        .route("/knowledge_library_points", post(handlers::knowledge_library::points))
-        .route("/knowledge_library_point_create", post(handlers::knowledge_library::point_create))
-        .route("/knowledge_library_point_update", post(handlers::knowledge_library::point_update))
-        .route("/knowledge_library_point_delete", post(handlers::knowledge_library::point_delete))
-        .route("/knowledge_upload_begin", post(handlers::knowledge_library::begin))
-        .route("/knowledge_upload_append", post(handlers::knowledge_library::append))
-        .route("/knowledge_upload_start", post(handlers::knowledge_library::start))
-        .route("/knowledge_upload_status", post(handlers::knowledge_library::status))
-        .route("/knowledge_upload_abort", post(handlers::knowledge_library::abort))
-        .route("/get_intelligent_ui_settings", post(handlers::intelligent_ui::settings))
-        .route("/set_intelligent_ui_settings", post(handlers::intelligent_ui::set_settings))
-        .route("/read_intelligent_ui_states", post(handlers::intelligent_ui::read))
-        .route("/save_intelligent_ui_state", post(handlers::intelligent_ui::save))
+        .route(
+            "/knowledge_selection_get",
+            post(handlers::knowledge::get_selection),
+        )
+        .route(
+            "/knowledge_selection_set",
+            post(handlers::knowledge::set_selection),
+        )
+        .route(
+            "/knowledge_library_folders",
+            post(handlers::knowledge_library::folders),
+        )
+        .route(
+            "/knowledge_library_files",
+            post(handlers::knowledge_library::files),
+        )
+        .route(
+            "/knowledge_library_refresh",
+            post(handlers::knowledge_library::refresh),
+        )
+        .route(
+            "/knowledge_library_file_update",
+            post(handlers::knowledge_library::file_update),
+        )
+        .route(
+            "/knowledge_library_file_delete",
+            post(handlers::knowledge_library::file_delete),
+        )
+        .route(
+            "/knowledge_library_points",
+            post(handlers::knowledge_library::points),
+        )
+        .route(
+            "/knowledge_library_point_create",
+            post(handlers::knowledge_library::point_create),
+        )
+        .route(
+            "/knowledge_library_point_update",
+            post(handlers::knowledge_library::point_update),
+        )
+        .route(
+            "/knowledge_library_point_delete",
+            post(handlers::knowledge_library::point_delete),
+        )
+        .route(
+            "/knowledge_upload_begin",
+            post(handlers::knowledge_library::begin),
+        )
+        .route(
+            "/knowledge_upload_append",
+            post(handlers::knowledge_library::append),
+        )
+        .route(
+            "/knowledge_upload_start",
+            post(handlers::knowledge_library::start),
+        )
+        .route(
+            "/knowledge_upload_status",
+            post(handlers::knowledge_library::status),
+        )
+        .route(
+            "/knowledge_upload_abort",
+            post(handlers::knowledge_library::abort),
+        )
+        .route(
+            "/get_intelligent_ui_settings",
+            post(handlers::intelligent_ui::settings),
+        )
+        .route(
+            "/set_intelligent_ui_settings",
+            post(handlers::intelligent_ui::set_settings),
+        )
+        .route(
+            "/read_intelligent_ui_states",
+            post(handlers::intelligent_ui::read),
+        )
+        .route(
+            "/save_intelligent_ui_state",
+            post(handlers::intelligent_ui::save),
+        )
         .merge(handlers::computer_routes::routes())
         .route("/health", post(health_check))
+        .route(
+            "/get_network_traffic",
+            post(handlers::network_diagnostics::get_network_traffic),
+        )
+        .route(
+            "/measure_network_speed",
+            post(handlers::network_diagnostics::measure_network_speed),
+        )
         .route(
             "/fetch_remote_image",
             post(handlers::remote_image::fetch_remote_image),
@@ -384,10 +456,22 @@ pub fn build_router(
             "/delete_task_artifacts",
             post(handlers::task_artifacts::delete_task_artifacts),
         )
-        .route("/get_artifact_notification_mode", post(handlers::artifact_notifications::get_artifact_notification_mode))
-        .route("/set_artifact_notification_mode", post(handlers::artifact_notifications::set_artifact_notification_mode))
-        .route("/list_artifact_channel_targets", post(handlers::artifact_notifications::list_artifact_channel_targets))
-        .route("/send_artifact_to_channels", post(handlers::artifact_notifications::send_artifact_to_channels))
+        .route(
+            "/get_artifact_notification_mode",
+            post(handlers::artifact_notifications::get_artifact_notification_mode),
+        )
+        .route(
+            "/set_artifact_notification_mode",
+            post(handlers::artifact_notifications::set_artifact_notification_mode),
+        )
+        .route(
+            "/list_artifact_channel_targets",
+            post(handlers::artifact_notifications::list_artifact_channel_targets),
+        )
+        .route(
+            "/send_artifact_to_channels",
+            post(handlers::artifact_notifications::send_artifact_to_channels),
+        )
         .route(
             "/get_session_config_reconcile_diagnostics",
             post(handlers::session_config::get_session_config_reconcile_diagnostics),
@@ -809,11 +893,41 @@ pub fn build_router(
             "/mcp_list_marketplaces",
             post(handlers::mcp::mcp_list_marketplaces),
         )
-        .route("/mcp_conversation_get", post(handlers::mcp::mcp_conversation_get))
+        .route(
+            "/mcp_conversation_get",
+            post(handlers::mcp::mcp_conversation_get),
+        )
         .route("/mcp_oauth_begin", post(handlers::mcp::mcp_oauth_begin))
+        .route("/mcp_market_install_begin", post(handlers::mcp_install::begin))
+        .route("/mcp_market_install_list", post(handlers::mcp_install::list))
+        .route("/mcp_market_install_status", post(handlers::mcp_install::status))
+        .route("/mcp_market_install_cancel", post(handlers::mcp_install::cancel))
         .route("/mcp_oauth_status", post(handlers::mcp::mcp_oauth_status))
         .route("/mcp_oauth_cancel", post(handlers::mcp::mcp_oauth_cancel))
-        .route("/mcp_conversation_set", post(handlers::mcp::mcp_conversation_set))
+        .route("/mcp_connector_check", post(handlers::mcp_auth::check))
+        .route("/mcp_cli_begin", post(handlers::mcp_auth::begin))
+        .route("/mcp_cli_cancel", post(handlers::mcp_auth::cancel))
+        .route("/mcp_cli_logout", post(handlers::mcp_auth::logout))
+        .route("/plugin_preparation_get", post(handlers::plugin_preparation::read))
+        .route("/plugin_preparation_configure", post(handlers::plugin_preparation::configure))
+        .route("/plugin_preparation_account", post(handlers::plugin_preparation::account))
+        .route("/plugin_recovery_inspect",post(handlers::plugin_recovery::inspect))
+        .route("/plugin_recovery_apply",post(handlers::plugin_recovery::apply))
+        .route("/plugin_versions_list",post(handlers::plugin_history::list))
+        .route("/plugin_version_inspect",post(handlers::plugin_history::inspect))
+        .route("/plugin_version_apply",post(handlers::plugin_history::apply))
+        .route("/plugin_remove_inspect",post(handlers::plugin_remove::inspect))
+        .route("/plugin_remove_apply",post(handlers::plugin_remove::apply))
+        .route("/plugin_remove_status",post(handlers::plugin_remove::status))
+        .route("/plugin_remove_cleanup",post(handlers::plugin_remove::cleanup))
+        .route("/plugin_remove_recover",post(handlers::plugin_remove::recover))
+        .route("/plugin_preparation_approve", post(handlers::plugin_preparation::approve))
+        .route("/plugin_preparation_disable", post(handlers::plugin_preparation::disable))
+        .route("/plugin_preparation_check", post(handlers::plugin_preparation::check))
+        .route(
+            "/mcp_conversation_set",
+            post(handlers::mcp::mcp_conversation_set),
+        )
         .route(
             "/mcp_search_marketplace",
             post(handlers::mcp::mcp_search_marketplace),
@@ -1041,9 +1155,18 @@ pub fn build_router(
             post(handlers::acp::acp_describe_agent_options),
         )
         .route("/acp_cancel", post(handlers::acp::acp_cancel))
-        .route("/acp_runtime_tasks", post(handlers::runtime_tasks::snapshot))
-        .route("/acp_runtime_task_detail", post(handlers::runtime_tasks::detail))
-        .route("/acp_control_runtime_task", post(handlers::runtime_tasks::control))
+        .route(
+            "/acp_runtime_tasks",
+            post(handlers::runtime_tasks::snapshot),
+        )
+        .route(
+            "/acp_runtime_task_detail",
+            post(handlers::runtime_tasks::detail),
+        )
+        .route(
+            "/acp_control_runtime_task",
+            post(handlers::runtime_tasks::control),
+        )
         .route("/acp_fork", post(handlers::acp::acp_fork))
         .route("/acp_side_question", post(handlers::acp::acp_side_question))
         .route(
@@ -1304,14 +1427,28 @@ pub fn build_router(
             post(handlers::skill_market::rebuild_artifact),
         )
         .route("/plugin_app_open", post(handlers::plugin_apps::open))
-        .route("/plugin_app_message", post(handlers::plugin_apps::message))
+        .route("/plugin_app_catalog",post(handlers::plugin_apps::catalog))
+        .route("/plugin_app_sync",post(handlers::plugin_apps::sync))
+        .route("/plugin_app_launch",post(handlers::plugin_apps::launch))
+        .route(
+            "/plugin_app_message",
+            post(handlers::plugin_apps::message).layer(DefaultBodyLimit::max(
+                crate::plugin_runtime::app_host::MAX_MESSAGE_BYTES + 64 * 1024,
+            )),
+        )
         .route(
             "/plugin_app_teardown",
             post(handlers::plugin_apps::teardown),
         )
         .route("/scenarios_catalog", post(handlers::scenarios::catalog))
-        .route("/scenario_cases_catalog", post(handlers::scenarios::cases_catalog))
-        .route("/scenario_case_detail", post(handlers::scenarios::case_detail))
+        .route(
+            "/scenario_cases_catalog",
+            post(handlers::scenarios::cases_catalog),
+        )
+        .route(
+            "/scenario_case_detail",
+            post(handlers::scenarios::case_detail),
+        )
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))
         .route(

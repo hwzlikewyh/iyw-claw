@@ -189,8 +189,9 @@ without images it uses `generate`. A grid request without a reference also uses
 applicable `variation`, `extend`, and `mix` routes; use model editing when the user
 selects it or the preferred route is demonstrably unsupported, unavailable, or
 confirmed failed. Documented incompatibility needs no failed trial. Match other
-specialized operations to their actual functions. Built-in image-to-3d is disabled,
-including browser/fetch fallbacks. A timeout, transport error
+specialized operations to their actual functions. The built-in image-to-3d endpoint
+is disabled, including browser/fetch fallbacks; local Three.js modeling for code
+deliverables remains allowed. A timeout, transport error
 or running task is not confirmed failure; query its task ID before any retry.
 
 Before `type=generate`, `auto` without images, or explicit `type=edit`, call

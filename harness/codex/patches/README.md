@@ -67,7 +67,7 @@ the legacy public image service and Fusion. External agents keep their original 
 
 ## Embedded Desktop Integration
 
-The desktop now links the pinned 0.166.0 runtime into its executable. The local
+The desktop now links the pinned 0.167.1 runtime into its executable. The local
 `codex-app-server-client` production sources pass host credentials and runtime
 environment to the in-process server; no process-global credential mutation is
 required. The app-server reapplies tool environment on config reload and closes
@@ -93,6 +93,15 @@ does not introduce schema, file-path, session-ID, or migration-SQL changes.
 The older worker/helper packaging descriptions below are historical. Normal
 desktop builds prepare only `runtime.json`, then validate the embedded identity
 and static CRT imports in the linked executable.
+
+The 0.167.1 refresh uses commit `0a94398fa60c4fac0e7659e4213a0a36e613dd46`.
+Three-way production-source migration retains host auth and environment,
+in-process MCP, managed images, command descriptions, billing attribution and
+platform patches. It adopts upstream connection leases, inherited policies and
+serialized network prompts. History retains provenance checks for restored
+usage while adopting the upstream boundary for failed or usage-less responses.
+Both precomputed protocol exports preserve command and compaction descriptions.
+See `docs/xinghe-upgrade-0.167.1.md` for validation and release boundaries.
 
 The 0.166.0 refresh uses commit `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`.
 Three-way production-source migration retains host auth, managed images, command

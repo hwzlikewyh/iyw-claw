@@ -62,6 +62,11 @@ impl PluginAppLaunchBroker {
         self.cancel_plugin_version(plugin_slug, None)
     }
 
+    pub(crate) fn cancel_workspace(&self, plugin: &str, workspace: &str) {
+        self.pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|_, launch| launch.intent.plugin_slug != plugin || launch.intent.workspace_key != workspace);
+    }
+
     pub fn cancel_plugin_version(&self, plugin_slug: &str, plugin_version: Option<&str>) -> usize {
         let mut pending = self
             .pending

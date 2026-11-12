@@ -2363,7 +2363,7 @@ export async function openSettingsWindow(
   options?: OpenSettingsDialogOptions
 ): Promise<void> {
   const normalizedSection = normalizeSettingsSection(section)
-  if (requestSettingsDialog(normalizedSection, options)) return
+  if (!isDesktop() && requestSettingsDialog(normalizedSection, options)) return
 
   const locale = getCurrentEffectiveAppLocale()
   if (isDesktop()) {
@@ -4797,6 +4797,7 @@ export interface PluginAppLaunch {
 }
 
 export interface PluginAppResourceCsp {
+  wasmUnsafeEval?: boolean
   connectDomains?: string[]
   resourceDomains?: string[]
   frameDomains?: string[]
@@ -4827,9 +4828,11 @@ export async function pluginAppOpen(args: {
   conversationId: number
   displayMode?: "inline" | "fullscreen"
 }): Promise<PluginAppOpenResponse> {
-  return getTransport().call<PluginAppOpenResponse>("plugin_app_open", {
-    request: args,
-  })
+  return getTransport().call<PluginAppOpenResponse>(
+    "plugin_app_open",
+    { request: args },
+    { timeoutMs: 750_000 }
+  )
 }
 
 export async function pluginAppMessage(args: {
@@ -4844,7 +4847,11 @@ export async function pluginAppMessage(args: {
   result?: unknown
   error?: { code: number; message: string }
 }> {
-  return getTransport().call("plugin_app_message", { request: args })
+  return getTransport().call(
+    "plugin_app_message",
+    { request: args },
+    { timeoutMs: args.method === "tools/call" ? 7_830_000 : 750_000 }
+  )
 }
 
 export async function pluginAppTeardown(args: {

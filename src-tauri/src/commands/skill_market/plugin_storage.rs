@@ -1,9 +1,15 @@
+use super::plugin_storage_io::{
+    active_paths, restore_backup, restore_current, storage_error, write_json_atomically,
+    write_package,
+};
+pub(super) use super::plugin_storage_removal::PluginStorageRemoval;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::acp::agent_storage::AgentStoragePaths;
+use super::plugin_install_context::PreparedPluginInstall;
+use super::plugin_receipt::ReceiptTransaction;
 use crate::acp::skill_package::ValidatedSkillPackage;
 use crate::app_error::AppCommandError;
 
@@ -13,6 +19,9 @@ struct CurrentPluginVersion<'a> {
     version: &'a str,
     content_sha256: &'a str,
     object_sha256: &'a str,
+    market: &'a crate::commands::acp::MarketSkillMarker,
+    plugin_dependencies: &'a [i64],
+    account_scope: &'a str,
 }
 
 pub(super) struct PluginStorageTransaction {
@@ -23,6 +32,9 @@ pub(super) struct PluginStorageTransaction {
     version_dir: PathBuf,
     previous_current: Option<Vec<u8>>,
     committed: bool,
+    pointer_pending: bool,
+    resolved: bool,
+    receipt: Option<ReceiptTransaction>,
 }
 
 impl PluginStorageTransaction {
@@ -32,6 +44,11 @@ impl PluginStorageTransaction {
         version: &str,
     ) -> Result<Self, AppCommandError> {
         let paths = active_paths()?;
+        let plugin_root = paths.plugins_dir().join(slug);
+        super::plugin_storage_io::require_plugin_path(&plugin_root)?;
+        if semver::Version::parse(version).is_err() {
+            return Err(storage_error("Invalid plugin version directory"));
+        }
         let transaction_root = paths
             .staging_dir()
             .join("plugins")
@@ -41,7 +58,6 @@ impl PluginStorageTransaction {
             let _ = fs::remove_dir_all(&transaction_root);
             return Err(error);
         }
-        let plugin_root = paths.plugins_dir().join(slug);
         let version_dir = plugin_root.join("versions").join(version);
         Ok(Self {
             backup: transaction_root.join("backup"),
@@ -51,6 +67,9 @@ impl PluginStorageTransaction {
             version_dir,
             previous_current: None,
             committed: false,
+            pointer_pending: false,
+            resolved: false,
+            receipt: None,
         })
     }
 
@@ -58,147 +77,143 @@ impl PluginStorageTransaction {
         &self.version_dir
     }
 
+    pub(super) fn previous_scope_matches(&self, scope: &str) -> bool {
+        self.previous_current
+            .as_deref()
+            .and_then(|bytes| {
+                serde_json::from_slice::<crate::plugin_runtime::recovery::CurrentPointer>(bytes)
+                    .ok()
+            })
+            .is_some_and(|pointer| !scope.is_empty() && pointer.account_scope == scope)
+    }
+
     pub(super) fn commit(
         &mut self,
-        version: &str,
-        content_sha256: &str,
-        object_sha256: &str,
+        plugin: &PreparedPluginInstall,
+        context: (&[i64], &str),
     ) -> Result<(), AppCommandError> {
+        super::plugin_storage_io::require_plugin_path(&self.plugin_root)?;
         let versions = self.plugin_root.join("versions");
         fs::create_dir_all(&versions).map_err(storage_error)?;
+        let current_path = self.plugin_root.join("current.json");
+        self.previous_current = super::plugin_storage_io::read_pointer_bytes(&current_path)?;
+        let marker = self.merged_marker(&plugin.marker);
+        self.receipt = Some(ReceiptTransaction::stage(
+            (&self.plugin_root, &self.transaction_root),
+            plugin,
+            (context.0, context.1, &marker),
+        )?);
         if self.version_dir.exists() {
             fs::rename(&self.version_dir, &self.backup).map_err(storage_error)?;
         }
         if let Err(error) = fs::rename(&self.payload, &self.version_dir) {
-            restore_backup(&self.backup, &self.version_dir);
+            restore_backup(&self.backup, &self.version_dir).map_err(|rollback| {
+                storage_error(format!("{error}; rollback incomplete: {rollback}"))
+            })?;
             return Err(storage_error(error));
         }
         self.committed = true;
-        let current_path = self.plugin_root.join("current.json");
-        self.previous_current = fs::read(&current_path).ok();
+        self.pointer_pending = true;
         let current = CurrentPluginVersion {
-            version,
-            content_sha256,
-            object_sha256,
+            version: &marker.installed_version,
+            content_sha256: &marker.content_sha256,
+            object_sha256: &marker.object_sha256,
+            market: &marker,
+            plugin_dependencies: context.0,
+            account_scope: context.1,
         };
         if let Err(error) = write_json_atomically(&current_path, &current) {
-            self.rollback();
+            self.rollback().map_err(|rollback| {
+                storage_error(format!("{error}; rollback incomplete: {rollback}"))
+            })?;
             return Err(error);
         }
         Ok(())
     }
 
-    pub(super) fn rollback(&mut self) {
+    fn merged_marker(
+        &self,
+        marker: &crate::commands::acp::MarketSkillMarker,
+    ) -> crate::commands::acp::MarketSkillMarker {
+        let mut marker = marker.clone();
+        if let Some(previous) = self
+            .previous_current
+            .as_deref()
+            .and_then(|bytes| {
+                serde_json::from_slice::<crate::plugin_runtime::recovery::CurrentPointer>(bytes)
+                    .ok()
+            })
+            .and_then(|pointer| pointer.market)
+            .filter(|previous| {
+                previous.skill_id == marker.skill_id
+                    && previous.source == "iyw_skill_market"
+                    && previous.slug == marker.slug
+            })
+        {
+            let mut references = previous.target_references;
+            references.extend(marker.target_references);
+            marker.target_references = references;
+            marker.agent_types = Some(
+                marker
+                    .target_references
+                    .values()
+                    .flatten()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+            );
+        }
+        marker
+    }
+
+    pub(super) fn rollback(&mut self) -> Result<(), AppCommandError> {
+        super::plugin_storage_io::require_plugin_path(&self.plugin_root)?;
+        if let Some(receipt) = &mut self.receipt {
+            receipt.rollback()?;
+        }
         if self.committed {
-            let _ = fs::remove_dir_all(&self.version_dir);
-            restore_backup(&self.backup, &self.version_dir);
-            restore_current(&self.plugin_root, self.previous_current.as_deref());
-            self.committed = false;
-        }
-        let _ = fs::remove_dir_all(&self.transaction_root);
-    }
-
-    pub(super) fn finish(mut self) {
-        self.committed = false;
-        let _ = fs::remove_dir_all(&self.transaction_root);
-    }
-}
-
-pub(super) struct PluginStorageRemoval {
-    plugin_root: PathBuf,
-    trash_root: PathBuf,
-    moved: bool,
-}
-
-impl PluginStorageRemoval {
-    pub(super) fn stage(slug: &str) -> Result<Self, AppCommandError> {
-        let paths = active_paths()?;
-        let plugin_root = paths.plugins_dir().join(slug);
-        let trash_root = paths
-            .trash_dir()
-            .join("plugins")
-            .join(format!("{slug}-{}", uuid::Uuid::new_v4()));
-        if plugin_root.exists() {
-            if let Some(parent) = trash_root.parent() {
-                fs::create_dir_all(parent).map_err(storage_error)?;
+            if self.version_dir.exists() {
+                fs::remove_dir_all(&self.version_dir).map_err(storage_error)?;
             }
-            fs::rename(&plugin_root, &trash_root).map_err(storage_error)?;
+            restore_backup(&self.backup, &self.version_dir)?;
+            self.committed = false;
+        } else {
+            restore_backup(&self.backup, &self.version_dir)?;
         }
-        Ok(Self {
-            plugin_root,
-            moved: trash_root.exists(),
-            trash_root,
-        })
+        if self.pointer_pending {
+            restore_current(&self.plugin_root, self.previous_current.as_deref())?;
+            self.pointer_pending = false;
+        }
+        if self.transaction_root.exists() {
+            fs::remove_dir_all(&self.transaction_root).map_err(storage_error)?;
+        }
+        self.resolved = true;
+        Ok(())
     }
 
-    pub(super) fn rollback(&mut self) {
-        if self.moved && !self.plugin_root.exists() {
-            let _ = fs::rename(&self.trash_root, &self.plugin_root);
-            self.moved = false;
-        }
+    pub(super) fn publish_receipt(&mut self) -> Result<(), AppCommandError> {
+        self.receipt
+            .as_mut()
+            .ok_or_else(|| storage_error("Plugin receipt was not staged"))?
+            .publish()
     }
 
     pub(super) fn finish(mut self) {
-        if self.moved {
-            let _ = fs::remove_dir_all(&self.trash_root);
-            self.moved = false;
+        self.resolved = true;
+        self.committed = false;
+        if let Err(error) = fs::remove_dir_all(&self.transaction_root) {
+            tracing::warn!(error=%error,path=%self.transaction_root.display(),"[plugin-install] 已提交的安装临时目录未清理");
         }
     }
 }
 
-fn active_paths() -> Result<AgentStoragePaths, AppCommandError> {
-    AgentStoragePaths::active().ok_or_else(|| {
-        AppCommandError::agent_storage_not_initialized("Agent storage is not initialized")
-    })
-}
-
-fn write_package(root: &Path, package: &ValidatedSkillPackage) -> Result<(), AppCommandError> {
-    for file in &package.files {
-        let target = root.join(&file.path);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(storage_error)?;
-        }
-        fs::write(target, &file.bytes).map_err(storage_error)?;
-    }
-    Ok(())
-}
-
-fn write_json_atomically(target: &Path, value: &impl Serialize) -> Result<(), AppCommandError> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(|error| {
-        AppCommandError::configuration_invalid("Failed to serialize plugin activation pointer")
-            .with_detail(error.to_string())
-    })?;
-    let temporary = target.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
-    fs::write(&temporary, bytes).map_err(storage_error)?;
-    if target.exists() {
-        fs::remove_file(target).map_err(storage_error)?;
-    }
-    if let Err(error) = fs::rename(&temporary, target) {
-        let _ = fs::remove_file(temporary);
-        return Err(storage_error(error));
-    }
-    Ok(())
-}
-
-fn restore_backup(backup: &Path, target: &Path) {
-    if backup.exists() && !target.exists() {
-        let _ = fs::rename(backup, target);
-    }
-}
-
-fn restore_current(plugin_root: &Path, previous: Option<&[u8]>) {
-    let current = plugin_root.join("current.json");
-    match previous {
-        Some(bytes) => {
-            let _ = fs::write(current, bytes);
-        }
-        None => {
-            let _ = fs::remove_file(current);
+impl Drop for PluginStorageTransaction {
+    fn drop(&mut self) {
+        if !self.resolved {
+            if let Err(error) = self.rollback() {
+                tracing::error!(path=%self.transaction_root.display(),error=%error,detail=?error.detail,"[plugin-install] 中断事务回退失败，保留备份");
+            }
         }
     }
-}
-
-fn storage_error(error: impl ToString) -> AppCommandError {
-    AppCommandError::io_error("Failed to update managed plugin storage")
-        .with_detail(error.to_string())
 }

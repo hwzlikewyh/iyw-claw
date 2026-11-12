@@ -21,6 +21,9 @@ pub(super) fn spawn(spec: &RuntimeLaunchSpec) -> Result<SpawnedPluginProcess, Pl
     let mut command = crate::process::tokio_command(&program);
     command.env_clear();
     apply_minimal_environment(&mut command, &root, &spec.plugin_data_dir, &workspace);
+    apply_native_environment(&mut command, spec, &program)?;
+    apply_plugin_parameters(&mut command, spec)?;
+    apply_account_environment(&mut command, &spec.plugin_data_dir)?;
     command.current_dir(&workspace);
     if spec.runtime_kind != "binary" {
         command.arg(&entrypoint);
@@ -37,6 +40,69 @@ pub(super) fn spawn(spec: &RuntimeLaunchSpec) -> Result<SpawnedPluginProcess, Pl
         PluginInvokeError::before_effect("plugin_start_failed", "stderr pipe is unavailable")
     })?;
     Ok(SpawnedPluginProcess { child, stderr })
+}
+
+fn apply_plugin_parameters(command: &mut tokio::process::Command, spec: &RuntimeLaunchSpec) -> Result<(), PluginInvokeError> {
+    let plugin=super::registry::global_snapshot().and_then(|snapshot|snapshot.plugins.get(&spec.key.plugin_slug).cloned())
+        .ok_or_else(||PluginInvokeError::before_effect("plugin_unavailable","Plugin installation is unavailable"))?;
+    let values=super::setup_store::environment(&plugin,(&spec.key.workspace_key,&spec.key.connector_key))
+        .map_err(|error|PluginInvokeError::before_effect("plugin_configuration_required",error.message))?;
+    let contract=super::setup_store::contract(&plugin,&spec.key.connector_key)
+        .map_err(|error|PluginInvokeError::before_effect("plugin_configuration_required",error.message))?;
+    for field in contract.parameters {command.env_remove(&field.key);}
+    command.envs(values);
+    Ok(())
+}
+
+fn apply_native_environment(
+    command: &mut tokio::process::Command,
+    spec: &RuntimeLaunchSpec,
+    program: &Path,
+) -> Result<(), PluginInvokeError> {
+    let Some(options) = super::native_compat::options(spec)? else {
+        return Ok(());
+    };
+    for key in &options.env_vars {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    for key in &options.data_dir_env_vars {
+        command.env(key, &spec.plugin_data_dir);
+    }
+    let paths = program.parent().into_iter().map(Path::to_path_buf).chain(
+        std::env::var_os("PATH")
+            .into_iter()
+            .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>()),
+    );
+    if let Ok(value) = std::env::join_paths(paths) {
+        command.env("PATH", value);
+    }
+    tracing::info!(plugin = %spec.key.plugin_slug, connector = %spec.key.connector_key,
+        declared_env_count = options.env_vars.len(), "[plugin-runtime] native runtime environment prepared");
+    Ok(())
+}
+
+fn apply_account_environment(
+    command: &mut tokio::process::Command,
+    data: &Path,
+) -> Result<(), PluginInvokeError> {
+    let home = data.join("home");
+    for (key, path) in [
+        ("HOME", home.clone()),
+        ("USERPROFILE", home.clone()),
+        ("APPDATA", home.join("AppData/Roaming")),
+        ("LOCALAPPDATA", home.join("AppData/Local")),
+        ("XDG_CONFIG_HOME", home.join(".config")),
+        ("XDG_DATA_HOME", home.join(".local/share")),
+        ("XDG_CACHE_HOME", home.join(".cache")),
+    ] {
+        std::fs::create_dir_all(&path).map_err(|error| {
+            PluginInvokeError::before_effect("plugin_data_unavailable", error.to_string())
+        })?;
+        command.env(key, path);
+    }
+    Ok(())
 }
 
 fn runtime_program(kind: &str, entrypoint: &Path) -> Result<PathBuf, PluginInvokeError> {

@@ -1,7 +1,6 @@
 "use client"
 
 import { CircleAlert, SearchX } from "lucide-react"
-import { useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -9,9 +8,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { PluginMarketCard } from "./plugin-market-card"
 import { PluginMarketToolbar } from "./plugin-market-toolbar"
 import { usePluginCatalog } from "./use-plugin-catalog"
+import { usePluginCatalogPage } from "./use-plugin-catalog-page"
+import { MarketPagination } from "./market-pagination"
 
 const CATALOG_GRID =
-  "grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3 p-4 pt-2 sm:p-5 sm:pt-2"
+  "grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5"
 
 export function PluginMarketPreview({
   onOpenPlugin,
@@ -19,41 +20,40 @@ export function PluginMarketPreview({
   onOpenPlugin: (slug: string) => void
 }) {
   const t = useTranslations("CapabilityMarket.plugins")
-  const [view, setView] = useState<"market" | "organization">("market")
-  const [query, setQuery] = useState("")
-  const catalog = usePluginCatalog(view)
-  const items = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase()
-    return catalog.items.filter((item) =>
-      [item.displayName, item.slug, item.summary, ...item.tags]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(needle)
-    )
-  }, [catalog.items, query])
+  const {
+    view,
+    query,
+    catalog,
+    items,
+    pagination,
+    onViewChange,
+    onQueryChange,
+  } = usePluginCatalogPage()
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="@container flex h-full min-h-0 flex-col bg-background">
       <PluginMarketToolbar
         view={view}
         query={query}
         loading={catalog.loading}
-        onViewChange={setView}
-        onQueryChange={setQuery}
+        onViewChange={onViewChange}
+        onQueryChange={onQueryChange}
         onRefresh={catalog.refresh}
       />
       <div
-        className="flex h-8 shrink-0 items-end px-4 pb-1 text-[10px] text-muted-foreground sm:px-5"
+        className="flex h-8 shrink-0 items-end px-4 pb-1 text-[11px] text-muted-foreground sm:px-5"
         aria-live="polite"
       >
         {catalog.loading
           ? t("loading")
-          : t("catalogCount", { count: items.length })}
+          : t("catalogCount", { count: pagination.total })}
       </div>
       <PluginCatalogBody
+        key={`${view}:${query}:${pagination.page}:${pagination.pageSize}`}
         catalog={catalog}
         items={items}
         onOpenPlugin={onOpenPlugin}
       />
+      <MarketPagination {...pagination} />
     </div>
   )
 }

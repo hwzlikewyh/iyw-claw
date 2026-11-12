@@ -3,7 +3,7 @@
 import { memo, useCallback, useMemo, useRef } from "react"
 import { Reorder } from "motion/react"
 import type { PanInfo } from "motion/react"
-import { X } from "lucide-react"
+import { SquareArrowOutUpRight, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useSessionPreparation } from "@/hooks/use-session-preparation"
 import { cn, handleMiddleClickClose } from "@/lib/utils"
@@ -17,6 +17,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { useLongPressDrag } from "@/hooks/use-long-press-drag"
+import { isDesktop } from "@/lib/platform"
+import { requestConversationWindow } from "@/lib/conversation-window-state"
 import type { TabItem as TabItemData } from "@/contexts/tab-context"
 
 interface TabItemProps {
@@ -67,6 +69,7 @@ export const TabItem = memo(function TabItem({
   onTabDragEnd,
 }: TabItemProps) {
   const t = useTranslations("Folder.tabs")
+  const tWindow = useTranslations("ConversationTabs")
   const itemRef = useRef<HTMLDivElement>(null)
 
   const resolvedFolderName = folderName ?? String(tab.folderId)
@@ -100,9 +103,24 @@ export const TabItem = memo(function TabItem({
     ...restGestureHandlers
   } = gestureHandlers
 
-  const handleDragStart = useCallback(() => {
-    handleLongPressDragStart()
-  }, [handleLongPressDragStart])
+  const handleDragStart = useCallback(
+    (event: MouseEvent | TouchEvent | PointerEvent) => {
+      handleLongPressDragStart()
+      if (
+        isDesktop() &&
+        "pointerId" in event &&
+        event.pointerType === "mouse"
+      ) {
+        // 确保指针离开 WebView 后仍收到释放事件。
+        try {
+          itemRef.current?.setPointerCapture(event.pointerId)
+        } catch (error) {
+          console.warn("[conversation-window] pointer capture failed", error)
+        }
+      }
+    },
+    [handleLongPressDragStart]
+  )
 
   const handleDrag = useCallback(
     (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -215,6 +233,12 @@ export const TabItem = memo(function TabItem({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {isDesktop() && (
+            <ContextMenuItem onSelect={() => requestConversationWindow(tab.id)}>
+              <SquareArrowOutUpRight className="size-3.5" />
+              {tWindow("detach")}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onSelect={handleClose}>{t("close")}</ContextMenuItem>
           <ContextMenuItem onSelect={handleCloseOthers}>
             {t("closeOthers")}

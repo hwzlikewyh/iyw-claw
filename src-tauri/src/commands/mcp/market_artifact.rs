@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use super::market;
 use super::market_types::{Document, OptionSpec};
 use crate::app_error::AppCommandError;
+use crate::commands::mcp_install::progress;
 
 const MAX_DOWNLOAD: usize = 32 * 1024 * 1024;
 pub(super) const MAX_EXPANDED: u64 = 128 * 1024 * 1024;
@@ -17,6 +18,7 @@ pub(super) async fn install(
     input: (&Document, &OptionSpec, &Value),
 ) -> Result<PathBuf, AppCommandError> {
     let (doc, option, metadata) = input;
+    progress::stage("checking_cache")?;
     let digest = &option.artifact_id;
     if digest.len() != 64
         || !digest.bytes().all(|value| value.is_ascii_hexdigit())
@@ -37,7 +39,8 @@ pub(super) async fn install(
     if valid {
         return Ok(destination);
     }
-    let bytes = download(conn, (doc, digest, metadata)).await?;
+    let bytes = progress::cancellable(download(conn, (doc, digest, metadata))).await?;
+    progress::stage("verifying")?;
     if format!("{:x}", Sha256::digest(&bytes)) != *digest {
         return Err(AppCommandError::configuration_invalid(
             "连接器文件摘要校验失败",
@@ -48,6 +51,7 @@ pub(super) async fn install(
         .unwrap_or("server")
         .to_string();
     let digest = digest.to_string();
+    progress::stage("extracting")?;
     tokio::task::spawn_blocking(move || activate(&root, &digest, (&filename, bytes)))
         .await
         .map_err(|_| AppCommandError::io_error("连接器文件安装任务失败"))?
@@ -177,19 +181,42 @@ async fn download(
     let ticket = metadata["ticket"]
         .as_str()
         .ok_or_else(|| AppCommandError::network("制品下载票据缺失"))?;
-    let url = market::base_url()?
-        .join("artifact")
-        .map_err(|_| AppCommandError::configuration_invalid("制品下载路径无效"))?;
+    let issued = market::request(
+        conn,
+        "artifact-ticket",
+        serde_json::json!({
+            "connector": doc.server_id, "id": digest, "ticket": ticket,
+        }),
+    )
+    .await?;
+    let signed_url = issued["url"]
+        .as_str()
+        .ok_or_else(|| AppCommandError::configuration_invalid("连接器下载地址缺失"))?;
+    let url = reqwest::Url::parse(signed_url)
+        .map_err(|_| AppCommandError::configuration_invalid("连接器下载地址无效"))?;
+    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+    if (url.scheme() != "https" && !(cfg!(debug_assertions) && local && url.scheme() == "http"))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(AppCommandError::configuration_invalid("连接器下载地址无效"));
+    }
+    let expected_size = issued["size"]
+        .as_u64()
+        .ok_or_else(|| AppCommandError::configuration_invalid("连接器下载大小缺失"))?;
+    if expected_size == 0
+        || expected_size > MAX_DOWNLOAD as u64
+        || metadata["size"].as_u64() != Some(expected_size)
+        || issued["sha256"].as_str() != Some(digest)
+    {
+        return Err(AppCommandError::configuration_invalid(
+            "连接器下载授权与安装计划不一致",
+        ));
+    }
     let response = market::client()?
-        .post(url)
-        .header(
-            "token",
-            crate::commands::iyw_account::iyw_account_access_token_core(conn)
-                .await?
-                .ok_or_else(|| AppCommandError::permission_denied("请先登录爱原物账号"))?
-                .expose(),
-        )
-        .json(&serde_json::json!({"connector":doc.server_id,"id":digest,"ticket":ticket}))
+        .get(url)
+        .timeout(std::time::Duration::from_secs(10 * 60))
         .send()
         .await
         .map_err(|_| AppCommandError::network("连接器文件下载失败"))?;
@@ -198,6 +225,26 @@ async fn download(
             "连接器制品下载失败，请重试以刷新下载授权",
         ));
     }
-    let bytes = market::limited_response(response, MAX_DOWNLOAD).await?;
+    let total = response.content_length();
+    if total.is_some_and(|size| size != expected_size) {
+        return Err(AppCommandError::network("连接器文件大小与下载授权不一致"));
+    }
+    let mut response = response;
+    let mut bytes = Vec::new();
+    progress::download(0, total)?;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| AppCommandError::network("连接器文件下载中断"))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > expected_size as usize {
+            return Err(AppCommandError::network("连接器文件超过授权大小"));
+        }
+        bytes.extend_from_slice(&chunk);
+        progress::download(bytes.len() as u64, total)?;
+    }
+    if bytes.len() as u64 != expected_size {
+        return Err(AppCommandError::network("连接器文件下载不完整，请重试"));
+    }
     Ok(bytes)
 }

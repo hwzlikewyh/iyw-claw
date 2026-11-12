@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import {
@@ -10,15 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { getTransport } from "@/lib/transport"
-import { openUrl } from "@/lib/platform"
-
-interface OAuthStatus {
-  id: string
-  state: "starting" | "pending" | "completed" | "cancelled" | "failed"
-  authorization_url: string | null
-  error: string | null
-}
+import { useConnectorOAuth } from "./use-connector-oauth"
 
 export function ConnectorOAuthDialog({
   id,
@@ -28,59 +19,7 @@ export function ConnectorOAuthDialog({
   onClose: () => void
 }) {
   const t = useTranslations("ConnectorMarket")
-  const [status, setStatus] = useState<OAuthStatus | null>(null)
-  const [error, setError] = useState("")
-  const leases = useRef(0)
-  const request = useRef<{ id: string; promise: Promise<OAuthStatus> } | null>(
-    null
-  )
-  useEffect(() => {
-    leases.current += 1
-    let active = true
-    let timer: ReturnType<typeof setTimeout>
-    const poll = async (value: OAuthStatus) => {
-      if (!active) return
-      setStatus(value)
-      if (value.state !== "pending" && value.state !== "starting") return
-      timer = setTimeout(() => {
-        getTransport()
-          .call<OAuthStatus>("mcp_oauth_status", { attemptId: value.id })
-          .then(poll)
-          .catch((cause) => {
-            if (active) setError(String(cause))
-          })
-      }, 1000)
-    }
-    if (request.current?.id !== id)
-      request.current = {
-        id,
-        promise: getTransport().call<OAuthStatus>("mcp_oauth_begin", {
-          serverId: id,
-        }),
-      }
-    const pending = request.current.promise
-    pending
-      .then((value) => {
-        if (active) void poll(value)
-      })
-      .catch((cause) => {
-        if (active) setError(String(cause))
-      })
-    return () => {
-      active = false
-      leases.current -= 1
-      clearTimeout(timer)
-      queueMicrotask(() => {
-        if (leases.current === 0 || request.current?.id !== id) {
-          void pending
-            .then((value) =>
-              getTransport().call("mcp_oauth_cancel", { attemptId: value.id })
-            )
-            .catch(() => {})
-        }
-      })
-    }
-  }, [id])
+  const state = useConnectorOAuth(id)
   return (
     <Dialog
       open
@@ -93,29 +32,45 @@ export function ConnectorOAuthDialog({
           <DialogTitle>{t("authorize")}</DialogTitle>
           <DialogDescription>{t("oauthHint")}</DialogDescription>
         </DialogHeader>
-        <p className="text-sm">
-          {status ? t(`oauth_${status.state}`) : t("oauth_starting")}
+        <p className="text-sm" role="status">
+          {state.status
+            ? t(`oauth_${state.status.state}`)
+            : t("oauth_starting")}
         </p>
-        {(error || status?.error) && (
-          <p role="alert" className="text-sm text-destructive">
-            {error || status?.error}
+        {state.error || state.status?.error ? (
+          <p role="alert" className="break-words text-sm text-destructive">
+            {state.error || state.status?.error}
           </p>
-        )}
-        {status?.authorization_url && (
-          <Button
-            onClick={() => {
-              void openUrl(status.authorization_url!).catch((cause) =>
-                setError(String(cause))
-              )
-            }}
-          >
-            {t("openAuthorization")}
-          </Button>
-        )}
+        ) : null}
+        <OAuthActions state={state} />
         <Button variant="outline" onClick={onClose}>
           {t("close")}
         </Button>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function OAuthActions({
+  state,
+}: {
+  state: ReturnType<typeof useConnectorOAuth>
+}) {
+  const t = useTranslations("ConnectorMarket")
+  const failed =
+    state.error ||
+    (state.status &&
+      ["failed", "cancelled", "expired"].includes(state.status.state))
+  return (
+    <>
+      {state.status?.state === "pending" && state.status.authorization_url ? (
+        <Button onClick={state.open}>{t("openAuthorization")}</Button>
+      ) : null}
+      {failed ? (
+        <Button disabled={state.restarting} onClick={() => void state.retry()}>
+          {t("retryAuthorization")}
+        </Button>
+      ) : null}
+    </>
   )
 }

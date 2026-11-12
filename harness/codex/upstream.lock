@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/openai/codex.git",
-  "ref": "rust-v0.166.0",
-  "tagObject": "593389380740f7b4762771573c447ccfdc59742f",
-  "commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "ref": "rust-v0.167.1",
+  "tagObject": "595a35e837a1b6752e60a5de85b89adf415b0ccb",
+  "commit": "0a94398fa60c4fac0e7659e4213a0a36e613dd46",
   "license": "Apache-2.0",
   "components": [
     "codex-rs/app-server",

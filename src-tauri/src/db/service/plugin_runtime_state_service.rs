@@ -7,13 +7,13 @@ use sea_orm::{
 use crate::db::entities::{plugin_activation_policy, plugin_permission_grant};
 use crate::db::error::DbError;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct PluginRuntimeStateInput {
     pub activations: Vec<PluginActivationInput>,
     pub permission_grants: Vec<PluginPermissionGrantInput>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PluginActivationInput {
     pub component_key: String,
     pub scope: String,
@@ -24,7 +24,7 @@ pub struct PluginActivationInput {
     pub policy_source: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PluginPermissionGrantInput {
     pub scope: String,
     pub workspace_key: String,

@@ -3,6 +3,9 @@
 import { useAccountChatRequestsBlocked } from "@/components/account/use-account-request-guard"
 import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
+import { ConversationPluginMenu } from "@/components/chat/conversation-plugins"
+import { insertPluginReferences } from "@/components/chat/composer/plugin-reference"
+import type { ComposerPluginChoice } from "@/lib/composer-plugins"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
 import { useNativeShareComposer } from "@/components/native-share/use-native-share-composer"
 import { ComposerActivityBorder } from "./composer-activity-border"
@@ -117,6 +120,8 @@ import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser-dialog"
 import { toast } from "sonner"
 import { preparePickedAttachmentPaths } from "./chat-attachment-staging"
+import { useConversationWindowDraft } from "@/hooks/use-conversation-window-draft"
+import { takeConversationWindowDraft } from "@/lib/conversation-window-draft"
 import { disposeTauriListener } from "@/lib/tauri-listener"
 import type {
   AgentSkillItem,
@@ -1022,6 +1027,14 @@ export function MessageInput({
     [effectiveDraftStorageKey, isEditingQueueItem, onEphemeralDraftChange]
   )
   const embeddedPayloadsRef = useRef<Map<string, PromptInputBlock>>(new Map())
+  useConversationWindowDraft({
+    tabId: attachmentTabId,
+    ready: composerHydrated,
+    editing: isEditingQueueItem,
+    editor: editorRef,
+    attachments: attachmentsRef,
+    embedded: embeddedPayloadsRef,
+  })
   const [isDragActive, setIsDragActive] = useState(false)
   // Collapsed (narrow) selectors live in a controlled Popover holding a
   // master–detail panel (`SessionSelectorsPanel`). It's controlled so a value
@@ -1328,6 +1341,23 @@ export function MessageInput({
     [setAttachments, updateInlineImage, uploadRestoredImages]
   )
 
+  const takeWindowDraft = useCallback(() => {
+    const draft = takeConversationWindowDraft(attachmentTabId)
+    if (!draft) return false
+    if (draft.doc) editorRef.current?.setDoc(draft.doc)
+    embeddedPayloadsRef.current = new Map(draft.embeddedPayloads)
+    setAttachments(draft.attachments)
+    for (const attachment of draft.attachments) {
+      if (attachment.type === "image") {
+        updateInlineImage(attachment.id, {
+          status: "ready",
+          previewUrl: imageAttachmentSrc(attachment),
+        })
+      }
+    }
+    return true
+  }, [attachmentTabId, setAttachments, updateInlineImage])
+
   // One-time hydration once the editor is ready: a queue-edit payload, else a v2
   // draft document (or a legacy v1 Markdown draft migrated forward). Guarded so
   // it never re-runs and clobbers later user edits.
@@ -1366,6 +1396,8 @@ export function MessageInput({
           } else if (editingDraftText != null) {
             ed.setText(editingDraftText)
           }
+        } else if (takeWindowDraft()) {
+          // 独立窗口交接保留未持久化的附件和嵌入引用。
         } else if (effectiveDraftStorageKey) {
           const loaded = loadMessageInputDraftV2(effectiveDraftStorageKey)
           if (loaded?.kind === "doc") {
@@ -1388,6 +1420,7 @@ export function MessageInput({
     return () => cancelAnimationFrame(raf)
   }, [
     composerReady,
+    takeWindowDraft,
     isEditingQueueItem,
     editingItemId,
     editingDraftText,
@@ -2686,6 +2719,19 @@ export function MessageInput({
       let chain = editor.chain().focus()
       if (needsSpace) chain = chain.insertContent(" ")
       chain.insertReference(reference).insertContent(" ").run()
+    },
+    [skillPrefix]
+  )
+
+  const handlePluginMenuSelect = useCallback(
+    (plugin: ComposerPluginChoice, instruction: string) => {
+      const editor = editorRef.current?.getEditor()
+      if (editor)
+        insertPluginReferences(editor, {
+          plugin,
+          prefix: skillPrefix,
+          instruction,
+        })
     },
     [skillPrefix]
   )
@@ -4621,6 +4667,17 @@ export function MessageInput({
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                       <ConversationConnectorMenu tabId={attachmentTabId} />
+                      <ConversationPluginMenu
+                        key={JSON.stringify([
+                          attachmentTabId,
+                          agentType,
+                          defaultPath,
+                        ])}
+                        tabId={attachmentTabId ?? null}
+                        agentType={agentType ?? null}
+                        workspacePath={defaultPath ?? null}
+                        onSelect={handlePluginMenuSelect}
+                      />
                     </DropdownMenuContent>
                   </DropdownMenu>
                   {hasInlineSelectors && (

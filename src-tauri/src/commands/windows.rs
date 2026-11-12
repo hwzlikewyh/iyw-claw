@@ -18,6 +18,9 @@ use crate::models::{FolderDetail, FolderHistoryEntry};
 #[cfg(feature = "tauri-runtime")]
 mod tray_menu_icons;
 
+mod settings_window;
+pub mod conversation_window;
+
 #[cfg(feature = "tauri-runtime")]
 static TRAY_LOCALE_ZH_CN: AtomicBool = AtomicBool::new(false);
 
@@ -96,6 +99,7 @@ pub async fn load_saved_appearance_mode(conn: &DatabaseConnection) {
 }
 
 pub struct SettingsWindowState {
+    opening: tokio::sync::Mutex<()>,
     owner_by_settings_label: Mutex<HashMap<String, String>>,
 }
 
@@ -279,7 +283,17 @@ pub(crate) fn post_window_setup(window: &tauri::WebviewWindow) {
 impl SettingsWindowState {
     pub fn new() -> Self {
         Self {
+            opening: tokio::sync::Mutex::new(()),
             owner_by_settings_label: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn set_owner(&self, settings_label: &str, owner_label: &str) {
+        if settings_label == owner_label {
+            return;
+        }
+        if let Ok(mut owners) = self.owner_by_settings_label.lock() {
+            owners.insert(settings_label.to_string(), owner_label.to_string());
         }
     }
 
@@ -336,14 +350,6 @@ fn normalize_agent_query(agent_type: Option<&str>) -> Option<String> {
         return Some(raw.to_string());
     }
     None
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OpenSettingsDialogPayload {
-    section: Option<String>,
-    agent_type: Option<String>,
 }
 
 fn append_query_param(route: String, key: &str, value: &str) -> String {
@@ -406,6 +412,7 @@ fn register_remote_window_cleanup(
 // Tauri's window builder before the webview boots.
 
 struct WindowTitles {
+    settings: &'static str,
     commit: &'static str,
     merge: &'static str,
     stash: &'static str,
@@ -416,12 +423,14 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
     use crate::models::system::AppLocale;
     match locale {
         AppLocale::ZhCn => WindowTitles {
+            settings: "设置",
             commit: "提交代码",
             merge: "解决冲突",
             stash: "储藏",
             push: "推送",
         },
         AppLocale::En => WindowTitles {
+            settings: "Settings",
             commit: "Commit",
             merge: "Resolve Conflicts",
             stash: "Stash",
@@ -551,43 +560,26 @@ pub async fn open_settings_window(
     remote_connection_id: Option<i32>,
     state: tauri::State<'_, SettingsWindowState>,
 ) -> Result<(), AppCommandError> {
-    use tauri::Emitter;
-
-    let _ = (&db, locale.as_ref(), remote_connection_id, &state);
-
-    let owner_label = window.label().to_string();
-    let target_label = if owner_label.starts_with("remote-workspace-") {
-        owner_label
-    } else {
-        "main".to_string()
-    };
-
-    if target_label == "main" {
+    let titles = resolve_window_titles(&db.conn, locale).await;
+    if remote_connection_id.is_none() {
         show_main_window(&app);
     }
-
-    let target = app.get_webview_window(&target_label).ok_or_else(|| {
-        AppCommandError::window(
-            "Failed to find main window for settings dialog",
-            format!("window_label={target_label}"),
-        )
-    })?;
-    let _ = target.unminimize();
-    let _ = target.show();
-    target
-        .set_focus()
-        .map_err(|e| AppCommandError::window("Failed to focus settings dialog", e.to_string()))?;
-
-    target
-        .emit(
-            "app://open-settings-dialog",
-            OpenSettingsDialogPayload {
-                section,
-                agent_type: normalize_agent_query(agent_type.as_deref()),
-            },
-        )
-        .map_err(|e| AppCommandError::window("Failed to signal settings dialog", e.to_string()))?;
-    Ok(())
+    let _opening = state.opening.lock().await;
+    let request = settings_window::SettingsWindowRequest {
+        section,
+        agent_type: normalize_agent_query(agent_type.as_deref()),
+        remote_connection_id,
+        title: titles.settings,
+    };
+    settings_window::open(&app, &window, request).map_err(|error| {
+        tracing::error!(
+            owner_label = window.label(),
+            remote_connection_id,
+            error = ?error,
+            "[settings-window] failed to open settings"
+        );
+        error
+    })
 }
 
 pub fn restore_windows_after_settings(
@@ -595,6 +587,10 @@ pub fn restore_windows_after_settings(
     state: &SettingsWindowState,
     settings_window_label: &str,
 ) {
+    tracing::info!(
+        window_label = settings_window_label,
+        "[settings-window] destroyed"
+    );
     if let Some(owner_label) = state.take_owner(settings_window_label) {
         if let Some(window) = app.get_webview_window(&owner_label) {
             let _ = window.set_focus();
@@ -1380,26 +1376,43 @@ pub async fn resize_pet_panel(app: AppHandle, height: f64) -> Result<(), AppComm
     Ok(())
 }
 
-/// Bring the main workspace to the foreground and ask it to focus a specific
+/// Bring the source workspace to the foreground and ask it to focus a specific
 /// conversation. Uses an event (not a URL reload) so the in-memory tab/session
 /// state survives — `PetFocusBridge` in the main window calls `openTab`.
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn focus_conversation(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     folder_id: i32,
     conversation_id: i32,
     agent: String,
 ) -> Result<(), AppCommandError> {
     use tauri::Emitter;
-    show_main_window(&app);
+    let target_label = window
+        .label()
+        .strip_prefix("remote-settings-")
+        .map(|id| format!("remote-workspace-{id}"))
+        .unwrap_or_else(|| "main".to_string());
+    let target = app
+        .get_webview_window(&target_label)
+        .ok_or_else(|| AppCommandError::not_found("Conversation workspace window not found"))?;
+    restore_main_window(&target);
     let payload = serde_json::json!({
         "folderId": folder_id,
         "conversationId": conversation_id,
         "agent": agent,
     });
-    app.emit_to("main", "workspace://focus-conversation", payload)
-        .map_err(|e| AppCommandError::window("Failed to signal main window", e.to_string()))?;
+    app.emit_to(&target_label, "workspace://focus-conversation", payload)
+        .map_err(|e| AppCommandError::window("Failed to signal workspace window", e.to_string()))?;
+    tracing::info!(
+        source_window = window.label(),
+        target_window = target_label,
+        folder_id,
+        conversation_id,
+        agent,
+        "[window] conversation focus requested"
+    );
     Ok(())
 }
 

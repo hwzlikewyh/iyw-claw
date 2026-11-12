@@ -348,6 +348,7 @@ mod tauri_app {
             .manage(realtime_voice_commands::RealtimeVoiceState::default())
             .manage(crate::webview_memory::MainWebviewMemoryController::default())
             .manage(windows::SettingsWindowState::new())
+            .manage(windows::conversation_window::ConversationWindowState::default())
             .manage(windows::CommitWindowState::new())
             .manage(windows::MergeWindowState::new())
             .manage(web::WebServerState::new())
@@ -1334,10 +1335,7 @@ mod tauri_app {
                 }
 
                 if (label == "settings" || label.starts_with("remote-settings-"))
-                    && matches!(
-                        event,
-                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-                    )
+                    && matches!(event, tauri::WindowEvent::Destroyed)
                 {
                     let app = window.app_handle();
                     if let Some(state) = app.try_state::<windows::SettingsWindowState>() {
@@ -1429,6 +1427,7 @@ mod tauri_app {
                     }
                 }
                 if matches!(event, tauri::WindowEvent::Destroyed) {
+                    windows::conversation_window::window_destroyed(window.app_handle(), &label);
                     crate::native_page::close_owner(window.label());
                     let app = window.app_handle();
                     if let Some(state) = app.try_state::<realtime_voice_commands::RealtimeVoiceState>() {
@@ -1594,6 +1593,11 @@ mod tauri_app {
                 windows::open_folder_window,
                 windows::open_commit_window,
                 windows::open_settings_window,
+                windows::conversation_window::open_conversation_window,
+                windows::conversation_window::get_conversation_window_transfer,
+                windows::conversation_window::ready_conversation_window,
+                windows::conversation_window::commit_conversation_window,
+                windows::conversation_window::finish_conversation_window,
                 windows::open_merge_window,
                 windows::open_stash_window,
                 windows::open_push_window,
@@ -1649,6 +1653,9 @@ mod tauri_app {
                 skill_market_commands::skill_market_uninstall,
                 skill_market_commands::skill_market_rebuild_artifact,
                 plugin_apps_commands::plugin_app_open,
+                plugin_apps_commands::plugin_app_catalog,
+                plugin_apps_commands::plugin_app_sync,
+                plugin_apps_commands::plugin_app_launch,
                 plugin_apps_commands::plugin_app_message,
                 plugin_apps_commands::plugin_app_teardown,
                 scenarios_commands::scenarios_catalog,
@@ -1688,6 +1695,8 @@ mod tauri_app {
                 crate::commands::intelligent_ui::read_intelligent_ui_states,
                 crate::commands::intelligent_ui::save_intelligent_ui_state,
                 system_settings::get_system_proxy_settings,
+                crate::commands::network_diagnostics::get_network_traffic,
+                crate::commands::network_diagnostics::measure_network_speed,
                 system_settings::update_system_proxy_settings,
                 system_settings::get_system_language_settings,
                 system_settings::update_system_language_settings,
@@ -1958,8 +1967,32 @@ mod tauri_app {
                 mcp_commands::mcp_scan_local,
                 crate::commands::mcp_conversation::mcp_conversation_get,
                 crate::commands::mcp_oauth::mcp_oauth_begin,
+                crate::commands::mcp_install::mcp_market_install_begin,
+                crate::commands::mcp_install::mcp_market_install_list,
+                crate::commands::mcp_install::mcp_market_install_status,
+                crate::commands::mcp_install::mcp_market_install_cancel,
                 crate::commands::mcp_oauth::mcp_oauth_status,
                 crate::commands::mcp_oauth::mcp_oauth_cancel,
+                crate::commands::mcp_check::mcp_connector_check,
+                crate::commands::mcp_cli::mcp_cli_begin,
+                crate::commands::mcp_cli::mcp_cli_cancel,
+                crate::commands::mcp_cli::mcp_cli_logout,
+                crate::commands::plugin_preparation::plugin_preparation_get,
+                crate::commands::plugin_preparation::configuration::plugin_preparation_configure,
+                crate::commands::plugin_recovery::plugin_recovery_inspect,
+                crate::commands::plugin_recovery::apply::plugin_recovery_apply,
+                crate::commands::skill_market::plugin_history::plugin_versions_list,
+                crate::commands::skill_market::plugin_history::plugin_version_inspect,
+                crate::commands::skill_market::plugin_history::plugin_version_apply,
+                crate::commands::skill_market::plugin_remove::plugin_remove_inspect,
+                crate::commands::skill_market::plugin_remove::plugin_remove_apply,
+                crate::commands::skill_market::plugin_remove::plugin_remove_status,
+                crate::commands::skill_market::plugin_remove::plugin_remove_cleanup,
+                crate::commands::skill_market::plugin_remove::plugin_remove_recover,
+                crate::commands::plugin_preparation::account::plugin_preparation_account,
+                crate::commands::plugin_preparation::mutation::plugin_preparation_approve,
+                crate::commands::plugin_preparation::mutation::plugin_preparation_disable,
+                crate::commands::plugin_preparation::mutation::plugin_preparation_check,
                 crate::commands::mcp_conversation::mcp_conversation_set,
                 mcp_commands::mcp_list_marketplaces,
                 mcp_commands::mcp_search_marketplace,

@@ -1,10 +1,10 @@
+#[path = "mcp_client_call.rs"]
+mod call;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ReadResourceRequestParams, ReadResourceResult,
-};
+use rmcp::model::{ClientInfo, ReadResourceRequestParams, ReadResourceResult};
 use rmcp::service::{Peer, RoleClient, RunningService};
 use tokio::io::AsyncReadExt;
 use tokio::process::Child;
@@ -13,35 +13,50 @@ use tokio::sync::Mutex;
 use super::process;
 use super::types::{PluginInvokeError, RuntimeLaunchSpec};
 
-const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(15);
 const CONTRACT_TIMEOUT: Duration = Duration::from_secs(15);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(4);
 const STDERR_BUFFER_BYTES: usize = 4096;
 const MAX_SCHEMA_BYTES: usize = 1 << 20;
 
 pub(super) struct PluginMcpClient {
-    peer: Peer<RoleClient>,
-    service: Mutex<Option<RunningService<RoleClient, ()>>>,
+    pub(super) peer: Peer<RoleClient>,
+    service: Mutex<Option<RunningService<RoleClient, ClientInfo>>>,
     child: Mutex<Option<Child>>,
     stderr_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl PluginMcpClient {
     pub async fn start(spec: &RuntimeLaunchSpec) -> Result<Arc<Self>, PluginInvokeError> {
+        let initialize_timeout = super::native_compat::startup_timeout(spec)?;
+        let mut info = ClientInfo::default();
+        info.capabilities.extensions = Some(BTreeMap::from([(
+            "io.modelcontextprotocol/ui".to_string(),
+            serde_json::Map::from_iter([(
+                "mimeTypes".to_string(),
+                serde_json::json!(["text/html;profile=mcp-app"]),
+            )]),
+        )]));
         let mut process = process::spawn(spec)?;
         let stderr_task = consume_stderr(process.stderr, spec.key.clone());
+        let mut pending = super::pending_startup::PendingStartup::new(&process.child, &stderr_task);
         let stdin = match process.child.stdin.take() {
             Some(stdin) => stdin,
-            None => return cleanup_spawn_failure(process.child, stderr_task, "stdin"),
+            None => {
+                pending.disarm();
+                return cleanup_spawn_failure(process.child, stderr_task, "stdin");
+            }
         };
         let stdout = match process.child.stdout.take() {
             Some(stdout) => stdout,
-            None => return cleanup_spawn_failure(process.child, stderr_task, "stdout"),
+            None => {
+                pending.disarm();
+                return cleanup_spawn_failure(process.child, stderr_task, "stdout");
+            }
         };
         let mut service = match tokio::time::timeout(
-            INITIALIZE_TIMEOUT,
+            initialize_timeout,
             rmcp::serve_client(
-                (),
+                info,
                 rmcp::transport::async_rw::AsyncRwTransport::new_client(stdout, stdin),
             ),
         )
@@ -51,6 +66,7 @@ impl PluginMcpClient {
             Ok(Err(error)) => {
                 terminate_child(&mut process.child).await;
                 stderr_task.abort();
+                pending.disarm();
                 return Err(PluginInvokeError::before_effect(
                     "plugin_initialize_failed",
                     error.to_string(),
@@ -59,6 +75,7 @@ impl PluginMcpClient {
             Err(_) => {
                 terminate_child(&mut process.child).await;
                 stderr_task.abort();
+                pending.disarm();
                 return Err(PluginInvokeError::before_effect(
                     "plugin_initialize_timeout",
                     "MCP initialize timed out",
@@ -78,9 +95,11 @@ impl PluginMcpClient {
             let _ = service.close_with_timeout(CLOSE_TIMEOUT).await;
             terminate_child(&mut process.child).await;
             stderr_task.abort();
+            pending.disarm();
             return Err(error);
         }
         let peer = service.peer().clone();
+        pending.disarm();
         Ok(Arc::new(Self {
             peer,
             service: Mutex::new(Some(service)),
@@ -89,17 +108,15 @@ impl PluginMcpClient {
         }))
     }
 
-    pub async fn call_tool(
-        &self,
-        name: String,
-        arguments: serde_json::Map<String, serde_json::Value>,
-    ) -> Result<CallToolResult, PluginInvokeError> {
-        self.peer
-            .call_tool(CallToolRequestParams::new(name).with_arguments(arguments))
+    pub(super) async fn recheck(&self, spec: &RuntimeLaunchSpec) -> Result<(), PluginInvokeError> {
+        tokio::time::timeout(CONTRACT_TIMEOUT, validate_contract(&self.peer, spec))
             .await
-            .map_err(|error| {
-                PluginInvokeError::after_dispatch("plugin_call_failed", error.to_string())
-            })
+            .map_err(|_| {
+                PluginInvokeError::before_effect(
+                    "plugin_contract_timeout",
+                    "MCP connection check timed out",
+                )
+            })?
     }
 
     pub async fn read_resource(
@@ -146,6 +163,7 @@ async fn validate_contract(
         .into_iter()
         .map(|tool| (tool.name.to_string(), tool))
         .collect::<BTreeMap<_, _>>();
+    super::native_compat::validate_visibility(&tools, spec)?;
     for expected in &spec.expected_tools {
         let tool = tools.get(&expected.name).ok_or_else(|| {
             PluginInvokeError::before_effect(
@@ -234,8 +252,13 @@ fn consume_stderr(
 
 async fn terminate_child(child: &mut Child) {
     if let Some(pid) = child.id() {
-        let _ = kill_tree::tokio::kill_tree(pid).await;
+        let config = kill_tree::Config {
+            signal: "SIGKILL".into(),
+            ..Default::default()
+        };
+        let _ = kill_tree::tokio::kill_tree_with_config(pid, &config).await;
     }
+    let _ = child.kill().await;
     let _ = child.wait().await;
 }
 

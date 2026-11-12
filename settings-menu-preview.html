@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>设置菜单预览 | 原助理</title>
+    <style>
+      @font-face { font-family: "Inter Variable"; src: url("./node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+      @font-face { font-family: "Geist Variable"; src: url("./node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+      @font-face { font-family: "JetBrains Mono Variable"; src: url("./node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+      @font-face { font-family: "Fira Code Variable"; src: url("./node_modules/@fontsource-variable/fira-code/files/fira-code-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+      @font-face { font-family: "Geist Mono Variable"; src: url("./node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+      :root { font-family: "Inter", "Noto Sans SC", "Source Han Sans", system-ui, sans-serif; color: #20242b; background: #f5f6f7; font-synthesis: none; text-rendering: optimizeLegibility; }
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; }
+      body { min-width: 320px; height: 100vh; margin: 0; background: #f5f6f7; }
+      button, input, select { font: inherit; }
+      button { color: inherit; }
+      .icons { position: absolute; width: 0; height: 0; overflow: hidden; }
+      .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .shell { height: 100vh; display: grid; grid-template-rows: 48px minmax(0, 1fr); overflow: hidden; background: #fff; }
+      .titlebar { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; padding: 0 14px; border-bottom: 1px solid #e5e7eb; background: #fff; }
+      .brand, .bar-center, .bar-actions { display: flex; align-items: center; }
+      .brand { gap: 9px; font-size: 13px; font-weight: 600; }
+      .brand svg { color: #58616d; }
+      .bar-center { justify-content: center; font-size: 13px; font-weight: 600; }
+      .bar-actions { justify-content: flex-end; gap: 4px; }
+      .icon-button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #6b7280; cursor: pointer; }
+      .icon-button:hover { background: #f0f1f2; color: #20242b; }
+      .mobile-menu { display: none; }
+      .workarea { min-height: 0; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+      .sidebar { min-height: 0; display: flex; flex-direction: column; padding: 14px 10px 10px; border-right: 1px solid #e5e7eb; background: #fafafa; }
+      .search { height: 34px; display: flex; align-items: center; gap: 8px; margin: 0 2px 10px; padding: 0 9px; border: 1px solid #e1e4e8; border-radius: 6px; background: #fff; color: #7a828d; }
+      .search input { width: 100%; min-width: 0; border: 0; outline: 0; color: #20242b; background: transparent; font-size: 12px; }
+      .search input::placeholder { color: #9299a3; }
+      .nav-scroll { min-height: 0; flex: 1; overflow-y: auto; }
+      .nav-group { margin: 0 0 10px; }
+      .group-title { margin: 0; padding: 10px 10px 5px; color: #7a828d; font-size: 11px; font-weight: 600; }
+      .nav-item { width: 100%; min-height: 34px; display: flex; align-items: center; gap: 9px; padding: 0 10px; border: 0; border-radius: 6px; color: #4c5561; text-align: left; font-size: 13px; background: transparent; cursor: pointer; }
+      .nav-item svg { color: #79818c; }
+      .nav-item:hover { background: #f0f1f2; color: #20242b; }
+      .nav-item[aria-current="page"] { color: #20242b; background: #e9eaec; font-weight: 600; }
+      .nav-item[aria-current="page"] svg { color: #20242b; }
+      .nav-item[hidden], .nav-group[hidden] { display: none; }
+      .back { display: flex; align-items: center; gap: 8px; min-height: 38px; margin-top: 8px; padding: 0 10px; border: 0; border-top: 1px solid #e5e7eb; color: #69727e; text-align: left; font-size: 12px; background: transparent; cursor: pointer; }
+      .canvas { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; background: #fff; }
+      .page { width: min(1050px, 100%); padding: 28px 32px 40px; }
+      h1 { margin: 0; font-size: 21px; line-height: 1.35; font-weight: 650; }
+      .page-intro { margin: 6px 0 20px; color: #68717d; font-size: 13px; line-height: 1.55; }
+      .section { margin-top: 14px; overflow: hidden; border: 1px solid #e1e4e8; border-radius: 8px; background: #fff; }
+      .section[hidden] { display: none; }
+      .section-heading { padding: 14px 16px 12px; border-bottom: 1px solid #e7e9ec; }
+      .section-heading h2 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+      .section-heading p { margin: 4px 0 0; color: #737b86; font-size: 12px; line-height: 1.5; }
+      .setting-row { display: grid; grid-template-columns: 146px minmax(0, 1fr); align-items: start; gap: 16px; padding: 14px 16px; border-bottom: 1px solid #eceef0; }
+      .setting-row:last-child { border-bottom: 0; } .setting-row > div { min-width: 0; }
+      .row-label { padding-top: 7px; color: #59616c; font-size: 12px; font-weight: 500; }
+      .controls { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+      select, .font-input { height: 34px; min-width: 0; padding: 0 10px; border: 1px solid #dfe2e6; border-radius: 6px; color: #262b32; background: #fff; font-size: 12px; }
+      select:focus-visible, .font-input:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid #7ca7f7; outline-offset: 2px; }
+      .font-select { width: min(240px, 100%); }
+      .size-select { width: 90px; }
+      .mode-control { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid #e2e5e9; border-radius: 7px; background: #f6f7f8; }
+      .mode-control button { min-height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 0; border-radius: 5px; color: #626b76; font-size: 11px; background: transparent; cursor: pointer; }
+      .mode-control button[aria-pressed="true"] { color: #20242b; background: #fff; box-shadow: 0 1px 2px #17202a1c; }
+      .swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+      .swatch { width: 22px; height: 22px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #d6d9de; cursor: pointer; }
+      .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #59616c; }
+      .swatch svg { width: 12px; height: 12px; color: #fff; stroke-width: 2.4; }
+      .swatch-neutral { background: #444b55; }
+      .swatch-blue { background: #356fd6; }
+      .swatch-green { background: #328465; }
+      .swatch-orange { background: #cf6e37; }
+      .swatch-rose { background: #bd596e; }
+      .swatch-red { background: #c44848; }
+      .switch-line { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px; margin-top: 8px; }
+      .toggle { display: inline-flex; align-items: center; gap: 8px; color: #6b737e; font-size: 11px; }
+      .toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+      .switch { width: 30px; height: 17px; position: relative; flex: none; border-radius: 10px; background: #d7dbe0; transition: background .15s; }
+      .switch::after { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; content: ""; transition: transform .15s; }
+      .toggle input:checked + .switch { background: #3f73d1; }
+      .toggle input:checked + .switch::after { transform: translateX(13px); }
+      .toggle input:disabled + .switch { background: #e2e4e7; }
+      .toggle input:focus-visible + .switch { outline: 2px solid #7ca7f7; outline-offset: 2px; }
+      .muted-note { margin-top: 5px; color: #858c96; font-size: 11px; line-height: 1.4; }
+      .preview { padding: 13px 16px 15px; }
+      .preview-label { margin: 0 0 8px; color: #59616c; font-size: 12px; font-weight: 500; }
+      .preview-samples { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; overflow-x: auto; padding: 11px 12px; border: 1px solid #e3e6e9; border-radius: 6px; background: #fafafa; }
+      .sample-ui { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+      .sample-code, .sample-terminal { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #303741; font-size: 13px; line-height: 1.45; }
+      .sample-terminal { color: #6b7280; }
+      .custom-row[hidden] { display: none; }
+      .mobile-overlay { display: none; }
+      @media (max-width: 740px) {
+        .titlebar { grid-template-columns: 1fr 1fr 1fr; }
+        .mobile-menu { display: grid; margin-right: 5px; }
+        .brand { font-size: 12px; }
+        .bar-center { display: none; }
+        .workarea { grid-template-columns: minmax(0, 1fr); position: relative; overflow: hidden; }
+        .sidebar { position: absolute; z-index: 3; inset: 0 auto 0 0; width: min(292px, calc(100vw - 48px)); transform: translateX(-102%); transition: transform .18s; box-shadow: 10px 0 28px #1118271a; }
+        body.nav-open .sidebar { transform: translateX(0); }
+        .mobile-overlay { display: block; position: absolute; z-index: 2; inset: 0; border: 0; background: #11182755; opacity: 0; pointer-events: none; }
+        body.nav-open .mobile-overlay { opacity: 1; pointer-events: auto; }
+        .page { width: calc(100vw - 36px); max-width: calc(100vw - 36px); min-width: 0; margin-inline: 18px; padding: 22px 0 30px; }
+        .setting-row { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; }
+        .row-label { padding: 0; }
+      }
+      @media (max-width: 420px) {
+        .brand { gap: 6px; }
+        .controls { width: 100%; }
+        .font-select { flex: 1; }
+        .mode-control { width: 100%; }
+        .mode-control button { flex: 1; justify-content: center; }
+      }
+      [hidden] { display: none !important; }
+      .nav-item { min-height: 42px; margin-bottom: 3px; }
+      .sidebar-note { margin: 16px 10px 4px; color: #727982; font-size: 12px; line-height: 1.7; }
+      .preview-badge { color: #68717d; font-size: 12px; }
+      .preview-note { margin: -10px 0 18px; color: #707782; font-size: 12px; }
+      .section-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+      .section-links a { color: #525c69; font-size: 12px; text-decoration: none; padding: 7px 11px; border-radius: 5px; background: #f3f4f5; }
+      .section-links a:hover { background: #e6e8eb; color: #20242b; }
+      .setting-detail { font-size: 12px; color: #737b86; line-height: 1.65; margin: 4px 0 0; }
+      .setting-name { font-size: 13px; font-weight: 500; }
+      .functional-row { grid-template-columns: minmax(0, 1fr) minmax(120px, 260px); align-items: center; }
+      .functional-row .controls { justify-content: flex-end; }
+      .functional-row input:not([type=checkbox]), .functional-row select, textarea { max-width: 100%; }
+      .functional-row .font-input { width: 100%; }
+      .action { padding: 7px 11px; border: 1px solid #dfe2e6; background: white; border-radius: 6px; font-size: 12px; cursor: pointer; }
+      .action:hover { background: #f5f6f7; } .read-value { font-size: 12px; color: #69717b; }
+      .preview-status, .search-empty { font-size: 12px; color: #68717d; line-height: 1.6; padding: 10px; }
+      .section { scroll-margin-top: 16px; } .sample-code, .sample-terminal { min-width: 0; }
+      .custom-row { margin-top: 8px; } .row-highlight { background: #f0f5ff; }
+      textarea { width: 100%; padding: 10px; border: 1px solid #dfe2e6; border-radius: 6px; font: inherit; font-size: 12px; }
+      body.dark { filter: invert(.91) hue-rotate(180deg); background: #161616; }
+      @media (max-width: 740px) { .canvas { width: 100%; } .functional-row { grid-template-columns: minmax(0, 1fr); } .functional-row .controls { justify-content: flex-start; } }
+    </style>
+  </head>
+  <body>
+    <svg class="icons" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M14 17H5"></path><path d="M19 7h-9"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M10 5H3"></path><path d="M12 19H3"></path><path d="M14 3v4"></path><path d="M16 17v4"></path><path d="M21 12h-9"></path><path d="M21 19h-5"></path><path d="M21 5h-7"></path><path d="M8 10v4"></path><path d="M8 12H3"></path></symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"></path><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M10 8h.01"></path><path d="M12 12h.01"></path><path d="M14 8h.01"></path><path d="M16 12h.01"></path><path d="M18 8h.01"></path><path d="M6 8h.01"></path><path d="M7 16h10"></path><path d="M8 12h.01"></path><rect width="20" height="16" x="2" y="4" rx="2"></rect></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path><path d="M7 11h10"></path><path d="M7 15h6"></path><path d="M7 7h8"></path></symbol>
+      <symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></symbol>
+      <symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><polyline points="3.29 7 12 12 20.71 7"></polyline><path d="m7.5 4.27 9 5.15"></path></symbol>
+      <symbol id="i-brain" viewBox="0 0 24 24"><path d="M12 18V5"></path><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"></path><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"></path><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"></path><path d="M18 18a4 4 0 0 0 2-7.464"></path><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"></path><path d="M6 18a4 4 0 0 1-2-7.464"></path><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"></path></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path></symbol>
+      <symbol id="i-usage" viewBox="0 0 24 24"><path d="M5 21v-6"></path><path d="M12 21V9"></path><path d="M19 21V3"></path></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path></symbol>
+      <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"></path></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"></path><circle cx="11" cy="11" r="8"></circle></symbol>
+      <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41-1.41"></path></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"></path></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 5h16"></path><path d="M4 12h16"></path><path d="M4 19h16"></path></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></symbol>
+    </svg>
+    <div class="shell" data-ui>
+      <header class="titlebar">
+        <div class="brand"><button class="icon-button mobile-menu" id="open-menu" aria-label="打开设置菜单"><svg class="icon"><use href="#i-menu"></use></svg></button><svg class="icon"><use href="#i-settings"></use></svg><span>原助理</span></div>
+        <div class="bar-center">设置</div>
+        <div class="bar-actions"><span class="preview-badge">交互预览</span></div>
+      </header>
+      <div class="workarea">
+        <aside class="sidebar" id="sidebar" aria-label="设置菜单">
+          <label class="search"><svg class="icon"><use href="#i-search"></use></svg><input id="nav-search" type="search" placeholder="搜索设置" aria-label="搜索设置" /></label>
+          <nav class="nav-scroll" id="settings-nav" aria-label="设置分类"></nav><p id="search-empty" class="search-empty" hidden>没有匹配的设置项</p>
+          <p class="sidebar-note">设置按功能归并<br>能力市场继续保留在首页</p>
+        </aside>
+        <button class="mobile-overlay" id="close-menu" aria-label="关闭设置菜单"></button>
+        <main class="canvas">
+          <div class="page">
+            <h1 id="page-title">界面与字体</h1>
+            <p class="page-intro" id="page-intro">统一调整语言、主题和文字显示。</p><p class="preview-note">此页为方案预览，所选值只用于演示，不会修改应用设置。</p><nav id="section-links" class="section-links" aria-label="本页设置分区"></nav>
+            <section class="section" id="appearance-page" data-section="主题与语言" aria-labelledby="theme-title">
+              <div class="section-heading"><h2 id="theme-title">主题与语言</h2></div>
+              <div class="setting-row"><div class="row-label">主题模式</div><div class="controls"><div class="mode-control" role="group" aria-label="主题模式">
+                <button type="button" data-theme-mode="system" aria-pressed="false"><svg class="icon"><use href="#i-monitor"></use></svg>跟随系统</button>
+                <button type="button" data-theme-mode="light" aria-pressed="true"><svg class="icon"><use href="#i-sun"></use></svg>浅色</button>
+                <button type="button" data-theme-mode="dark" aria-pressed="false"><svg class="icon"><use href="#i-moon"></use></svg>深色</button>
+              </div></div></div>
+              <div class="setting-row"><div class="row-label">主题颜色</div><div class="controls"><div class="swatches" role="group" aria-label="主题颜色">
+                <button class="swatch swatch-neutral" title="Neutral" aria-label="Neutral" aria-pressed="false"></button>
+                <button class="swatch swatch-blue" title="Blue" aria-label="Blue" aria-pressed="true"><svg class="icon"><use href="#i-check"></use></svg></button>
+                <button class="swatch swatch-green" title="Green" aria-label="Green" aria-pressed="false"></button>
+                <button class="swatch swatch-orange" title="Orange" aria-label="Orange" aria-pressed="false"></button>
+                <button class="swatch swatch-rose" title="Rose" aria-label="Rose" aria-pressed="false"></button>
+                <button class="swatch swatch-red" title="Red" aria-label="Red" aria-pressed="false"></button>
+              </div></div></div>
+              <div class="setting-row"><label class="row-label" for="app-language">应用语言</label><div class="controls"><select id="app-language"><option>跟随系统</option><option selected>简体中文</option><option>English</option></select></div></div>
+              <div class="setting-row"><label class="row-label" for="zoom-level">窗口缩放</label><div class="controls"><select id="zoom-level" class="size-select" aria-label="窗口缩放"><option>90%</option><option>95%</option><option selected>100%</option><option>105%</option><option>110%</option><option>120%</option></select></div></div>
+            </section>
+            <section class="section" id="font-page" data-section="字体与编辑" aria-labelledby="font-title">
+              <div class="section-heading"><h2 id="font-title">字体与编辑</h2><p>界面字体用于普通文字；编辑器和终端分别设置。预览使用本机字体，未安装的字体会回退。</p></div>
+              <div class="setting-row"><label class="row-label" for="ui-font">界面</label><div class="controls"><select class="font-select" id="ui-font"><option value="Inter Variable" selected>Inter</option><option value="Geist Variable">Geist</option><option value="system-ui">System UI</option><option value="custom">自定义…</option></select><input id="ui-custom" class="font-input" placeholder="字体名称" aria-label="自定义界面字体" hidden /></div></div>
+              <div class="setting-row"><label class="row-label" for="editor-font">编辑器</label><div>
+                <div class="controls"><select class="font-select mono-font" id="editor-font"><option value="System Monospace" data-ligatures="false" selected>System Monospace</option><option value="JetBrains Mono Variable" data-ligatures="true">JetBrains Mono</option><option value="Fira Code Variable" data-ligatures="true">Fira Code</option><option value="Geist Mono Variable" data-ligatures="false">Geist Mono</option><option value="custom" data-ligatures="true">自定义…</option></select><select class="size-select" id="editor-size" aria-label="编辑器字号"><option>10px</option><option>11px</option><option>12px</option><option>13px</option><option>14px</option><option>15px</option><option>16px</option><option>18px</option><option selected>20px</option></select></div>
+                <div class="custom-row" id="editor-custom" hidden><input class="font-input" type="text" placeholder="字体名称，如 Fira Code" aria-label="自定义编辑器字体" /></div>
+                <div class="switch-line"><label class="toggle"><input class="ligature-toggle" id="editor-ligatures" type="checkbox" disabled /><span class="switch"></span><span class="ligature-label">该字体不含连字</span></label><label class="toggle"><input id="word-wrap" type="checkbox" /><span class="switch"></span><span>启用自动换行</span></label></div>
+              </div></div>
+              <div class="setting-row"><label class="row-label" for="terminal-font">终端</label><div>
+                <div class="controls"><select class="font-select mono-font" id="terminal-font"><option value="System Monospace" data-ligatures="false" selected>System Monospace</option><option value="JetBrains Mono Variable" data-ligatures="true">JetBrains Mono</option><option value="Fira Code Variable" data-ligatures="true">Fira Code</option><option value="Geist Mono Variable" data-ligatures="false">Geist Mono</option><option value="custom" data-ligatures="true">自定义…</option></select><select class="size-select" id="terminal-size" aria-label="终端字号"><option>10px</option><option>11px</option><option>12px</option><option>13px</option><option>14px</option><option>15px</option><option>16px</option><option>18px</option><option selected>20px</option></select></div>
+                <div class="custom-row" id="terminal-custom" hidden><input class="font-input" type="text" placeholder="字体名称，如 Fira Code" aria-label="自定义终端字体" /></div>
+                <div class="switch-line"><label class="toggle"><input class="ligature-toggle" id="terminal-ligatures" type="checkbox" disabled /><span class="switch"></span><span class="ligature-label">该字体不含连字</span></label></div><p class="muted-note">终端连字仅对内置编程字体生效。</p>
+              </div></div>
+              <div class="preview"><p class="preview-label">预览</p><div class="preview-samples"><p class="sample-ui" id="ui-sample">The quick brown fox jumps over the lazy dog — 0123456789</p><pre class="sample-code" id="editor-sample">const sum = (a, b) =&gt; a + b   // 0 != 1, x &gt;= y&#10;if (a === b &amp;&amp; c !== d) return a |&gt; filter</pre><pre class="sample-terminal" id="terminal-sample">$ git commit -m "feat: done"   # =&gt; &gt;= &lt;= != ===</pre></div></div>
+            </section>
+            <div id="dynamic-pages"></div><p id="preview-status" class="preview-status" role="status" aria-live="polite"></p>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script src="settings-menu-preview-data.js"></script>
+    <script src="settings-menu-preview.js"></script>
+  </body>
+</html>

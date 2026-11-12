@@ -147,7 +147,7 @@ async fn update_current_selection(
     .map_err(command_error)
 }
 
-async fn confirm(
+pub(super) async fn confirm(
     handler: &BuiltinMcpHandler,
     authority: SessionContext,
     delivery: Option<RelayDelivery>,

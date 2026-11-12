@@ -9,23 +9,6 @@ pub(super) const PROVIDER: &str = "iyw_gateway";
 const DEFAULT_BASE: &str = "https://gateway.iyw.cn/iyw-fusion-mcp-gateway/api/connector-market";
 const MAX_RESPONSE: usize = 8 * 1024 * 1024;
 
-pub(super) async fn require_market_slot(
-    conn: &DatabaseConnection,
-    id: &str,
-) -> Result<Option<String>, AppCommandError> {
-    let catalog =
-        crate::commands::mcp_catalog::load_or_import(conn, super::scan_legacy_server_specs).await?;
-    if let Some(entry) = catalog.servers.get(id) {
-        if entry.spec["iyw_market"]["id"].as_str() != Some(id) {
-            return Err(AppCommandError::invalid_input(
-                "存在同名自定义连接器，请先重命名后再安装",
-            ));
-        }
-        return Ok(entry.spec["iyw_secret_ref"].as_str().map(str::to_owned));
-    }
-    Ok(None)
-}
-
 pub(super) fn base_url() -> Result<reqwest::Url, AppCommandError> {
     let raw =
         std::env::var("IYW_CONNECTOR_MARKET_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE.to_string());
@@ -67,6 +50,11 @@ pub(super) async fn request(
         .post(url)
         .header("token", token.expose())
         .json(&body)
+        .timeout(if path == "artifact-ticket" {
+            std::time::Duration::from_secs(3 * 60)
+        } else {
+            std::time::Duration::from_secs(60)
+        })
         .send()
         .await
         .map_err(|_| AppCommandError::network("连接器市场暂时无法访问"))?;
@@ -234,12 +222,13 @@ pub(super) async fn detail(
 }
 
 pub(super) fn supported_platform(option: &OptionSpec) -> bool {
-    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let platform = crate::commands::skill_market::plugin_platforms::current_platform();
+    let os = platform.split('-').next().unwrap_or(std::env::consts::OS);
     option.platforms.is_empty()
         || option
             .platforms
             .iter()
-            .any(|value| value == &platform || value == std::env::consts::OS)
+            .any(|value| value == &platform || value == os)
 }
 
 fn project_option(option: &OptionSpec) -> super::McpMarketplaceInstallOption {

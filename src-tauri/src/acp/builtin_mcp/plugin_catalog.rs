@@ -32,7 +32,7 @@ impl PluginCapabilityRegistry {
             .into_iter()
             .flat_map(|snapshot| snapshot.plugins.values())
             .filter(|plugin| plugin.manifest.schema_version >= 2)
-            .flat_map(|plugin| capabilities(plugin, cwd, agent_type))
+            .flat_map(|plugin| capabilities(plugin, snapshot, (cwd, agent_type)))
             .filter_map(|capability| {
                 let haystack = capability
                     .get("_searchText")
@@ -69,7 +69,7 @@ impl PluginCapabilityRegistry {
             .into_iter()
             .flat_map(|snapshot| snapshot.plugins.values())
             .filter(|plugin| plugin.manifest.schema_version >= 2)
-            .flat_map(|plugin| capabilities(plugin, cwd, agent_type))
+            .flat_map(|plugin| capabilities(plugin, snapshot, (cwd, agent_type)))
             .find_map(|mut capability| {
                 (capability.get("capability_id").and_then(Value::as_str) == Some(capability_id))
                     .then(|| {
@@ -82,7 +82,8 @@ impl PluginCapabilityRegistry {
     }
 }
 
-fn capabilities(plugin: &PluginDescriptor, cwd: &Path, agent_type: AgentType) -> Vec<Value> {
+fn capabilities(plugin: &PluginDescriptor, snapshot: Option<&PluginRegistrySnapshot>, context: (&Path, AgentType)) -> Vec<Value> {
+    let (cwd, agent_type) = context;
     if !agent_type_supports_host_gateway(agent_type) {
         return Vec::new();
     }
@@ -95,10 +96,17 @@ fn capabilities(plugin: &PluginDescriptor, cwd: &Path, agent_type: AgentType) ->
             let config = component.config.as_ref()?;
             let id = config.get("id")?.as_str()?;
             let connector = config.get("connectorKey")?.as_str()?;
-            let _tool_name = config.get("toolName")?.as_str()?;
+            let tool_name = config.get("toolName")?.as_str()?;
+            if !crate::plugin_runtime::native_compat::model_tool_allowed(
+                Path::new(&plugin.install_root),
+                connector,
+                tool_name,
+            ) {
+                return None;
+            }
             let schema_path = config.get("schemaPath")?.as_str()?;
             let (input_schema, schema_digest) = load_schema(plugin, schema_path)?;
-            let unavailable_reason = unavailable_reason(plugin, connector, cwd, agent_type);
+            let unavailable_reason = unavailable_reason(plugin, connector, (snapshot, cwd, agent_type));
             let status = if unavailable_reason.is_none() {
                 "available"
             } else {
@@ -138,9 +146,9 @@ fn capabilities(plugin: &PluginDescriptor, cwd: &Path, agent_type: AgentType) ->
 fn unavailable_reason(
     plugin: &PluginDescriptor,
     connector: &str,
-    cwd: &Path,
-    agent_type: AgentType,
+    context: (Option<&PluginRegistrySnapshot>, &Path, AgentType),
 ) -> Option<&'static str> {
+    let (snapshot, cwd, agent_type) = context;
     if !plugin.available {
         return Some("plugin_unavailable");
     }
@@ -149,6 +157,10 @@ fn unavailable_reason(
     }
     if !permission_granted(plugin, cwd) {
         return Some("permission_pending");
+    }
+    let workspace = workspace_key(cwd);
+    if snapshot.is_none_or(|snapshot| crate::plugin_runtime::dependency_scope::require(plugin, &snapshot.plugins, (&workspace, agent_type.as_wire().as_ref())).is_err()) {
+        return Some("dependency_unavailable");
     }
     None
 }
@@ -175,23 +187,12 @@ fn activation_enabled(
 ) -> bool {
     let workspace_key = workspace_key(cwd);
     let agent_type = agent_type.as_wire();
-    plugin.activations.iter().any(|activation| {
-        activation.component_key == connector
-            && activation.routing_mode == "host_gateway"
-            && activation.requested_enabled
-            && (activation.agent_type.is_empty() || activation.agent_type == agent_type.as_ref())
-            && (activation.scope == "global"
-                || (activation.scope == "workspace" && activation.workspace_key == workspace_key))
-    })
+    crate::plugin_runtime::policy::activation_enabled(plugin, (connector, &workspace_key, agent_type.as_ref()))
 }
 
 fn permission_granted(plugin: &PluginDescriptor, cwd: &Path) -> bool {
     let workspace_key = workspace_key(cwd);
-    plugin.permission_grants.iter().any(|grant| {
-        grant.permissions_digest == plugin.permissions_digest
-            && grant.grant_state == "granted"
-            && (grant.scope == "global" || grant.workspace_key == workspace_key)
-    })
+    crate::plugin_runtime::policy::permission_granted(plugin, &workspace_key)
 }
 
 fn workspace_key(cwd: &Path) -> String {

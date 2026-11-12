@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   ArrowLeft,
   ArrowRight,
@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { BrowserDownloads } from "./browser-downloads"
 import { BrowserNativeTools } from "./browser-native-tools"
 import { BrowserPageActions } from "./browser-page-actions"
+import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
 
 export function BrowserToolbar({
   host,
@@ -76,7 +77,7 @@ export function BrowserToolbar({
           tab && void run(() => browserApi.reload(tab.browserTabId))
         }
       />
-      <AddressInput key={tab?.url ?? ""} tab={tab} />
+      <AddressInput key={tab?.url ?? ""} hostId={host.hostId} tab={tab} />
       <BrowserPageActions
         tab={tab}
         selecting={selecting}
@@ -112,21 +113,41 @@ export function BrowserToolbar({
   )
 }
 
-function AddressInput({ tab }: { tab: BrowserTabSnapshot | null }) {
+function AddressInput({
+  hostId,
+  tab,
+}: {
+  hostId: string
+  tab: BrowserTabSnapshot | null
+}) {
   const t = useTranslations("Browser")
-  const { run } = useBrowser()
-  const [address, setAddress] = useState(tab?.url ?? "")
+  const { run, busy } = useBrowser()
+  const submitting = useRef(false)
+  const initialAddress =
+    tab?.url === DEFAULT_BROWSER_HOME_URL ? "" : (tab?.url ?? "")
+  const [address, setAddress] = useState(initialAddress)
   return (
     <Input
       value={address}
+      placeholder={t("addressPlaceholder")}
+      onFocus={(event) => event.target.select()}
       onChange={(event) => setAddress(event.target.value)}
       onKeyDown={(event) => {
-        if (event.key === "Enter" && tab) {
+        if (event.nativeEvent.isComposing) return
+        if (event.key === "Enter" && !busy && !submitting.current) {
+          event.preventDefault()
           const url = normalizeAddress(address)
-          setAddress(url)
-          void run(() => browserApi.navigate(tab.browserTabId, url))
+          setAddress(url === DEFAULT_BROWSER_HOME_URL ? "" : url)
+          submitting.current = true
+          void run(() =>
+            tab
+              ? browserApi.navigate(tab.browserTabId, url)
+              : browserApi.createTab(url, hostId)
+          ).finally(() => {
+            submitting.current = false
+          })
         }
-        if (event.key === "Escape") setAddress(tab?.url ?? "")
+        if (event.key === "Escape") setAddress(initialAddress)
       }}
       className="h-7 min-w-0 flex-1 rounded-md bg-muted/50 px-3 text-xs"
       aria-label={t("address")}

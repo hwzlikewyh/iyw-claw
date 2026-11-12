@@ -8,9 +8,8 @@ import { useTabStore } from "@/contexts/tab-context"
  * conversation whose backing folder is a hidden chat folder
  * (`kind === "chat"`), or a not-yet-sent chat draft (the in-memory `isChat`
  * tab flag). Drives hiding of folder-bound chrome — the top-bar branch
- * selector, the aux-panel toggle, the right sidebar, and the composer branch
- * picker — consistently from the moment "no-folder mode" is selected through
- * first send and beyond.
+ * selector and the composer branch picker — consistently from the moment
+ * "no-folder mode" is selected through first send and beyond.
  */
 export function useIsActiveChatMode(): boolean {
   const { activeFolder } = useActiveFolder()

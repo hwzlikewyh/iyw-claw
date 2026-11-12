@@ -92,6 +92,7 @@ pub async fn terminal_spawn(
 
     manager.spawn_with_id(
         SpawnOptions {
+            direct_command: None,
             terminal_id,
             working_dir,
             owner_window_label: window.label().to_string(),

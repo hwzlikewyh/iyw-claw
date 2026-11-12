@@ -2670,6 +2670,7 @@ export interface ManagedMcpCatalogSource {
   version: string
   componentKey: string
   requiredSkillKeys: string[]
+  platforms?: string[]
   templateSpec: Record<string, unknown>
 }
 

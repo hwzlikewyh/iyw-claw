@@ -1,20 +1,21 @@
 ---
 name: iyw-capability-gateway
-short-description: 社媒调研优先远程渠道；爱原物业务接口、图片、视频、上传与主机能力指南。
+short-description: 爱原物业务、技能/连接器/插件上传发布与下载安装、知识库及主机能力指南。
 description: >-
   Route 爱原物/IYW business APIs, image/video work, uploads, remote social research
   and iyw-claw host actions through current tools and task-specific references.
   Use for 设计云/AI工作台/图案网 business data, 小红书/抖音/视频号 research,
   memory, sessions, artifacts, browser/media, channels, automation and interaction.
+  Covers Skill/Plugin uploads and distribution, connectors, and knowledge-library workflows.
   Prefer matching direct tools; social research uses source=remote before local fallbacks.
   Discover remaining capabilities through the live catalog without guessing IDs or schemas.
   Self-contained explanations, supplied-text editing and local code/file work need no gateway discovery.
 routing:
-  capability: IYW business APIs, remote social research and iyw-claw host capabilities
-  coreTriggers: [社媒调研, 全网搜索, 小红书, 抖音, 视频号, 新闻动态, 促销团购, host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 视频生成, 电商视频, 产品演绎, 视频复刻, 自动导演, 商品套图, A+, Listing, 爆款复刻, 上传文件, fetch_iyw_url, upload_iyw_file]
+  capability: IYW business APIs, Skill/Plugin markets, connectors, knowledge libraries and host capabilities
+  coreTriggers: [社媒调研, 全网搜索, 小红书, 抖音, 视频号, 新闻动态, 促销团购, host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 视频生成, 电商视频, 产品演绎, 视频复刻, 自动导演, 商品套图, A+, Listing, 爆款复刻, 上传文件, 技能上传, 插件发布, 公开市场, 组织分发, 个人私有, 连接器安装, MCP授权, 插件下载, 知识库, 文档入库, 知识切片, fetch_iyw_url, upload_iyw_file, manage_iyw_connectors, search_iyw_knowledge]
   exclusions: [trivial request, self-contained explanation]
-  aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关, 爱原物接口, 设计云, AI工作台, 图案网, 产品库, 版权登记, 文件上传]
-  invocation: Social research loads internet-routing and research-workflow; use source=remote first and fall back per platform only with evidence. For IYW business tasks load iyw-api-index and the matching domain reference. Prioritize video generation through generate_iyw_image or fetch_iyw_url as documented in iyw-api-ecommerce-video. Images and uploads prefer their direct tools; documented workflow mismatches use fetch_iyw_url. Search/read/invoke covers remaining host and remote business capabilities.
+  aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关, 爱原物接口, 设计云, AI工作台, 图案网, 产品库, 版权登记, 文件上传, 技能市场, 插件发布, 连接器, 知识库]
+  invocation: Skill/Plugin publication and distribution load capability-market; connector management uses manage_iyw_connectors and connector-management; knowledge import and citations load knowledge-workflows. Social research loads internet-routing and research-workflow; use source=remote first and fall back per platform only with evidence. For IYW business tasks load iyw-api-index and the matching domain reference. Prioritize video generation through generate_iyw_image or fetch_iyw_url as documented in iyw-api-ecommerce-video. Images and uploads prefer their direct tools; documented workflow mismatches use fetch_iyw_url. Search/read/invoke covers remaining host and remote business capabilities.
 ---
 
 # IYW Capability Gateway
@@ -47,8 +48,7 @@ for per-platform fallback evidence and [research workflow](references/research-w
 for dates, source coverage and promotion verification. Other documented direct
 business routes keep their priority; discover only uncovered subgoals.
 
-Read a group's workflow and relevant members. `schema_loaded=false` summaries
-need a member read; complete `input_schema` and `usage` definitions are reusable.
+Read a group's workflow and relevant members. `schema_loaded=false` summaries need a member read; complete `input_schema` and `usage` definitions are reusable.
 Search large groups with their returned `capability_id` as `group_id` and, when
 useful, a returned `capability_family` facet. Invoke members, never groups.
 The host carries remote IDs/versions; do not put routing fields in business arguments.
@@ -60,7 +60,9 @@ before replay. These exceptions precede generic stop rules. Detailed catalog and
 version handling lives in [tool-usage.md](references/tool-usage.md).
 
 爱原物业务先读 [接口索引](references/iyw-api-index.md)，按关键词仅加载对应领域。
-图片生成/处理优先用 `generate_iyw_image`，通用上传用 `upload_iyw_file`；其余业务通过 `fetch_iyw_url` 执行。
+图片生成/处理优先用 `generate_iyw_image`，通用文件链接用 `upload_iyw_file`。
+技能/插件上传安装先读 [市场入口](references/capability-market.md)；连接器管理直接用 `manage_iyw_connectors`，文件沿专用上传/安装器处理。
+知识正文用 `search_iyw_knowledge`，导入维护见 [工作流](references/knowledge-workflows.md)；其余已记录业务 JSON 用 `fetch_iyw_url`。通用上传不等于发布或入库。
 电商视频和商品套图中已记录的工具契约不匹配或未封装操作，按对应参考用 fetch 调原接口。
 已记录的业务 API 路由不依赖能力三件套；主机能力及未覆盖的远程业务使用下文 catalog 流程。
 
@@ -70,7 +72,7 @@ version handling lives in [tool-usage.md](references/tool-usage.md).
 - 帮客户解决生图问题优先使用适用的平台功能；复杂、多重视觉约束或需要更自由创作控制时，可以直接选择适用的图片模型，不要求先故意调用不匹配的平台功能制造失败。用户明确要求图片模型时按其要求执行。
 - 用户在自定义改款／系列延伸／多图融合中指定“模型一／二／三”时，分别传 `parameters.modelChannel=1/2/3`，保留原平台路线。它们是平台通道名，不是 Fusion 目录第一／二／三项；不要因此查 Fusion 目录或转 `edit`，也不往 `parameters.model` 放目录引用。只有用户未指定通道时才省略 modelChannel 使用默认；用户锁定模型时不自行声明其他模型回退。
 - 复杂或需要更自由控制的图片任务、用户明确选择其他服务，或优先路线有明确不支持、不可用、确认失败的证据时，选择更适用的路线；已知不兼容无需先试错。上述平台图片工具无需查 Fusion 模型目录。
-- 内置转 3D 已禁用，不调用 `image-to-3d`，不通过 fetch、浏览器或其他封装绕过；不得把具有立体效果的图片当作 3D 模型交付。
+- 内置 `image-to-3d` 接口已禁用，不调用它，也不通过 fetch、浏览器或其他封装绕过。此限制只针对该接口，不禁止本地编码建模：用户要 3D 网页或 GLB 时，能继续就用 Three.js 创建真实网格、交互和 GLB 导出；基于照片无法确认的细节标为近似，不要因此拒绝整个任务。照片无法保证精确尺寸或商标时，先按可见参考重建；只有用户要求精确且现有素材不足时，才索取 CAD、源模型或商标素材。不得把平面图片冒充 3D 模型。
 - 已公布且参数明确的工具直接调用；只补读缺失的当前操作说明。复用已读 schema、参考资料、模型目录、素材 URL 和任务 ID，支持的独立操作按授权范围批量执行。
 - 仅使用当前启用目录公布的技能。废弃、停用、移除或仅残留在历史会话/备份中的技能不读取、不执行、不恢复；遇到旧依赖立即选择现有工具，不沿旧依赖链搜索或安装。`iyw-image-workflows` 已废弃。
 - 本地文件、代码、文档用本地工具；平台业务用专用工具；公开资料优先搜索/正文读取。仅登录态、动态内容无法直接读取、页面交互、截图或页面验收需要浏览器；确定使用后再读浏览器参考和查标签页。
@@ -84,8 +86,7 @@ version handling lives in [tool-usage.md](references/tool-usage.md).
 先匹配这两条现有路径；用户明确指定其他服务，或适用路径有明确不支持/不可用/失败证据时，才考虑其他路线。
 超时或提交结果未知先查原任务，不通过换工具重复生成；不得编造视频 capability_id。
 
-Before first using a tool, read its advertised description and input schema,
-including nested fields, required inputs, constraints, and examples. For a
+Before first using a tool, read its full advertised description and schema, including nested fields, required inputs, constraints, and examples. For a
 direct tool, this definition is the read; no discovery call is needed. For
 capabilities behind `invoke_iyw_capability`, call
 `read_iyw_capability` first and read the full result. Common `manage_iyw_memory`
@@ -94,8 +95,7 @@ inline schemas and need no metadata, Skill or policy read. Maintenance operation
 use their advertised capability mapping. IDs are opaque: copy them from
 current search/mapping results; never derive them from direct tool names or append versions.
 
-If already read in this conversation, reuse the instructions without another
-read, including on later turns and after ordinary parameter errors. Search
+If already read in this conversation, reuse instructions on later turns and after ordinary parameter errors. Search
 summaries alone do not replace the full instructions. Reading before first use
 is an Agent rule; the host does not record reads or reject calls based on read
 history. The same reuse rule applies to references listed below.
@@ -108,6 +108,11 @@ extra discovery or generic preflight. A keyword in supplied material alone is no
 
 | Task signal | Load first |
 | --- | --- |
+| 技能/专家包/插件上传、公开市场/组织/个人分发、下载安装、版本更新 | [市场入口](references/capability-market.md)，再按需读上传、下载或插件包专题 |
+| 连接器搜索、安装、配置、OAuth/CLI授权、会话/全局启停、卸载 | [连接器操作](references/connector-management.md)，直接用 manage_iyw_connectors 当前schema |
+| 连接器后台声明/制品/草稿/上架，客户端安装任务/OAuth/CLI | [后台发布](references/connector-publishing.md)、[宿主对接](references/connector-host-integration.md)，按当前角色选择 |
+| 插件参数/权限、客户端对接、版本切换、恢复、卸载 | [宿主市场接口](references/market-host-integration.md) |
+| 知识库导入、解析/同步、范围选择、语义检索、文档引用、切片维护 | [知识库工作流](references/knowledge-workflows.md)；云接口或客户端集成按需读取链接 |
 | 视频生成、电商视频、产品演绎、视频复刻、自动导演、视频历史 | [电商视频](references/iyw-api-ecommerce-video.md)，按实际工具契约选择 generate 或 fetch |
 | 商品套图/A+、Listing、商品卖点、爆款复刻、图片版本 | [商品套图](references/iyw-api-product-kits.md) |
 | 批量图片、新版 Agent、知识库全套、资产库、订单物流、权限分层 | [接口索引新版任务表](references/iyw-api-index.md)，仅加载对应补充资料 |
@@ -247,7 +252,7 @@ tools and the capability trio:
   Returns opaque `model_ref` values, business display names, safe descriptions, and generation/editing capabilities; no real IDs, providers, or prices.
   The agent selects the model for `generate`/`edit` and copies its `model_ref` into
   `parameters.model`. Specialized IYW operations do not use this catalog.
-- `fetch_iyw_url`: 所有已记录的剩余爱原物业务接口入口；传入 description、url、method、query/body。
+- `fetch_iyw_url`: 其余已记录的爱原物业务 JSON 入口；传入 description、url、method、query/body。
   包括视频/套图参考明确指定的页面契约；先查 [接口索引](references/iyw-api-index.md)，不搜索 capability_id。
 - `upload_iyw_file`: MCP 主机上可读的任意类型文件，不限工作区，最多 1 GiB；description + path，可选 name/mime_type。
   取得公开 URL 后按用户任务用 fetch 保存业务记录或交付文件。
@@ -257,9 +262,8 @@ tools and the capability trio:
   returns status, task IDs when available, and public result URLs. Specialized
   tools reuse HTTPS inputs and upload local/base64 inputs to TOS without
   `checkImage`. `edit` submits local/base64 bytes directly to Fusion.
-- `search_iyw_knowledge`: standalone knowledge search with `query`, optional
-  `category`, `folderId`, `fileId`, `limit`, and `denseWeight`. It never starts
-  an image task.
+- `search_iyw_knowledge`: 文档正文检索，query及可选category、folderId、fileId、limit、denseWeight；保留对话选择，见[知识库工作流](references/knowledge-workflows.md)，不启动生图任务。
+- `manage_iyw_connectors`: 连接器发现、安装、启停及含连接器插件发布，见[操作表](references/connector-management.md)，不传凭据。
 - `manage_iyw_memory`: memory policy, recall, documents, candidate, harvest,
   settings, append, propose, update, and correction operations grouped under
   one `operation` field. Common operations have complete inline schemas; read

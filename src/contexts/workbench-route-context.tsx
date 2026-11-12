@@ -44,6 +44,9 @@ interface WorkbenchRouteContextValue {
   connectorMarketRequested: boolean
   openConnectorMarket: () => void
   consumeConnectorMarket: () => void
+  pluginMarketRequested: boolean
+  openPluginMarket: () => void
+  consumePluginMarket: () => void
 }
 
 const WorkbenchRouteContext = createContext<WorkbenchRouteContextValue | null>(
@@ -77,8 +80,21 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
   const skillMarketRequestIdRef = useRef(0)
   const [connectorMarketRequested, setConnectorMarketRequested] =
     useState(false)
+  const [pluginMarketRequested, setPluginMarketRequested] = useState(false)
+  const openPluginMarket = useCallback(() => {
+    setPluginMarketRequested(true)
+    setConnectorMarketRequested(false)
+    setSkillMarketTarget(null)
+    setRouteId("skills")
+  }, [])
+  const consumePluginMarket = useCallback(
+    () => setPluginMarketRequested(false),
+    []
+  )
   const openConnectorMarket = useCallback(() => {
     setConnectorMarketRequested(true)
+    setPluginMarketRequested(false)
+    setSkillMarketTarget(null)
     setRouteId("skills")
   }, [])
   const consumeConnectorMarket = useCallback(
@@ -91,6 +107,8 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
   const openSkillMarket = useCallback((skillId: string) => {
     const normalized = skillId.trim()
     if (!normalized) return
+    setPluginMarketRequested(false)
+    setConnectorMarketRequested(false)
     skillMarketRequestIdRef.current += 1
     setSkillMarketTarget({
       requestId: skillMarketRequestIdRef.current,
@@ -116,6 +134,9 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
       connectorMarketRequested,
       openConnectorMarket,
       consumeConnectorMarket,
+      pluginMarketRequested,
+      openPluginMarket,
+      consumePluginMarket,
     }),
     [
       routeId,
@@ -127,6 +148,9 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
       connectorMarketRequested,
       openConnectorMarket,
       consumeConnectorMarket,
+      pluginMarketRequested,
+      openPluginMarket,
+      consumePluginMarket,
     ]
   )
 

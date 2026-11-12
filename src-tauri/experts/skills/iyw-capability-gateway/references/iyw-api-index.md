@@ -2,7 +2,7 @@
 
 爱原物设计云、AI 工作台、图案网业务：先从下表选择领域，只读取相关文件和段落，再用 `fetch_iyw_url` 执行。不要一次加载全部接口；不要为业务接口搜索或编造 capability_id，也不要创建额外 MCP。
 
-图片生成/处理优先使用 `generate_iyw_image`；任意文件上传使用 `upload_iyw_file`；剩余业务接口统一使用 `fetch_iyw_url`。视频生成优先走本 Skill：符合专用工具契约用 generate，电商视频/套图参考中已记录的不匹配或未封装操作用 fetch 调原接口。已有 `search_iyw_knowledge` 正文检索、主机记忆/浏览器等能力维持各自现有路由。
+图片生成/处理优先使用 `generate_iyw_image`；通用文件链接使用 `upload_iyw_file`；技能/插件上传与安装沿下表专用流程，连接器管理用 `manage_iyw_connectors`；其余已记录业务 JSON 接口使用 `fetch_iyw_url`。视频生成优先走本 Skill：符合专用工具契约用 generate，电商视频/套图参考中已记录的不匹配或未封装操作用 fetch 调原接口。知识正文用 `search_iyw_knowledge`，保留宿主会话选择范围。
 
 ## 按任务检索
 
@@ -12,6 +12,12 @@
 
 | 新版任务关键词 | 按需读取 |
 | --- | --- |
+| 技能/专家包/插件、个人/组织/公开市场、上传发布、元数据管理 | [市场入口与受众](capability-market.md)、[逐文件上传](market-upload.md) |
+| 市场浏览、下载ZIP、票据、依赖安装、最低宿主版本、更新与恢复 | [市场下载与接入](market-download.md) |
+| MCP连接器搜索/安装/授权/启停、含连接器插件发布、客户端安装任务 | [连接器操作](connector-management.md)、[宿主接入](connector-host-integration.md) |
+| 连接器目录后台、制品上传、草稿/发布/下架 | [连接器后台发布](connector-publishing.md) |
+| 插件v1/v2、原生导入、权限/参数/业务账号、客户端管理接口 | [插件包](plugin-packaging.md)、[宿主接口](market-host-integration.md) |
+| 知识库上传入库、解析同步、对话范围、检索引用、资料维护 | [知识库工作流](knowledge-workflows.md)、[客户端对接](knowledge-host-integration.md) |
 | L0/L1/L2/L3、会员权益、企业权限、authCode、容量、签名 | [权限分层](iyw-api-access-levels.md)、[调用约定](iyw-api-access-contracts.md) |
 | 视频生成、电商视频、产品演绎、视频复刻、自动导演、视频脚本/历史 | [电商视频](iyw-api-ecommerce-video.md)，视频生成优先路由 |
 | 商品套图、电商套图、A+、Listing、卖点、爆款复刻、图片版本 | [商品套图与 A+](iyw-api-product-kits.md) |
@@ -41,7 +47,7 @@
 | 需求大厅、比稿、稿件、报名、投稿、设计师、入驻、作品分类 | [门户需求与作品](iyw-api-portal-demand-creation.md) | `/Demand`、`/Creation`、`/designer/settled` |
 | 版权登记、证书、模板、提现、充值、合同、签署、实名认证 | [门户版权与财务](iyw-api-portal-copyright-finance.md) | `/Copyright`、`/Finance`、`/Contract` |
 | 用户中心、收藏分组、店铺、企业展厅、资质、帮助、投诉、文档解析 | [门户用户与内容](iyw-api-portal-account-content.md) | `/User`、`/Shop`、`/Enterprise`、`/Help` |
-| 生图、变款、重绘、扩图、放大、抠图、蒙版、消除、矢量、色号 | [图片工具参数](iyw-image-tools.md)，仅核对原文时读 [图片接口证据](iyw-image-api-source.md)；内置转 3D 已禁用 | `generate_iyw_image` |
+| 生图、变款、重绘、扩图、放大、抠图、蒙版、消除、矢量、色号 | [图片工具参数](iyw-image-tools.md)，仅核对原文时读 [图片接口证据](iyw-image-api-source.md)；内置转 3D 接口已禁用，编码任务仍可本地用 Three.js 建模 | `generate_iyw_image` |
 | 上传文件、文档、压缩包、音频、视频、1G、文件 URL | [通用上传](iyw-upload.md) | `upload_iyw_file` |
 
 ## 三层披露

@@ -397,6 +397,7 @@ fn plugin_call_context(
 ) -> PluginCallContext {
     let context = PluginCallContext {
         connection_id: session.connection_id.to_string(),
+        conversation_id: None,
         plugin_slug: plugin_slug.to_string(),
         capability_id: capability_id.to_string(),
         workspace_key: crate::commands::skill_inventory::workspace_key(Some(

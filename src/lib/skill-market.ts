@@ -1,5 +1,7 @@
 import { getTransport } from "@/lib/transport"
 import type { AgentSkillItem, AgentType } from "@/lib/types"
+import { normalizedPluginPlatforms } from "@/lib/plugin-platforms"
+import { validatePluginMinimumVersion } from "@/lib/plugin-client-version"
 
 export type SkillMarketVisibility = "public" | "private"
 export type SkillMarketPublisher = "official" | "user"
@@ -11,6 +13,8 @@ export interface SkillPluginManifest {
   name: string
   version: string
   targets: Array<"codex" | "claude_code" | "iyw-claw">
+  platforms?: string[]
+  minClientVersion?: string
   components: SkillPluginComponent[]
   bindings: SkillPluginBinding[]
   permissions?: SkillPluginPermissions | null
@@ -356,6 +360,8 @@ async function validatePluginFolderEntry(
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
     const manifest = JSON.parse(text) as Record<string, unknown>
+    normalizedPluginPlatforms(manifest.platforms)
+    validatePluginMinimumVersion(manifest)
     if (
       manifest.name !== folderName ||
       typeof manifest.version !== "string" ||
@@ -472,6 +478,7 @@ export type SkillMarketViewV2 =
 export type SkillMarketInstallErrorCode =
   | "artifact_not_ready"
   | "client_incompatible"
+  | "platform_unsupported"
   | "audience_denied"
   | "dependency_unavailable"
   | "version_blocked"
@@ -785,11 +792,14 @@ export type SkillMarketErrorAction =
   | "update_client"
   | "contact_admin"
   | "diagnostics"
+  | "choose_version"
 
 export function installErrorAction(
   code: SkillMarketInstallErrorCode
 ): SkillMarketErrorAction {
   switch (code) {
+    case "platform_unsupported":
+      return "choose_version"
     case "disk_full":
       return "free_space"
     case "client_incompatible":

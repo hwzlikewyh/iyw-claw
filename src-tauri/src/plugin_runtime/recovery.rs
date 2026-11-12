@@ -1,15 +1,39 @@
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
+use crate::app_error::AppCommandError;
 use crate::db::service::plugin_installation_service::PluginInstallationRecord;
+use sea_orm::DatabaseConnection;
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CurrentPointer {
-    version: String,
-    content_sha256: String,
-    object_sha256: String,
+pub(crate) struct CurrentPointer {
+    pub version: String,
+    pub content_sha256: String,
+    pub object_sha256: String,
+    #[serde(default)]
+    pub market: Option<crate::commands::acp::MarketSkillMarker>,
+    #[serde(default)]
+    pub plugin_dependencies: Vec<i64>,
+    #[serde(default)]
+    pub account_scope: String,
+}
+
+pub(super) fn scope_matches(record: &PluginInstallationRecord, scope: Option<&str>) -> bool {
+    read_pointer(Path::new(&record.installation.install_root)).is_some_and(|pointer| {
+        !pointer.account_scope.is_empty() && Some(pointer.account_scope.as_str()) == scope
+    })
+}
+
+const MAX_POINTER_BYTES: u64 = 128 * 1024;
+
+pub(crate) fn read_pointer(version_root: &Path) -> Option<CurrentPointer> {
+    let path = version_root.parent()?.parent()?.join("current.json");
+    if std::fs::metadata(&path).ok()?.len() > MAX_POINTER_BYTES {
+        return None;
+    }
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
 pub(super) fn valid_current_pointer(record: &PluginInstallationRecord) -> bool {
@@ -24,12 +48,7 @@ pub(super) fn valid_current_pointer(record: &PluginInstallationRecord) -> bool {
     if expected_root.as_deref() != Some(version_root) {
         return false;
     }
-    let Some(plugin_root) = version_root.parent().and_then(Path::parent) else {
-        return false;
-    };
-    let pointer = std::fs::read(plugin_root.join("current.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<CurrentPointer>(&bytes).ok());
+    let pointer = read_pointer(version_root);
     version_root.is_dir()
         && pointer.is_some_and(|value| {
             value.version == record.installation.version
@@ -59,4 +78,29 @@ pub(super) fn log_recovery_artifacts() {
             );
         }
     }
+}
+
+pub(super) async fn recover_interrupted_installations(
+    conn: &DatabaseConnection,
+) -> Result<(), AppCommandError> {
+    let records = crate::db::service::plugin_installation_service::list_installations(conn)
+        .await
+        .map_err(AppCommandError::db)?;
+    for record in records
+        .into_iter()
+        .filter(|record| record.status == "installing" || record.reconcile_state == "installing")
+    {
+        tracing::warn!(
+            plugin=%record.slug,
+            version=%record.version,
+            "[plugin-registry] interrupted installation marked for repair"
+        );
+        crate::db::service::plugin_installation_service::mark_repair_required(
+            conn,
+            record.market_skill_id,
+        )
+        .await
+        .map_err(AppCommandError::db)?;
+    }
+    Ok(())
 }

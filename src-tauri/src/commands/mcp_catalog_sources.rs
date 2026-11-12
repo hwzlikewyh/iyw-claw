@@ -18,6 +18,8 @@ pub struct ManagedMcpCatalogSource {
     pub component_key: String,
     #[serde(default)]
     pub required_skill_keys: Vec<String>,
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub platforms: Vec<String>,
     pub template_spec: Value,
 }
 
@@ -34,6 +36,16 @@ pub struct PluginCatalogMutation {
     pub previous: ManagedMcpCatalog,
     pub connector_ids: BTreeSet<String>,
     pub requires_reconcile: bool,
+}
+
+pub(crate) fn require_platform(entry:&ManagedMcpCatalogEntry)->Result<(),AppCommandError>{
+    if entry.sources.is_empty() || entry.sources.values().any(|source|crate::commands::skill_market::plugin_platforms::supported_current(&source.platforms)) {return Ok(())}
+    Err(AppCommandError::configuration_invalid("此连接器所属插件不支持当前平台，请选择适用版本或关闭本次选择"))
+}
+
+pub(crate) fn removal_snapshot(catalog:&ManagedMcpCatalog,owner_id:&str)->ManagedMcpCatalog{
+    let mut next=catalog.clone();let removed=remove_owner_sources(&mut next,owner_id);
+    remove_orphaned_plugin_entries(&mut next,catalog,&removed);next
 }
 
 pub(crate) async fn replace_plugin_connectors_unlocked<F>(

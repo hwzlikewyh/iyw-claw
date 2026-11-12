@@ -34,6 +34,7 @@ pub struct ExpectedTool {
 #[derive(Clone)]
 pub struct PluginCallContext {
     pub connection_id: String,
+    pub conversation_id: Option<i64>,
     pub plugin_slug: String,
     pub capability_id: String,
     pub workspace_key: String,
@@ -81,6 +82,7 @@ pub struct PluginAppReadRequest {
 }
 
 pub struct PluginAppToolCall {
+    pub conversation_id: i64,
     pub plugin_slug: String,
     pub plugin_version: String,
     pub app_key: String,
@@ -89,6 +91,14 @@ pub struct PluginAppToolCall {
     pub workspace_key: String,
     pub workspace_dir: PathBuf,
     pub agent_type: crate::models::AgentType,
+}
+
+pub struct PluginRuntimeCall {
+    pub tool_name: String,
+    pub arguments: serde_json::Map<String, Value>,
+    pub conversation_id: Option<i64>,
+    pub cancellation: CancellationToken,
+    pub authority_cancellation: CancellationToken,
 }
 
 #[derive(Debug, Clone)]

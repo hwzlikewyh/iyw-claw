@@ -36,6 +36,11 @@ pub(super) struct PortableManifestV1 {
     pub(super) name: String,
     pub(super) version: String,
     pub(super) targets: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "super::plugin_types::deserialize_null_vec"
+    )]
+    pub(super) platforms: Vec<String>,
     pub(super) components: PortableComponentsV1,
 }
 
@@ -77,12 +82,12 @@ struct PluginManifestHeader {
     schema_version: u32,
 }
 
-pub(super) struct ValidatedPluginPackage {
+pub(crate) struct ValidatedPluginPackage {
     pub(super) manifest: SkillPluginManifest,
     pub(super) connector_specs: BTreeMap<String, serde_json::Value>,
 }
 
-pub(super) fn validate_plugin_package(
+pub(crate) fn validate_plugin_package(
     package: &ValidatedSkillPackage,
     expected: &SkillPluginManifest,
     slug: &str,
@@ -107,10 +112,12 @@ pub(super) fn validate_plugin_summary(
     slug: &str,
     version: &str,
 ) -> Result<(), AppCommandError> {
+    super::plugin_platforms::normalized(&manifest.platforms)?;
     if manifest.schema_version == 2 {
         return super::plugin_manifest_v2::validate_summary_v2(manifest, slug, version);
     }
     if manifest.schema_version != 1
+        || !manifest.min_client_version.is_empty()
         || manifest.name != slug
         || manifest.version != version
         || manifest.targets != ["codex", "claude_code"]
@@ -182,9 +189,7 @@ fn parse_mcp_servers(
         return Ok(BTreeMap::new());
     }
     if codex.mcp_servers.as_ref().and_then(|value| value.as_str()) != Some("./.mcp.json") {
-        return Err(invalid_plugin(
-            "星河 mcpServers must reference ./.mcp.json",
-        ));
+        return Err(invalid_plugin("星河 mcpServers must reference ./.mcp.json"));
     }
     let manifest: McpManifest = parse_document(files, MCP_MANIFEST)?;
     if manifest.mcp_servers.keys().any(|key| !valid_key(key)) {
@@ -222,6 +227,7 @@ pub(super) fn find_file<'a>(files: &'a [PackageFile], path: &str) -> Option<&'a 
 }
 
 fn canonical_manifest(mut value: SkillPluginManifest) -> SkillPluginManifest {
+    value.platforms.sort();
     value.components.sort_by(|left, right| {
         (&left.kind, &left.key, &left.path, &left.server_key).cmp(&(
             &right.kind,

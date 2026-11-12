@@ -8,7 +8,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from portable_manifest import SCHEMA_VERSION, SUPPORTED_TARGETS
+from portable_manifest import SCHEMA_VERSION, SUPPORTED_TARGETS, SUPPORTED_PLATFORMS
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SEMVER_RE = re.compile(
@@ -108,7 +108,8 @@ def _validate_iyw_manifest(
     manifest: dict[str, Any],
     errors: list[str],
 ) -> None:
-    _reject_unknown(manifest, {"schemaVersion", "name", "version", "targets", "components"}, ".iyw-plugin.json", errors)
+    _reject_unknown(manifest, {"schemaVersion", "name", "version", "targets", "platforms", "components"}, ".iyw-plugin.json", errors)
+    _validate_platforms(manifest.get("platforms"), errors)
     if manifest.get("schemaVersion") != SCHEMA_VERSION:
         errors.append(f".iyw-plugin.json field `schemaVersion` must be {SCHEMA_VERSION}")
     name = _required_string(manifest, "name", ".iyw-plugin.json", errors)
@@ -142,6 +143,16 @@ def _validate_iyw_manifest(
     )
     if len(server_keys) != len(set(server_keys)):
         errors.append(".iyw-plugin.json connector `serverKey` values must be unique")
+
+
+def _validate_platforms(values: Any, errors: list[str]) -> None:
+    if values is None:
+        return
+    if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+        errors.append(".iyw-plugin.json field `platforms` must be an array of strings")
+        return
+    if len(values) != len(set(values)) or any(value not in SUPPORTED_PLATFORMS for value in values):
+        errors.append(".iyw-plugin.json field `platforms` contains unsupported or duplicate values")
 
 
 def _validate_connectors(

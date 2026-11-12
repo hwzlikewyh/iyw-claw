@@ -10,6 +10,10 @@ use crate::commands::skill_market::SkillPluginManifest;
 use crate::db::service::plugin_installation_service::{self, PluginInstallationRecord};
 
 static GLOBAL_REGISTRY: OnceLock<PluginRegistry> = OnceLock::new();
+static MUTATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static RECONCILE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub(crate) async fn lock_mutation() -> tokio::sync::MutexGuard<'static, ()> { MUTATION_LOCK.lock().await }
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +78,7 @@ impl Default for PluginRegistry {
 impl PluginRegistry {
     pub async fn load(conn: &DatabaseConnection) -> Result<Self, AppCommandError> {
         super::recovery::log_recovery_artifacts();
+        super::recovery::recover_interrupted_installations(conn).await?;
         let registry = Self::default();
         registry.reconcile(conn).await?;
         Ok(registry)
@@ -87,13 +92,17 @@ impl PluginRegistry {
     }
 
     pub async fn reconcile(&self, conn: &DatabaseConnection) -> Result<bool, AppCommandError> {
+        let _guard = RECONCILE_LOCK.lock().await;
         let records = plugin_installation_service::list_records(conn)
             .await
             .map_err(AppCommandError::db)?;
+        let scope = if records.iter().any(|record|record.installation.schema_version >= 2) {
+            crate::commands::mcp_cli_config::account_scope(conn).await.ok()
+        } else { None };
         let mut plugins = BTreeMap::new();
         for record in records {
             let slug = record.installation.slug.clone();
-            match descriptor(record) {
+            match descriptor(record, scope.as_deref()) {
                 Ok((key, value)) => {
                     plugins.insert(key, value);
                 }
@@ -102,6 +111,7 @@ impl PluginRegistry {
                 }
             }
         }
+        super::dependencies::apply(&mut plugins);
         let digest = snapshot_digest(&plugins)?;
         let current = self.snapshot();
         if current.digest == digest {
@@ -177,6 +187,7 @@ pub fn market_skill_state_global(market_skill_id: i64) -> Option<(bool, bool)> {
 
 fn descriptor(
     record: PluginInstallationRecord,
+    scope: Option<&str>,
 ) -> Result<(String, PluginDescriptor), AppCommandError> {
     let manifest: SkillPluginManifest = serde_json::from_str(&record.installation.manifest_json)
         .map_err(|error| {
@@ -184,6 +195,9 @@ fn descriptor(
                 .with_detail(error.to_string())
         })?;
     let available = super::recovery::valid_current_pointer(&record)
+        && (manifest.schema_version < 2 || super::recovery::scope_matches(&record, scope))
+        && crate::commands::skill_market::plugin_platforms::supported_current(&manifest.platforms)
+        && crate::commands::skill_market::plugin_client_version::require_current(&manifest.min_client_version).is_ok()
         && record.installation.status == "installed"
         && record.installation.reconcile_state == "ready"
         && (manifest.schema_version < 2 || record.installation.trust_state == "trusted");

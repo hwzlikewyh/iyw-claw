@@ -77,6 +77,8 @@ pub fn router() -> Option<PluginRouter> {
     GLOBAL_ROUTER.get().cloned()
 }
 
+pub(crate) fn supervisor() -> Option<Arc<PluginRuntimeSupervisor>> { GLOBAL_SUPERVISOR.get().cloned() }
+
 pub fn install_database(database: sea_orm::DatabaseConnection) {
     let _ = GLOBAL_DATABASE.set(database);
 }

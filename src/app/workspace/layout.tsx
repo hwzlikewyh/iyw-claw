@@ -7,10 +7,12 @@ import {
   useEffect,
   useRef,
   useState,
+  type RefCallback,
 } from "react"
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
-import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
+import { NetworkStatusBar } from "@/components/layout/network-status-bar"
+import { useNewConversationBrowser } from "@/hooks/use-new-conversation-browser"
 import { Sidebar } from "@/components/layout/sidebar"
 import {
   AppWorkspaceProvider,
@@ -62,14 +64,17 @@ import { RemoteConnectionGate } from "@/contexts/remote-connection-context"
 import { UpdateProvider } from "@/components/providers/update-provider"
 import { TabBar } from "@/components/tabs/tab-bar"
 import { TerminalPanel } from "@/components/terminal/terminal-panel"
-import { AuxPanel } from "@/components/layout/aux-panel"
+import { MobileAuxPanel } from "@/components/layout/mobile-aux-panel"
 import { FileWorkspaceTabBar } from "@/components/files/file-workspace-tab-bar"
 import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
 import { ExternalConflictDialog } from "@/components/files/external-conflict-dialog"
-import { SettingsDialog } from "@/components/settings/settings-dialog"
+import { WebSettingsDialog } from "@/components/settings/web-settings-dialog"
 import { TrayActionBridge } from "@/components/layout/tray-action-bridge"
 import { AppToaster } from "@/components/ui/app-toaster"
-import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
+import {
+  DeepLinkBootstrap,
+  PetFocusBridge,
+} from "@/components/workspace/deep-link-bootstrap"
 import { NativeShareInbox } from "@/components/native-share/native-share-inbox"
 import { ModelCatalogBootstrap } from "@/components/workspace/model-catalog-bootstrap"
 import {
@@ -200,23 +205,6 @@ function TabKeysSync() {
   useEffect(() => {
     registerVisibleTabKeys(keys)
   }, [keys, registerVisibleTabKeys])
-  return null
-}
-
-/**
- * Auto-hides the right (aux) panel whenever a folderless chat conversation
- * becomes active. Effect fires only on the `isChatMode` rising edge (it does NOT
- * depend on `isOpen`), so it won't fight a user who reopens the panel — though in
- * practice the toggle button and shortcut are also hidden in chat mode, making
- * the hide effectively sticky for the chat session. Leaving chat mode does not
- * auto-restore (kept simple); the user reopens it on a normal folder.
- */
-function ChatModeAuxAutoHide() {
-  const isChatMode = useIsActiveChatMode()
-  const { setOpen } = useAuxPanelContext()
-  useEffect(() => {
-    if (isChatMode) setOpen(false)
-  }, [isChatMode, setOpen])
   return null
 }
 
@@ -490,11 +478,6 @@ function MobileFolderWorkspaceShell({
     restored: sidebarRestored,
     toggle: toggleSidebar,
   } = useSidebarContext()
-  const {
-    isOpen: auxOpen,
-    restored: auxRestored,
-    toggle: toggleAux,
-  } = useAuxPanelContext()
   const { isOpen: terminalOpen, toggle: toggleTerminal } = useTerminalContext()
 
   return (
@@ -514,17 +497,6 @@ function MobileFolderWorkspaceShell({
         <MobileWorkspaceContent>{children}</MobileWorkspaceContent>
       </main>
 
-      <Sheet open={auxRestored && auxOpen} onOpenChange={toggleAux}>
-        <SheetContent
-          side="right"
-          showCloseButton={false}
-          className="w-[85%] max-w-[360px] p-0"
-        >
-          <SheetTitle className="sr-only">Panel</SheetTitle>
-          <AuxPanel />
-        </SheetContent>
-      </Sheet>
-
       <Sheet open={terminalOpen} onOpenChange={toggleTerminal}>
         <SheetContent
           side="bottom"
@@ -541,7 +513,13 @@ function MobileFolderWorkspaceShell({
   )
 }
 
-function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
+function FolderWorkspaceShell({
+  children,
+  auxSlotRef,
+}: {
+  children: React.ReactNode
+  auxSlotRef: RefCallback<HTMLDivElement>
+}) {
   const { zoomLevel } = useZoomLevel()
   const {
     isOpen: sidebarOpen,
@@ -1019,9 +997,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
           minSize={auxOpen ? auxSizeRange.minSize : 0}
           maxSize={auxOpen ? auxSizeRange.maxSize : 0}
         >
-          <div className="h-full min-h-0 overflow-hidden">
-            <AuxPanel />
-          </div>
+          <div ref={auxSlotRef} className="h-full min-h-0 overflow-hidden" />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -1030,16 +1006,25 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 
 function FolderLayoutShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile()
+  const [auxSlot, setAuxSlot] = useState<HTMLDivElement | null>(null)
+  useNewConversationBrowser()
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
-      <ChatModeAuxAutoHide />
       <FolderTitleBar />
+      {isMobile && (
+        <div className="flex h-7 shrink-0 items-center justify-end px-3">
+          <NetworkStatusBar />
+        </div>
+      )}
       {isMobile ? (
         <MobileFolderWorkspaceShell>{children}</MobileFolderWorkspaceShell>
       ) : (
-        <FolderWorkspaceShell>{children}</FolderWorkspaceShell>
+        <FolderWorkspaceShell auxSlotRef={setAuxSlot}>
+          {children}
+        </FolderWorkspaceShell>
       )}
+      <MobileAuxPanel mobile={isMobile} desktopSlot={auxSlot} />
       <AppToaster
         position="bottom-right"
         duration={TOAST_DURATION_MS}
@@ -1099,7 +1084,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                 <DeepLinkBootstrap />
                                 <NativeShareInbox />
                                 <SidebarViewOptionsProvider>
-                                  <SettingsDialog />
+                                  <WebSettingsDialog />
                                   {/* Always mounted: external-change conflicts must be
                             resolvable even with the aux file tree closed. */}
                                   <ExternalConflictDialog />
@@ -1111,6 +1096,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                             <AutomationsViewProvider>
                                               <WorkbenchRouteProvider>
                                                 <WorkbenchRouteConversationSync />
+                                                <PetFocusBridge />
                                                 <TrayActionBridge />
                                                 <FolderLayoutShell>
                                                   {children}

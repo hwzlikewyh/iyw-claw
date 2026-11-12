@@ -1,5 +1,13 @@
 # 本地模型网关实现方案
 
+## 2026-11-12 图片 edits 全链路 URL 传输
+
+经过本地模型网关的 edits 均发送 `images[].image_url` 与 `mask.image_url`。
+历史 JSON inline 内容仍由本机直传对象存储；multipart 由本地网关受限落盘、校验、
+复用同一存储票据后改成 JSON URL。Fusion 将兼容直连旧客户端的 multipart 转成
+同一 JSON URL 契约。上游拒绝 URL 格式时返回原错误，不回退为图片文件流。
+对象存储或 URL 解析失败时在远程模型调用前终止，不把图片字节送入 Fusion 上游。
+
 ## 2026-10-27 跨渠道本地图片转换（用户要求直接优化）
 
 本地复用现有 AssetCache，识别历史 managed ID，并按 Fusion 返回的模型/协议 URL 传输策略在本机改写。
@@ -96,9 +104,9 @@ OpenAI Docs 官方站点在调研时无法取得正文，接口类型补充核�
 
 普通 JSON：Responses input_image、Chat image_url、Messages image/source，以及 tool_result 的嵌套图片按结构处理。只替换图片源字段范围，原始 JSON 其余字节尽可能不动；大字符串不加载为 String。
 
-已有 image_id 透传。HTTPS 源不下载。multipart 有界接收后按原文件契约转发，**本轮不将 multipart 文件转成 URL，因此这类请求仍占 Fusion 图片带宽**。SDK 通过 prepare 的 upload 请求也在本地转换为直传，返回原资源响应契约。
+已有 image_id 解析后始终转换为 `image_url`。HTTPS 源不下载。multipart 有界接收后校验文件并使用现有对象存储 prepare/init、PC 直传和 complete；相同内容复用本地元数据和签名票据，转换成 JSON `images[].image_url` / `mask.image_url` 后才进入 Fusion relay。SDK 通过 prepare 的 upload 请求也在本地转换为直传，返回原资源响应契约。
 
-编辑兼容 JSON 的 `images[].image_url` 和 `mask.image_url` 转为受管引用；Fusion 校验所有者后先改 HTTPS。沿用既有 400/415/422 格式拒绝时的 JSON→multipart 回退，仅在该阶段从自己的受管对象读取原字节，不下载任意客户端 URL。读取总原图受 32 MiB 限制，multipart 最终仍受原有 32 MiB 限制。此兼容分支节省 PC→Fusion 入站，不能节省 TOS→Fusion→上游的原图流量；没有重复调用成功生图的本地重试。
+编辑 inline data URL、历史受管引用及 mask 均经直传存储再转成受管 HTTPS `image_url`；客户端 HTTPS 源不下载。Fusion 校验所有者后使用 HTTPS 引用，不读取或恢复图片字节。远程上游的格式拒绝不会触发 JSON→multipart 回退，保留原响应并交由调用方显式处理。单图仍受 32 MiB 限制，图片数量与请求体遵循原有上限；没有重复调用成功生图的本地重试。
 
 WebSocket 用独立双向桥接，上传准备不阻塞上游响应接收，转发子协议及关闭码/原因；文本请求帧经过同一转换，二进制帧原样传递。8 MiB 是明确兼容边界，超限不分割消息、不承诺适用于所有长历史；Fusion 未开放对应 WebSocket 路由时保留其非 101 状态，由 SDK 按原有策略决定是否使用 HTTP。本轮不为 Fusion 新增 WebSocket 服务，也未实测系统代理兼容性。
 

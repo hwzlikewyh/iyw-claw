@@ -78,6 +78,9 @@ export function usePeriodicProfileRefresh({
         refreshPending = false
       }
     }
+    // 登录后立即补齐点数，避免首次查询失败后等待整轮定时刷新。
+    console.info("[iyw-account] Refreshing profile after authentication")
+    void refresh()
     const interval = window.setInterval(
       () => void refresh(),
       PROFILE_REFRESH_INTERVAL_MS

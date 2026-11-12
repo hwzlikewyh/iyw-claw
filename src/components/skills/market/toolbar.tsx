@@ -52,22 +52,36 @@ function ViewTabs({
 }) {
   const t = useTranslations("SkillMarketV2")
   return (
-    <Tabs
-      value={view}
-      onValueChange={(value) => onChange(value as SkillMarketViewV2)}
-      className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-    >
-      <TabsList
-        variant="line"
-        className="h-8 w-max justify-start overflow-visible bg-transparent p-0"
+    <>
+      <select
+        className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:hidden"
+        aria-label={t("viewLabel")}
+        value={view}
+        onChange={(event) => onChange(event.target.value as SkillMarketViewV2)}
       >
         {VIEW_ORDER.map((item) => (
-          <TabsTrigger key={item} value={item} className="h-8 flex-none">
+          <option key={item} value={item}>
             {t(item === "market" ? "audience.globalMarket" : `views.${item}`)}
-          </TabsTrigger>
+          </option>
         ))}
-      </TabsList>
-    </Tabs>
+      </select>
+      <Tabs
+        value={view}
+        onValueChange={(value) => onChange(value as SkillMarketViewV2)}
+        className="hidden min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] sm:flex [&::-webkit-scrollbar]:hidden"
+      >
+        <TabsList
+          variant="line"
+          className="h-8 w-max justify-start overflow-visible bg-transparent p-0"
+        >
+          {VIEW_ORDER.map((item) => (
+            <TabsTrigger key={item} value={item} className="h-8 flex-none">
+              {t(item === "market" ? "audience.globalMarket" : `views.${item}`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+    </>
   )
 }
 
@@ -92,7 +106,7 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
           {props.offline ? (
             <Badge
               variant="outline"
-              className="hidden h-7 px-2 text-[10px] sm:inline-flex"
+              className="hidden h-7 px-2 text-[11px] sm:inline-flex"
             >
               {t("refresh.offline")}
             </Badge>

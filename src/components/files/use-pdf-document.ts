@@ -28,10 +28,7 @@ export function usePdfDocument(src: string, visible: boolean) {
     void acquirePreviewSlot(controller.signal)
       .then(async (slot) => {
         release = slot
-        if (controller.signal.aborted) {
-          slot()
-          return
-        }
+        if (controller.signal.aborted) return slot()
         setError(false)
         task = createPdfTask(src)
         task.onPassword = (update: (password: string) => void) => {
@@ -45,8 +42,11 @@ export function usePdfDocument(src: string, visible: boolean) {
           setNeedsPassword(false)
         }
       })
-      .catch(() => {
-        if (!controller.signal.aborted) setError(true)
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(true)
+          logPdfLoadFailure(cause)
+        }
         destroy()
       })
     return () => {
@@ -57,6 +57,14 @@ export function usePdfDocument(src: string, visible: boolean) {
     }
   }, [src, visible])
   return { document, error, needsPassword, passwordCallback }
+}
+
+function logPdfLoadFailure(cause: unknown) {
+  const status = (cause as { status?: unknown } | null)?.status
+  console.warn("[preview] PDF load failed", {
+    errorType: cause instanceof Error ? cause.name : "unknown",
+    httpStatus: typeof status === "number" ? status : undefined,
+  })
 }
 
 function destroyPdfTask(

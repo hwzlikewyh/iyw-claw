@@ -37,6 +37,26 @@ import { cn } from "@/lib/utils"
 import { AppTitleBar } from "@/components/layout/app-title-bar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { isDesktop } from "@/lib/transport"
+
+async function returnToWorkspace(navigate: (href: string) => void) {
+  try {
+    if (isDesktop()) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window")
+      const currentWindow = getCurrentWindow()
+      if (
+        currentWindow.label === "settings" ||
+        currentWindow.label.startsWith("remote-settings-")
+      ) {
+        await currentWindow.close()
+        return
+      }
+    }
+    navigate("/workspace")
+  } catch (error) {
+    console.error("[SettingsWindow] failed to return to workspace", error)
+  }
+}
 
 export interface SettingsNavItem {
   href: string
@@ -390,7 +410,7 @@ export function SettingsShell({
               onBack()
               return
             }
-            navigateTo("/workspace")
+            void returnToWorkspace(navigateTo)
           }}
         >
           <span className="inline-flex items-center gap-1.5">

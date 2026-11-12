@@ -91,7 +91,7 @@ export function PluginMarketCard({
         {item.summary || market("inventory.noDescription")}
       </span>
       <ComponentCounts item={item} />
-      <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-2 border-t pt-2 text-[10px] text-muted-foreground">
+      <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-2 border-t pt-2 text-[11px] text-muted-foreground">
         <span className="truncate font-mono">
           v{item.currentVersion.version}
         </span>
@@ -114,7 +114,7 @@ function PluginCardHeading({ item }: { item: SkillMarketV2Item }) {
         >
           {item.displayName}
         </span>
-        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
           {item.organizationName ?? item.slug}
         </span>
       </span>

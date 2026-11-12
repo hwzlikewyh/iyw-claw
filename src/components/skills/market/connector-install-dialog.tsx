@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,199 +11,243 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  mcpGetMarketplaceServerDetail,
-  mcpInstallFromMarketplace,
-} from "@/lib/api"
-import type {
-  McpMarketplaceItem,
-  McpMarketplaceServerDetail,
-} from "@/lib/types"
+import type { McpMarketplaceItem } from "@/lib/types"
+import type { ConnectorInstallTask } from "@/lib/connector-install-tasks"
+import { ConnectorInstallFields } from "./connector-install-fields"
+import { ConnectorInstallTaskStatus } from "./connector-install-task-status"
+import { ConnectorOAuthDialog } from "./connector-oauth-dialog"
+import { useConnectorInstall } from "./use-connector-install"
 
-export function ConnectorInstallDialog({
-  item,
-  onClose,
-  onInstalled,
-}: {
+type InstallState = ReturnType<typeof useConnectorInstall>
+
+type ConnectorInstallDialogProps = {
   item: McpMarketplaceItem
+  task?: ConnectorInstallTask
   onClose: () => void
-  onInstalled: () => void
-}) {
-  const t = useTranslations("ConnectorMarket")
-  const [detail, setDetail] = useState<McpMarketplaceServerDetail | null>(null)
-  const [optionId, setOptionId] = useState("")
-  const [values, setValues] = useState<Record<string, string>>({})
-  const [error, setError] = useState("")
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    let active = true
-    mcpGetMarketplaceServerDetail({
-      providerId: item.provider_id,
-      serverId: item.server_id,
-    })
-      .then((value) => {
-        if (active) {
-          setDetail(value)
-          setOptionId(value.default_option_id ?? "")
-        }
-      })
-      .catch((cause) => {
-        if (active) setError(String(cause))
-      })
-    return () => {
-      active = false
-    }
-  }, [item.provider_id, item.server_id])
-  const option = detail?.install_options.find((value) => value.id === optionId)
-  const installation = option?.spec.iyw_install as
-    | { runtime?: string; artifact?: boolean; auth_mode?: string }
-    | undefined
-  const install = async () => {
-    if (!option) return
-    setBusy(true)
-    setError("")
-    try {
-      const parameters: Record<string, unknown> = {}
-      for (const field of option.parameters) {
-        const raw = values[field.key]
-        if (raw == null || raw === "") {
-          if (field.required && field.default_value == null)
-            throw new Error(`${field.label}: ${t("required")}`)
-          continue
-        }
-        parameters[field.key] = parseValue(raw, field.kind)
-      }
-      await mcpInstallFromMarketplace({
-        providerId: item.provider_id,
-        serverId: item.server_id,
-        optionId: option.id,
-        protocol: option.protocol,
-        parameterValues: parameters,
-      })
-      onInstalled()
-    } catch (cause) {
-      setError(String(cause))
-    } finally {
-      setBusy(false)
-    }
+  onTaskChanged: () => void
+  onManageInstalled: () => void
+  installed: boolean
+}
+
+export function ConnectorInstallDialog(props: ConnectorInstallDialogProps) {
+  const state = useConnectorInstall(props)
+  const [oauth, setOAuth] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const showForm =
+    !state.busy &&
+    (editing || !props.installed || state.task?.phase !== "completed")
+  const begin = async () => {
+    if (await state.install()) setEditing(false)
   }
+  if (oauth)
+    return (
+      <ConnectorOAuthDialog
+        id={props.item.server_id}
+        onClose={() => setOAuth(false)}
+      />
+    )
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !busy) onClose()
+        if (!open) props.onClose()
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{item.name}</DialogTitle>
+      <DialogContent className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="p-6 pb-4">
+          <DialogTitle>{props.item.name}</DialogTitle>
           <DialogDescription className="whitespace-pre-line">
-            {detail?.description ?? item.description}
+            {state.detail?.description || props.item.description}
           </DialogDescription>
         </DialogHeader>
-        <p className="text-xs text-muted-foreground">{t("installHint")}</p>
-        {detail && !detail.install_options.length && (
-          <p role="alert" className="text-sm text-destructive">
-            {t("incompatible")}
-          </p>
-        )}
-        {option?.description && (
-          <p className="text-xs text-muted-foreground">{option.description}</p>
-        )}
-        {option && (
-          <div className="space-y-1 rounded-md bg-muted p-3 text-xs">
-            <p>
-              {t("runtime")}:{" "}
-              {option.protocol === "stdio"
-                ? t("runtime_local")
-                : t("runtime_remote")}
-            </p>
-            <p>
-              {t("authMode")}: {installation?.auth_mode || "none"}
-            </p>
-            {installation?.artifact && <p>{t("artifactDownload")}</p>}
-          </div>
-        )}
-        {detail && (
-          <label className="grid gap-2 text-sm">
-            {t("connectionOption")}
-            <select
-              value={optionId}
-              disabled={busy}
-              className="h-9 rounded-md border bg-background px-2"
-              onChange={(event) => {
-                setOptionId(event.target.value)
-                setValues({})
-              }}
-            >
-              {detail.install_options.map((value) => (
-                <option key={value.id} value={value.id}>
-                  {value.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {option?.parameters.map((field) => (
-          <div key={field.key} className="grid gap-1.5">
-            <Label htmlFor={`connector-param-${field.key}`}>
-              {field.label}
-              {field.required ? " *" : ""}
-            </Label>
-            <Input
-              id={`connector-param-${field.key}`}
-              type={field.secret ? "password" : "text"}
-              autoComplete="off"
-              placeholder={
-                field.placeholder ??
-                (field.default_value == null ? "" : String(field.default_value))
-              }
-              value={values[field.key] ?? ""}
-              disabled={busy}
-              onChange={(event) =>
-                setValues((current) => ({
-                  ...current,
-                  [field.key]: event.target.value,
-                }))
-              }
-            />
-            {field.description && (
-              <p className="text-xs text-muted-foreground">
-                {field.description}
-              </p>
-            )}
-          </div>
-        ))}
-        {error && (
-          <p role="alert" className="text-xs text-destructive">
-            {error}
-          </p>
-        )}
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            {t("cancel")}
-          </Button>
-          <Button disabled={busy || !option} onClick={() => void install()}>
-            {busy ? t("installing") : t("install")}
-          </Button>
-        </DialogFooter>
+        <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-4">
+          <InstallationBody state={state} showForm={showForm} />
+        </div>
+        <InstallationFooter
+          state={state}
+          onClose={props.onClose}
+          onAuthorize={() => setOAuth(true)}
+          onManageInstalled={props.onManageInstalled}
+          onReconfigure={() => setEditing(true)}
+          onBegin={() => void begin()}
+          showForm={showForm}
+        />
       </DialogContent>
     </Dialog>
   )
 }
 
-function parseValue(raw: string, kind: string): unknown {
-  if (kind === "boolean" || kind === "json") return JSON.parse(raw)
-  if (kind === "number" || kind === "integer") {
-    const value = Number(raw)
-    if (
-      !Number.isFinite(value) ||
-      (kind === "integer" && !Number.isInteger(value))
-    )
-      throw new Error("Invalid number")
-    return value
-  }
-  return raw
+function InstallationBody({
+  state,
+  showForm,
+}: {
+  state: InstallState
+  showForm: boolean
+}) {
+  const t = useTranslations("ConnectorMarket")
+  return (
+    <>
+      <p className="text-xs text-muted-foreground">{t("installHint")}</p>
+      {state.task ? (
+        <ConnectorInstallTaskStatus
+          task={state.task}
+          onCancel={() => void state.cancel()}
+        />
+      ) : null}
+      {showForm ? (
+        <InstallationOptions state={state} />
+      ) : (
+        <InstallationInfo state={state} />
+      )}
+      {showForm ? (
+        <ConnectorInstallFields
+          fields={state.option?.parameters || []}
+          values={state.values}
+          disabled={state.busy}
+          onChange={state.setValue}
+        />
+      ) : null}
+      {state.error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {state.error}
+        </p>
+      ) : null}
+      {!state.detail && state.error ? (
+        <Button variant="outline" onClick={state.reload}>
+          {t("retry")}
+        </Button>
+      ) : null}
+    </>
+  )
+}
+
+function InstallationFooter({
+  state,
+  onClose,
+  onAuthorize,
+  onManageInstalled,
+  onReconfigure,
+  onBegin,
+  showForm,
+}: {
+  state: InstallState
+  onClose: () => void
+  onAuthorize: () => void
+  onManageInstalled: () => void
+  onReconfigure: () => void
+  onBegin: () => void
+  showForm: boolean
+}) {
+  const t = useTranslations("ConnectorMarket")
+  const auth = (
+    state.option?.spec.iyw_install as { auth_mode?: string } | undefined
+  )?.auth_mode
+  return (
+    <DialogFooter className="border-t p-4 sm:px-6">
+      <Button variant="outline" onClick={onClose}>
+        {state.busy ? t("continueInBackground") : t("close")}
+      </Button>
+      {state.task?.phase === "completed" && auth === "cli" ? (
+        <Button onClick={onManageInstalled}>{t("cliLogin")}</Button>
+      ) : null}
+      {state.task?.phase === "completed" && auth === "oauth" ? (
+        <Button onClick={onAuthorize}>{t("authorize")}</Button>
+      ) : null}
+      {state.task?.phase === "completed" && !showForm ? (
+        <>
+          <Button variant="outline" onClick={onReconfigure}>
+            {t("configure")}
+          </Button>
+          <Button onClick={onManageInstalled}>{t("manageInstalled")}</Button>
+        </>
+      ) : null}
+      {showForm ? (
+        <Button disabled={state.busy || !state.option} onClick={onBegin}>
+          {state.busy
+            ? t("installing")
+            : state.task && state.task.phase !== "completed"
+              ? t("retry")
+              : t("install")}
+        </Button>
+      ) : null}
+    </DialogFooter>
+  )
+}
+
+function InstallationOptions({ state }: { state: InstallState }) {
+  const t = useTranslations("ConnectorMarket")
+  return (
+    <>
+      {state.detail && !state.detail.install_options.length ? (
+        <p role="alert" className="text-sm text-destructive">
+          {t("incompatible")}
+        </p>
+      ) : null}
+      {state.option?.description ? (
+        <p className="text-xs text-muted-foreground">
+          {state.option.description}
+        </p>
+      ) : null}
+      <InstallationInfo state={state} />
+      {state.detail ? (
+        <label className="grid gap-2 text-sm">
+          {t("connectionOption")}
+          <select
+            value={state.optionId}
+            disabled={state.busy}
+            className="h-10 rounded-md border bg-background px-2"
+            onChange={(event) => state.setOption(event.target.value)}
+          >
+            {state.detail.install_options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+    </>
+  )
+}
+
+function InstallationInfo({ state }: { state: InstallState }) {
+  const t = useTranslations("ConnectorMarket")
+  const installation = state.option?.spec.iyw_install as
+    | { artifact?: boolean; auth_mode?: string }
+    | undefined
+  if (!state.option) return null
+  return (
+    <div className="space-y-1 rounded-md bg-muted p-3 text-sm">
+      <p>
+        {t("runtime")}:{" "}
+        {t(
+          state.option.protocol === "stdio" ? "runtime_local" : "runtime_remote"
+        )}
+      </p>
+      <p>
+        {t("authMode")}:{" "}
+        {t(
+          (
+            {
+              none: "authNone",
+              env: "authParameters",
+              header: "authParameters",
+              oauth: "authBrowser",
+              cli: "cliLogin",
+            } as const
+          )[
+            installation?.auth_mode as
+              | "none"
+              | "env"
+              | "header"
+              | "oauth"
+              | "cli"
+          ] || "authNone"
+        )}
+      </p>
+      {installation?.artifact ? (
+        <p className="text-xs text-muted-foreground">{t("artifactDownload")}</p>
+      ) : null}
+    </div>
+  )
 }

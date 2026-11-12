@@ -1,50 +1,70 @@
 "use client"
 
-import { Files, PackageOpen } from "lucide-react"
+import { useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
 
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
-import { cn } from "@/lib/utils"
+import { AuxPanelHome } from "./aux-panel-home"
 import { TaskArtifactsTab } from "./aux-panel-artifacts-tab"
 import { FileTreeTab } from "./aux-panel-file-tree-tab"
+import { useIywAccount } from "@/contexts/iyw-account-context"
+import { onTransportChange } from "@/lib/transport"
+import { usePluginPanels } from "./use-plugin-panels"
+import { PluginPanelFrame } from "./plugin-panel-frame"
+import { AuxPanelNavigation } from "./plugin-panel-navigation"
 
 export function AuxPanel() {
-  const t = useTranslations("Folder.auxPanel.tabs")
-  const { isOpen, activeTab, setActiveTab } = useAuxPanelContext()
+  const { profile, status } = useIywAccount(),
+    [revision, setRevision] = useState(0)
+  useEffect(
+    () => onTransportChange(() => setRevision((value) => value + 1)),
+    []
+  )
+  return (
+    <AuxWorkspace
+      key={JSON.stringify([
+        profile?.user_id,
+        profile?.org_code,
+        profile?.workspace_pending,
+        status,
+        revision,
+      ])}
+    />
+  )
+}
 
-  if (!isOpen) return null
-  const selected = activeTab === "artifacts" ? "artifacts" : "file_tree"
+function AuxWorkspace() {
+  const t = useTranslations("Folder.auxPanel.tabs")
+  const { isOpen, activeTab } = useAuxPanelContext()
+  const panels = usePluginPanels()
+  const activeApp = panels.tabs.find(
+    (tab) =>
+      `app:${tab.id}` === activeTab &&
+      tab.conversationId === panels.conversationId
+  )
 
   return (
-    <aside className="group/aux-panel flex h-full min-h-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground select-none">
-      <nav
-        className="grid h-10 shrink-0 grid-cols-2 border-b p-1"
-        aria-label={t("label")}
-      >
-        {[
-          { id: "file_tree" as const, label: t("files"), icon: Files },
-          {
-            id: "artifacts" as const,
-            label: t("artifacts"),
-            icon: PackageOpen,
-          },
-        ].map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setActiveTab(id)}
-            className={cn(
-              "flex items-center justify-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              selected === id && "bg-background text-foreground shadow-xs"
-            )}
-            aria-current={selected === id ? "page" : undefined}
-          >
-            <Icon className="size-3.5" />
-            {label}
-          </button>
-        ))}
-      </nav>
-      {selected === "artifacts" ? <TaskArtifactsTab /> : <FileTreeTab />}
+    <aside
+      hidden={!isOpen}
+      className="group/aux-panel h-full min-h-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground select-none"
+      style={isOpen ? { display: "flex" } : undefined}
+    >
+      <AuxPanelNavigation label={t("label")} panels={panels} />
+      {(activeTab === "home" ||
+        (activeTab.startsWith("app:") && !activeApp)) && (
+        <AuxPanelHome panels={panels} />
+      )}
+      {activeTab === "artifacts" && <TaskArtifactsTab />}
+      {activeTab === "file_tree" && <FileTreeTab />}
+      {panels.tabs.map((tab) => (
+        <PluginPanelFrame
+          key={tab.id}
+          tab={tab}
+          visible={isOpen && activeApp?.id === tab.id}
+          sync={panels.updates.states[tab.id]}
+          refresh={panels.updates.refresh}
+        />
+      ))}
     </aside>
   )
 }

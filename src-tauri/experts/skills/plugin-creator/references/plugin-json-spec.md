@@ -1,5 +1,7 @@
 # Portable plugin manifest spec
 
+For IYW HostGateway v2 connector preparation, see [plugin-preparation-v2.md](plugin-preparation-v2.md).
+
 A portable plugin uses one shared content tree with three manifests:
 
 ```text
@@ -41,6 +43,15 @@ explicit component paths; Claude Code discovers `skills/` and `.mcp.json` at the
 ```
 
 - `targets` must contain `codex` and `claude_code` in that order.
+- Optional `platforms` in `.iyw-plugin.json` lists supported host operating systems and architectures,
+  for example `["windows-x86_64", "macos-aarch64"]`. The same optional field is supported by v2
+  HostGateway manifests. Supported keys: `windows-x86_64`, `windows-aarch64`, `macos-x86_64`,
+  `macos-aarch64`, `linux-x86_64`, `linux-aarch64`, `windows7-x86_64`, `windows7-i686`.
+  Omitted or empty retains the legacy unrestricted declaration. Only declare platforms the package
+  can actually run on; operating-system restrictions are separate from `targets` (Agent support).
+  The admin upload form can select multiple platforms and modifies only its uploaded manifest copy.
+  Changing platforms on a published plugin requires a new immutable version; v2's manifest digest
+  covers the declaration. Old clients cannot install new manifests until updated.
 - Skill paths point to direct children of `skills/` containing `SKILL.md`.
 - Connector `serverKey` values exactly cover the server names in `.mcp.json`.
 - `requiresConnectors` references connector `key` values from the same manifest.

@@ -122,8 +122,11 @@ pub(crate) fn update(id: &str, state: &str, url: Option<String>) {
             }
             attempt.view.state = state.to_owned();
             attempt.view.authorization_url = url;
-            attempt.view.error =
-                (state == "failed").then(|| "授权未完成，请检查服务端 OAuth 设置后重试".into());
+            attempt.view.error = match state {
+                "failed"=>Some("授权未完成，请检查服务端 OAuth 设置后重试".into()),
+                "expired"=>Some("授权已超时，请重新打开登录流程".into()),
+                _=>None,
+            };
         }
     }
 }

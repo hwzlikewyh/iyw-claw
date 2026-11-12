@@ -424,6 +424,11 @@ type Action =
       item: AgentInputItem
     }
   | { type: "CONNECTION_REMOVED"; contextKey: string }
+  | {
+      type: "WINDOW_CONNECTION_OWNERSHIP"
+      contextKey: string
+      isViewer: boolean
+    }
   | { type: "REMOVE_ALL" }
   | { type: "REKEY_CONNECTION"; fromKey: string; toKey: string }
   | {
@@ -1264,6 +1269,13 @@ function connectionsReducer(
   action: Action
 ): ConnectionsMap {
   switch (action.type) {
+    case "WINDOW_CONNECTION_OWNERSHIP": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const next = new Map(state)
+      next.set(action.contextKey, { ...conn, isViewer: action.isViewer })
+      return next
+    }
     case "CONNECTION_CREATED": {
       const next = new Map(state)
       next.set(action.contextKey, {
@@ -2761,6 +2773,9 @@ export interface AcpActionsValue {
     }
   ): Promise<void>
   disconnect(contextKey: string): Promise<void>
+  attachWindowConnection(connection: ConnectionState): Promise<void>
+  setWindowConnectionViewer(contextKey: string, isViewer: boolean): void
+  releaseWindowConnection(contextKey: string): void
   disconnectForReplacement(contextKey: string): Promise<boolean>
   disconnectAll(): Promise<void>
   sendPrompt(
@@ -6196,10 +6211,51 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [dispatch, releaseConnectionRoute, teardownAttachSubscription]
   )
 
+  const attachWindowConnection = useCallback(
+    async (connection: ConnectionState) => {
+      await waitForListenerReady()
+      await connectAsViewer(
+        connection.contextKey,
+        connection.connectionId,
+        connection.agentType,
+        connection.workingDir
+      )
+    },
+    [connectAsViewer, waitForListenerReady]
+  )
+  const setWindowConnectionViewer = useCallback(
+    (contextKey: string, isViewer: boolean) => {
+      dispatch({ type: "WINDOW_CONNECTION_OWNERSHIP", contextKey, isViewer })
+    },
+    [dispatch]
+  )
+  const releaseWindowConnection = useCallback(
+    (contextKey: string) => {
+      const connection = storeRef.current.connections.get(contextKey)
+      if (!connection) return
+      clearPendingReplacement(contextKey)
+      pendingConnectRequestsRef.current.delete(contextKey)
+      teardownAttachSubscription(contextKey)
+      releaseConnectionRoute(connection.connectionId, contextKey)
+      pendingUnmappedEventsRef.current.delete(connection.connectionId)
+      lastActivityRef.current.delete(contextKey)
+      dispatch({ type: "CONNECTION_REMOVED", contextKey })
+    },
+    [
+      clearPendingReplacement,
+      teardownAttachSubscription,
+      releaseConnectionRoute,
+      dispatch,
+    ]
+  )
+
   const actions = useMemo<AcpActionsValue>(
     () => ({
       connect,
       disconnect,
+      attachWindowConnection,
+      setWindowConnectionViewer,
+      releaseWindowConnection,
       disconnectForReplacement,
       disconnectAll,
       sendPrompt,
@@ -6224,6 +6280,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [
       connect,
       disconnect,
+      attachWindowConnection,
+      setWindowConnectionViewer,
+      releaseWindowConnection,
       disconnectForReplacement,
       disconnectAll,
       sendPrompt,

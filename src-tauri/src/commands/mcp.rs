@@ -24,9 +24,11 @@ mod market;
 mod market_artifact;
 mod market_cache;
 mod market_install;
+mod market_commit;
 mod market_types;
 mod market_parameters;
 pub(crate) use market_parameters::hydrate_spec as hydrate_market_spec;
+pub(crate) use market_parameters::substitute as substitute_market_parameters;
 
 const MARKETPLACE_OFFICIAL: &str = "official_registry";
 const MARKETPLACE_SMITHERY: &str = "smithery";
@@ -485,14 +487,10 @@ pub async fn mcp_install_from_marketplace_core(
     let selection = InstallSelection::new(option_id, protocol, parameter_values)?;
     if provider_id != market::PROVIDER { return Err(mcp_invalid_input("仅支持爱原物连接器市场")); }
     if spec_override.is_some() { return Err(mcp_invalid_input("市场安装请通过参数表单配置；自定义配置使用手动添加")); }
-    let old_secret = market::require_market_slot(conn, &server_id).await?;
+    super::mcp_install::progress::stage("preparing")?;
+    let slot = market_commit::prepare(conn, &server_id).await?;
     let canonical_spec = market_install::install(conn, &server_id, &selection).await?;
-    upsert_managed_server_and_reconcile(conn, &server_id, canonical_spec).await?;
-    if let Some(key) = old_secret {
-        if crate::keyring_store::delete_connector_secret(&key).is_err() {
-            tracing::warn!(connector=%server_id, "[MCP] 旧连接器凭据清理失败");
-        }
-    }
+    market_commit::commit(conn, (&server_id, slot, canonical_spec)).await?;
     find_managed_server(conn, &server_id).await
 }
 
@@ -513,6 +511,7 @@ async fn upsert_managed_server_and_reconcile(
     spec: Value,
 ) -> Result<(), AppCommandError> {
     let _guard = super::mcp_catalog::lock_operation().await;
+    super::mcp_cli::ensure_idle(server_id)?;
     super::mcp_catalog::upsert_server_unlocked(conn, server_id, spec, scan_legacy_server_specs)
         .await?;
     super::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await
@@ -555,8 +554,14 @@ pub async fn mcp_remove_server_core(
     conn: &DatabaseConnection,
     server_id: String,
 ) -> Result<bool, AppCommandError> {
+    let _storage = crate::acp::agent_storage_work::begin_agent_storage_read().await;
     require_private_agent_storage_for_write()?;
     let _guard = super::mcp_catalog::lock_operation().await;
+    super::mcp_cli::ensure_idle(&server_id)?;
+    let catalog = super::mcp_catalog::load_or_import_unlocked(conn, scan_legacy_server_specs).await?;
+    if let Some(entry) = catalog.servers.get(&server_id) {
+        super::mcp_cli_config::cleanup(conn, &entry.spec).await?;
+    }
     let removed =
         super::mcp_catalog::remove_server_unlocked(conn, &server_id, scan_legacy_server_specs)
             .await?;

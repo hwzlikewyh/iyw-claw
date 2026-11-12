@@ -206,6 +206,7 @@ function InstallPanelBody(props: InstallPanelBodyProps) {
         errorMessage={session.errorMessage}
         errorAction={props.errorAction}
         onRetry={props.onRetry}
+        onClose={props.onClose}
       />
     )
   return null

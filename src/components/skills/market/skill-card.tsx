@@ -108,7 +108,7 @@ function SkillCardSummary({
           >
             {item.displayName}
           </span>
-          <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
             {item.organizationName ?? item.slug}
           </span>
         </span>
@@ -145,7 +145,7 @@ function SkillCardFooter({
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   return (
     <div className="mt-2.5 flex min-w-0 shrink-0 items-center justify-between gap-2 border-t pt-2.5">
-      <span className="truncate font-mono text-[10px] text-muted-foreground">
+      <span className="truncate font-mono text-[11px] text-muted-foreground">
         v{item.currentVersion.version}
       </span>
       <Button

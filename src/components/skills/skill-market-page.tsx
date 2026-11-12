@@ -1,6 +1,8 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useState } from "react"
+import { useIywAccount } from "@/contexts/iyw-account-context"
+import { onTransportChange } from "@/lib/transport"
 import {
   CapabilityMarketShell,
   type CapabilityMarketSection,
@@ -12,12 +14,34 @@ import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn } from "@/lib/utils"
 
 export function SkillMarketPage() {
+  const { profile, status } = useIywAccount()
+  const [transportRevision, setTransportRevision] = useState(0)
+  useEffect(
+    () => onTransportChange(() => setTransportRevision((value) => value + 1)),
+    []
+  )
+  return (
+    <SkillMarketContent
+      key={JSON.stringify([
+        profile?.user_id,
+        profile?.org_code,
+        profile?.workspace_pending,
+        status,
+        transportRevision,
+      ])}
+    />
+  )
+}
+
+function SkillMarketContent() {
   const {
     skillMarketTarget,
     consumeSkillMarketTarget,
     openSkillMarket,
     connectorMarketRequested,
     consumeConnectorMarket,
+    pluginMarketRequested,
+    consumePluginMarket,
   } = useWorkbenchRoute()
   const [section, setSection] = useState<CapabilityMarketSection>("skills")
   const [visited, setVisited] = useState<Set<CapabilityMarketSection>>(
@@ -34,17 +58,30 @@ export function SkillMarketPage() {
 
   useEffect(() => {
     let active = true
-    if (connectorMarketRequested)
+    if (connectorMarketRequested || pluginMarketRequested || skillMarketTarget)
       queueMicrotask(() => {
         if (active) {
-          openSection("connectors")
-          consumeConnectorMarket()
+          if (skillMarketTarget) openSection("skills")
+          else if (pluginMarketRequested) {
+            openSection("plugins")
+            consumePluginMarket()
+          } else {
+            openSection("connectors")
+            consumeConnectorMarket()
+          }
         }
       })
     return () => {
       active = false
     }
-  }, [connectorMarketRequested, consumeConnectorMarket, openSection])
+  }, [
+    connectorMarketRequested,
+    consumeConnectorMarket,
+    pluginMarketRequested,
+    consumePluginMarket,
+    skillMarketTarget,
+    openSection,
+  ])
 
   return (
     <Suspense fallback={null}>

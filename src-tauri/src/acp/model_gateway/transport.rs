@@ -51,6 +51,32 @@ struct Resources {
 }
 
 impl Runtime {
+    pub(super) async fn edit_url_transport(
+        &self,
+        token: &str,
+        model: &str,
+        ids: &[String],
+    ) -> Result<(), super::error::GatewayError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let _permit = self
+            .images
+            .acquire()
+            .await
+            .map_err(|_| super::error::GatewayError::unavailable("Image queue closed"))?;
+        if self
+            .image_resources(token, (model, "images_edits"), ids)
+            .await
+            != Some(true)
+        {
+            return Err(super::error::GatewayError::unavailable(
+                "Edit image URLs could not be resolved",
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) async fn local_url_transport(
         &self,
         token: &str,

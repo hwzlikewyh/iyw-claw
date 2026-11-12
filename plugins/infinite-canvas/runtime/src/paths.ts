@@ -44,10 +44,18 @@ export function assertId(value: string, code: RuntimeErrorCode = "invalid_input"
   if (!ID_PATTERN.test(value)) throw new CanvasRuntimeError(code, "identifier is invalid")
 }
 
+function inspectionPath(pathValue: string): string {
+  // Node 检查带命名空间的 Windows 盘根会报 EISDIR；仅转换盘根，保留子路径的长路径语义。
+  if (process.platform === "win32" && /^\\\\\?\\[A-Za-z]:\\?$/.test(pathValue)) {
+    return `${pathValue.slice(4, 6)}\\`
+  }
+  return pathValue
+}
+
 export async function rejectSymlink(pathValue: string): Promise<void> {
   let current = resolve(pathValue)
   while (true) {
-    const info = await lstat(current)
+    const info = await lstat(inspectionPath(current))
     if (info.isSymbolicLink()) throw new CanvasRuntimeError("path_not_allowed", "symbolic links are not allowed")
     const parent = dirname(current)
     if (parent === current) return
@@ -59,7 +67,7 @@ export async function rejectSymlinkPath(pathValue: string): Promise<void> {
   let current = resolve(pathValue)
   while (true) {
     try {
-      const info = await lstat(current)
+      const info = await lstat(inspectionPath(current))
       if (info.isSymbolicLink()) throw new CanvasRuntimeError("path_not_allowed", "symbolic links are not allowed")
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
