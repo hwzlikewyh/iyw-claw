@@ -1,6 +1,6 @@
 {
   "name": "@iyw/infinite-canvas-plugin",
-  "version": "0.1.13",
+  "version": "0.1.16",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.18.0",
@@ -12,11 +12,15 @@
     "package": "node scripts/package.mjs"
   },
   "dependencies": {
+    "@iyw/infinite-canvas-workbench": "workspace:*",
+    "axios": "^1.16.0",
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",
+    "localforage": "^1.10.0",
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "4.1.17",
     "@types/node": "22.19.7",
     "@vitejs/plugin-react": "5.2.0",
     "esbuild": "0.25.12",

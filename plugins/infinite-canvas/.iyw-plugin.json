@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "name": "infinite-canvas",
-  "version": "0.1.13",
-  "minClientVersion": "0.1.330",
+  "version": "0.1.16",
+  "minClientVersion": "0.1.332",
   "targets": ["iyw-claw"],
   "components": {
     "runtimes": [
@@ -45,7 +45,11 @@
   },
   "permissions": {
     "workspace": { "read": ["canvas/infinite-canvas"], "write": ["canvas/infinite-canvas"] },
-    "network": { "connectDomains": [], "resourceDomains": [], "frameDomains": [] },
-    "host": ["send-message", "clipboard-write", "open-link"]
+    "network": {
+      "connectDomains": ["https://raw.githubusercontent.com"],
+      "resourceDomains": ["https://raw.githubusercontent.com"],
+      "frameDomains": []
+    },
+    "host": ["send-message", "clipboard-write", "open-link", "model-gateway"]
   }
 }
