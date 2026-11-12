@@ -275,6 +275,21 @@
     "reconnect": "已保存。正在运行的会话需重连后使用新选择。",
     "market": "管理连接器"
   },
+  "ComposerPlugins": {
+    "menuLabel": "插件",
+    "search": "搜索已安装插件",
+    "hint": "选用插件的技能或工具，用于本条消息",
+    "loading": "正在读取插件…",
+    "empty": "暂无已安装插件",
+    "noResults": "没有匹配的插件",
+    "retry": "重试",
+    "manage": "管理插件…",
+    "manageRequired": "需要启用或修复，点击管理",
+    "prepareRequired": "请先完成此插件的配置与授权，再返回对话选用",
+    "skills": "{count} 个技能",
+    "tools": "使用插件工具",
+    "usePrompt": "使用插件「{name}」完成此任务。"
+  },
   "ConversationPresentation": {
     "toolActivity": {
       "run": "运行 {target}",

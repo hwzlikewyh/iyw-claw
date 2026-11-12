@@ -66,6 +66,27 @@ impl MarketSkillInstallTransaction {
             tracing::warn!(root_skill_id=self.root_id,error=%error,"[skill-market] 已提交，旧依赖引用清理未完成");
         }
         finish_market_skill_directories(&mut self.replaced);
+        for value in &self.replaced {
+            let Some(legacy) = &value.legacy_source else {
+                continue;
+            };
+            if !path_entry_exists(legacy) {
+                continue;
+            }
+            let Some(legacy_id) = legacy.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if let Err(error) = remove_shared_skill_publications_locked(legacy_id).and_then(|_| {
+                remove_skill_entry(legacy).map_err(|error| AcpError::protocol(error.to_string()))
+            }) {
+                tracing::warn!(
+                    skill_id = %value.skill_id,
+                    legacy = %legacy.display(),
+                    error = %error,
+                    "[skill-market] superseded plugin Skill cleanup failed; legacy directory retained"
+                );
+            }
+        }
     }
 
     pub(crate) fn rollback(mut self) -> Result<(), AcpError> {
@@ -92,6 +113,40 @@ impl Drop for MarketSkillInstallTransaction {
                 tracing::error!(root_skill_id=self.root_id,error=%error,"[skill-market] 中断安装的技能回退未完成，保留备份");
             }
         }
+    }
+}
+
+impl MarketSkillInstallTransaction {
+    pub(crate) async fn migrate_plugin_skill_policies(
+        &self,
+        conn: &sea_orm::DatabaseConnection,
+    ) -> Result<(), crate::app_error::AppCommandError> {
+        let migrations = self
+            .replaced
+            .iter()
+            .filter_map(|value| {
+                value.legacy_source.as_ref().map(|path| {
+                    (
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .map(str::to_string),
+                        value.skill_id.clone(),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        if migrations.iter().any(|(previous, _)| previous.is_none()) {
+            return Err(crate::app_error::AppCommandError::configuration_invalid(
+                "Legacy plugin Skill identity is invalid",
+            ));
+        }
+        let migrations = migrations
+            .into_iter()
+            .map(|(previous, current)| (previous.unwrap_or_default(), current))
+            .collect::<Vec<_>>();
+        crate::db::service::skill_activation_policy_service::migrate_skill_ids(conn, &migrations)
+            .await
+            .map_err(crate::app_error::AppCommandError::db)
     }
 }
 

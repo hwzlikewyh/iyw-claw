@@ -20,6 +20,8 @@ const INTERNAL_MARKERS: &[&str] = &[
 /// 本机依赖环境沿既有技能刷新策略保留，不作为发布源码的一部分。
 pub(crate) const RUNTIME_ENV_DIR_NAMES: [&str; 2] = [".venv", "node_modules"];
 mod directory;
+mod plugin;
+pub(crate) use plugin::plugin_skill_id;
 pub(crate) use directory::validate_directory as validate_plugin_directory;
 pub(crate) use directory::validate_skill_directory;
 

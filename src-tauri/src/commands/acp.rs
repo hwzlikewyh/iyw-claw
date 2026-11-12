@@ -43,6 +43,7 @@ use crate::models::agent::AgentType;
 use crate::web::event_bridge::EventEmitter;
 
 mod runtime_timing;
+mod plugin_skill_migration;
 mod shared_skill_reconcile;
 
 const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
@@ -6016,6 +6017,7 @@ fn read_official_skill_marker(source: &Path) -> Option<OfficialSkillMarker> {
 struct PreparedMarketSkillInstall {
     skill_id: String,
     source: PathBuf,
+    legacy_source: Option<PathBuf>,
     files: Vec<(PathBuf, Vec<u8>)>,
     targets: Vec<AgentType>,
     previous: PreviousMarketSkillState,
@@ -6402,21 +6404,20 @@ fn prepare_market_skill_installs(
         let source = shared_skill_path(&skill_id);
         ensure_market_install_target(&source, &install.marker)?;
         let existed = is_real_skill_directory(&source);
-        if let Some(existing) = existed.then(|| read_market_skill_marker(&source)).flatten() {
+        let state_source = plugin_skill_migration::previous_source(&source, &install.marker);
+        if let Some(existing) = read_market_skill_marker(&state_source) {
             let mut references = market_target_references(&existing);
             references.extend(install.marker.target_references.clone());
             install.marker.target_references = references;
             install.marker.agent_types =
                 Some(market_reference_targets(&install.marker.target_references));
         }
-        let (enabled, publications) = if existed {
-            (
-                shared_skill_publish_enabled(&source, &skill_id)?,
-                existing_shared_skill_publications(&source, &skill_id)?,
-            )
-        } else {
-            (true, Vec::new())
-        };
+        let state_id = state_source.file_name().and_then(|name| name.to_str()).unwrap_or(&skill_id);
+        let enabled = !is_real_skill_directory(&state_source)
+            || shared_skill_publish_enabled(&state_source, state_id)?;
+        let publications = if existed {
+            existing_shared_skill_publications(&source, &skill_id)?
+        } else { Vec::new() };
         let files = market_install_files(&skill_id, &install.marker, install.package, enabled)?;
         let targets = install.marker.agent_types.clone().unwrap_or_default();
         if targets.is_empty() {
@@ -6424,6 +6425,7 @@ fn prepare_market_skill_installs(
         }
         prepared.push(PreparedMarketSkillInstall {
             skill_id: skill_id.clone(),
+            legacy_source: (state_source != source).then_some(state_source),
             source,
             files,
             targets,
@@ -6444,7 +6446,7 @@ fn replace_market_skill_directories(
 ) -> Result<Vec<PreparedMarketSkillInstall>, AcpError> {
     let mut staged = Vec::with_capacity(prepared.len());
     for prepared in prepared {
-        match stage_market_skill_directory(&prepared.source, &prepared.files) {
+        match plugin_skill_migration::stage(&prepared) {
             Ok(staging) => staged.push(StagedMarketSkillInstall { prepared, staging }),
             Err(error) => {
                 cleanup_staged_market_skills(staged);

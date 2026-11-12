@@ -275,6 +275,21 @@
     "reconnect": "Saved. Reconnect a running session to apply the selection.",
     "market": "Manage connectors"
   },
+  "ComposerPlugins": {
+    "menuLabel": "Plugins",
+    "search": "Search installed plugins",
+    "hint": "Use a plugin's skills or tools in this message",
+    "loading": "Loading plugins…",
+    "empty": "No installed plugins",
+    "noResults": "No matching plugins",
+    "retry": "Retry",
+    "manage": "Manage plugins…",
+    "manageRequired": "Enable or repair this plugin",
+    "prepareRequired": "Finish configuring and authorizing this plugin, then return to the conversation",
+    "skills": "{count, plural, one {# skill} other {# skills}}",
+    "tools": "Use plugin tools",
+    "usePrompt": "Use the {name} plugin for this task."
+  },
   "ConversationPresentation": {
     "toolActivity": {
       "run": "Run {target}",

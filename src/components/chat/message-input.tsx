@@ -3,11 +3,17 @@
 import { useAccountChatRequestsBlocked } from "@/components/account/use-account-request-guard"
 import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
+import { ConversationPluginMenu } from "@/components/chat/conversation-plugins"
+import { insertPluginReferences } from "@/components/chat/composer/plugin-reference"
+import type { ComposerPluginChoice } from "@/lib/composer-plugins"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
 import { useNativeShareComposer } from "@/components/native-share/use-native-share-composer"
 import { ComposerActivityBorder } from "./composer-activity-border"
 import { PluginComposerChip } from "./plugin-composer-chip"
-import { pluginPrompt } from "@/lib/plugin-composer-context"
+import {
+  clearComposerPlugin,
+  pluginPrompt,
+} from "@/lib/plugin-composer-context"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {
@@ -2722,6 +2728,20 @@ export function MessageInput({
     [skillPrefix]
   )
 
+  const handlePluginMenuSelect = useCallback(
+    (plugin: ComposerPluginChoice, instruction: string) => {
+      const editor = editorRef.current?.getEditor()
+      if (!editor) return
+      if (attachmentTabId) clearComposerPlugin(attachmentTabId)
+      insertPluginReferences(editor, {
+        plugin,
+        prefix: skillPrefix,
+        instruction,
+      })
+    },
+    [attachmentTabId, skillPrefix]
+  )
+
   const handlePickFiles = useCallback(async () => {
     if (disabled) return
     let picked: string[] = []
@@ -4654,6 +4674,17 @@ export function MessageInput({
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                       <ConversationConnectorMenu tabId={attachmentTabId} />
+                      <ConversationPluginMenu
+                        key={JSON.stringify([
+                          attachmentTabId,
+                          agentType,
+                          defaultPath,
+                        ])}
+                        tabId={attachmentTabId ?? null}
+                        agentType={agentType ?? null}
+                        workspacePath={defaultPath ?? null}
+                        onSelect={handlePluginMenuSelect}
+                      />
                     </DropdownMenuContent>
                   </DropdownMenu>
                   {hasInlineSelectors && (
