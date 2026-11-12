@@ -6,6 +6,7 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::iyw_account::{
+    account_session_fingerprint, disconnect_agents_after_session_change,
     iyw_account_get_profile_core, iyw_account_get_wechat_qrcode_core, iyw_account_list_models_core,
     iyw_account_login_with_password_core, iyw_account_logout_core,
     iyw_account_poll_wechat_login_core, IywAccountProfile, IywWechatPollingResult, IywWechatQrcode,
@@ -30,14 +31,20 @@ pub async fn authenticate(
             "请先完成或停止正在运行的任务，再切换空间",
         ));
     }
-    Ok(Json(
-        crate::commands::iyw_account::iyw_account_auth_core(
-            &state.db.conn,
-            params.request.action,
-            params.request.data,
-        )
-        .await?,
-    ))
+    let previous_session = account_session_fingerprint(&state.db.conn).await;
+    let result = crate::commands::iyw_account::iyw_account_auth_core(
+        &state.db.conn,
+        params.request.action,
+        params.request.data,
+    )
+    .await;
+    disconnect_agents_after_session_change(
+        &state.db.conn,
+        &state.connection_manager,
+        previous_session,
+    )
+    .await;
+    Ok(Json(result?))
 }
 
 #[derive(Deserialize)]
@@ -76,30 +83,58 @@ pub async fn poll_wechat_login(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<PollWechatLoginParams>,
 ) -> Result<Json<IywWechatPollingResult>, AppCommandError> {
-    Ok(Json(
-        iyw_account_poll_wechat_login_core(&state.db.conn, params.qr_token).await?,
-    ))
+    let previous_session = account_session_fingerprint(&state.db.conn).await;
+    let result = iyw_account_poll_wechat_login_core(&state.db.conn, params.qr_token).await;
+    disconnect_agents_after_session_change(
+        &state.db.conn,
+        &state.connection_manager,
+        previous_session,
+    )
+    .await;
+    Ok(Json(result?))
 }
 
 pub async fn login_with_password(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<PasswordLoginParams>,
 ) -> Result<Json<IywAccountProfile>, AppCommandError> {
-    Ok(Json(
-        iyw_account_login_with_password_core(&state.db.conn, params.username, params.password)
-            .await?,
-    ))
+    let previous_session = account_session_fingerprint(&state.db.conn).await;
+    let result =
+        iyw_account_login_with_password_core(&state.db.conn, params.username, params.password).await;
+    disconnect_agents_after_session_change(
+        &state.db.conn,
+        &state.connection_manager,
+        previous_session,
+    )
+    .await;
+    Ok(Json(result?))
 }
 
 pub async fn get_profile(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<IywAccountProfile>, AppCommandError> {
-    Ok(Json(iyw_account_get_profile_core(&state.db.conn).await?))
+    let previous_session = account_session_fingerprint(&state.db.conn).await;
+    let result = iyw_account_get_profile_core(&state.db.conn).await;
+    disconnect_agents_after_session_change(
+        &state.db.conn,
+        &state.connection_manager,
+        previous_session,
+    )
+    .await;
+    Ok(Json(result?))
 }
 
 pub async fn logout(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<()>, AppCommandError> {
-    iyw_account_logout_core(&state.db.conn).await?;
+    let previous_session = account_session_fingerprint(&state.db.conn).await;
+    let result = iyw_account_logout_core(&state.db.conn).await;
+    disconnect_agents_after_session_change(
+        &state.db.conn,
+        &state.connection_manager,
+        previous_session,
+    )
+    .await;
+    result?;
     Ok(Json(()))
 }

@@ -6,7 +6,9 @@ use reqwest::{header, Client, RequestBuilder, Response};
 use super::{NetworkProbeKind, NetworkProbeResult};
 use crate::app_error::AppCommandError;
 
-const TARGET: &str = "speed.cloudflare.com";
+const DOMESTIC_LATENCY_TARGET: &str = "connect.rom.miui.com";
+const DOMESTIC_LATENCY_URL: &str = "https://connect.rom.miui.com/generate_204";
+const TRANSFER_TARGET: &str = "speed.cloudflare.com";
 const DOWNLOAD_URL: &str = "https://speed.cloudflare.com/__down";
 const UPLOAD_URL: &str = "https://speed.cloudflare.com/__up";
 const DOWNLOAD_BYTES: usize = 1_000_000;
@@ -34,15 +36,16 @@ pub(super) async fn measure(kind: NetworkProbeKind) -> Result<NetworkProbeResult
         ));
     }
     let _guard = ProbeGuard;
-    tracing::info!(?kind, target_host = TARGET, "network measurement started");
+    let target_host = target_host(kind);
+    tracing::info!(?kind, target_host, "network measurement started");
     let result = measure_request(kind).await;
     match &result {
         Ok(value) => tracing::info!(
-            ?kind, target_host = TARGET, elapsed_ms = value.elapsed_ms,
+            ?kind, target_host, elapsed_ms = value.elapsed_ms,
             bytes = value.bytes, mbps = ?value.mbps, "network measurement completed"
         ),
         Err(error) => tracing::warn!(
-            ?kind, target_host = TARGET, error = %error, detail = ?error.detail,
+            ?kind, target_host, error = %error, detail = ?error.detail,
             "network measurement failed"
         ),
     }
@@ -76,7 +79,7 @@ async fn measure_request(kind: NetworkProbeKind) -> Result<NetworkProbeResult, A
     let bytes = measured_bytes(kind, received)?;
     Ok(NetworkProbeResult {
         kind,
-        target: TARGET,
+        target: target_host(kind),
         elapsed_ms: elapsed.as_secs_f64() * 1_000.0,
         bytes,
         mbps: (!matches!(kind, NetworkProbeKind::Latency))
@@ -86,6 +89,7 @@ async fn measure_request(kind: NetworkProbeKind) -> Result<NetworkProbeResult, A
 
 fn build_request(client: &Client, kind: NetworkProbeKind) -> RequestBuilder {
     match kind {
+        NetworkProbeKind::Latency => client.get(DOMESTIC_LATENCY_URL),
         NetworkProbeKind::Upload => client
             .post(UPLOAD_URL)
             .header(header::CONTENT_TYPE, "application/octet-stream")
@@ -97,6 +101,13 @@ fn build_request(client: &Client, kind: NetworkProbeKind) -> RequestBuilder {
                 _ => 0,
             },
         )]),
+    }
+}
+
+fn target_host(kind: NetworkProbeKind) -> &'static str {
+    match kind {
+        NetworkProbeKind::Latency => DOMESTIC_LATENCY_TARGET,
+        NetworkProbeKind::Download | NetworkProbeKind::Upload => TRANSFER_TARGET,
     }
 }
 

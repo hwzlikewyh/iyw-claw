@@ -1,5 +1,6 @@
 "use client"
 
+import { useId } from "react"
 import { Loader2, MessageSquare, RefreshCw, Upload } from "lucide-react"
 import {
   Dialog,
@@ -172,14 +173,34 @@ function BatchPreview({ model }: { model: InboxModel }) {
 }
 
 function ConversationTarget({ model }: { model: InboxModel }) {
+  const id = useId()
   return (
     <div className="grid gap-3 border-t pt-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
       <div className="grid min-w-0 gap-1.5">
-        <p className="text-sm">{model.t("target")}</p>
+        <label htmlFor={id} className="text-sm">
+          {model.t("target")}
+        </label>
+        <select
+          id={id}
+          value={model.targetTab}
+          disabled={model.busy}
+          onChange={(event) => model.setTargetTab(event.target.value)}
+          className="h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="">{model.t("chooseConversation")}</option>
+          {model.tabs.map((tab) => (
+            <option key={tab.id} value={tab.id}>
+              {tab.title || model.t("untitled")} ·{" "}
+              {tab.workingDir || tab.agentType}
+            </option>
+          ))}
+        </select>
         <p className="text-xs text-muted-foreground">{model.t("draftOnly")}</p>
       </div>
       <Button
-        disabled={model.busy || model.loading || !model.preview}
+        disabled={
+          model.busy || model.loading || !model.preview || !model.targetTab
+        }
         onClick={() => void model.addToDraft()}
       >
         {model.busy && <Loader2 className="size-4 animate-spin" />}

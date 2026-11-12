@@ -15,13 +15,11 @@ export function PluginPanelFrame({
   visible,
   sync,
   refresh,
-  retry,
 }: {
   tab: PluginPanelTab
   visible: boolean
   sync?: PluginPanelSyncState
   refresh?: () => void
-  retry?: () => Promise<void>
 }) {
   const t = useTranslations("PluginPanels"),
     [fullscreen, setFullscreen] = useState(false)
@@ -61,7 +59,6 @@ export function PluginPanelFrame({
             <PluginAppHost
               {...tab.response}
               fill
-              onRetry={retry}
               toolUpdate={sync?.update}
               displayMode={fullscreen ? "fullscreen" : "inline"}
               onDisplayModeRequest={(mode) => {

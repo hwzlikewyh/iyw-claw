@@ -7,7 +7,8 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 
 use super::client;
-use super::types::{parse_id, SkillInstallPlanItem};
+use super::install_plan::MAX_PACKAGE_BYTES;
+use super::types::{parse_id, SkillInstallPlanItem, SkillPackageType};
 
 const DOWNLOAD_ATTEMPTS: usize = 3;
 
@@ -30,7 +31,11 @@ pub(super) async fn download_package(
     item: &SkillInstallPlanItem,
 ) -> Result<Vec<u8>, AppCommandError> {
     let expected = &item.download;
-    if expected.package_size == 0 {
+    if expected.package_size == 0
+        || (item.package_type != SkillPackageType::Plugin
+            && (expected.package_size > MAX_PACKAGE_BYTES
+                || expected.artifact_size > MAX_PACKAGE_BYTES))
+    {
         return Err(AppCommandError::invalid_input(
             "Skill package size is outside the allowed range",
         ));
@@ -82,6 +87,8 @@ fn validate_ticket(
             .artifact_sha256
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit())
+        || item.package_type != SkillPackageType::Plugin
+            && artifact.artifact_size > MAX_PACKAGE_BYTES
     {
         return Err(AppCommandError::configuration_invalid(
             "Skill artifact ticket does not match the install plan",

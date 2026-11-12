@@ -68,8 +68,7 @@ pub async fn register(root: &Path) -> Result<()> {
         .map_err(|_| invalid("系统分享入口注册超时"))??;
     if !output.status.success() {
         let reason = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!(target: "iyw_native_share", code = ?output.status.code(),
-            reason = %reason.trim(), "share package registration failed");
+        tracing::warn!(target: "iyw_native_share", code = ?output.status.code(), reason = %reason.trim(), "share package registration failed");
         return Err(invalid("系统分享入口注册失败，具体原因已记录在应用日志中"));
     }
     Ok(())

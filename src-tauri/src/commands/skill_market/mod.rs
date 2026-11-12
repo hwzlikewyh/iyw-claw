@@ -2,13 +2,17 @@ mod auto_update;
 mod availability;
 mod availability_snapshot;
 pub(crate) mod client;
+mod download_ticket;
 mod install;
 mod download_ticket;
 mod install_plan;
 mod office_skills;
+pub(crate) mod plugin_client_version;
 mod plugin_components;
 mod plugin_constraints;
+pub(crate) mod plugin_history;
 mod plugin_install;
+mod plugin_install_commit;
 mod plugin_install_context;
 mod plugin_install_commit;
 mod plugin_uninstall;
@@ -18,15 +22,15 @@ mod plugin_install_rollback;
 mod plugin_install_runtime_state;
 mod plugin_manifest;
 mod plugin_manifest_v2;
+pub(crate) mod plugin_platforms;
+mod plugin_receipt;
+pub(crate) mod plugin_remove;
+pub(crate) mod plugin_setup;
 mod plugin_storage;
 mod plugin_storage_io;
 mod plugin_storage_removal;
-mod plugin_receipt;
-pub(crate) mod plugin_history;
 mod plugin_types;
-pub(crate) mod plugin_client_version;
-pub(crate) mod plugin_setup;
-pub(crate) mod plugin_platforms;
+mod plugin_uninstall;
 mod routing_description;
 mod types;
 
@@ -39,6 +43,7 @@ use reqwest::Method;
 use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
+pub(crate) use plugin_manifest::validate_plugin_package as validate_installed_plugin_package;
 pub use plugin_types::{
     SkillPluginBinding, SkillPluginComponent, SkillPluginManifest, SkillPluginPermissions,
 };
@@ -152,7 +157,6 @@ async fn installed_market_skill_ids(
     ids.dedup();
     Ok(ids)
 }
-
 
 async fn installed_market_skill_plugin_refs(
     conn: &DatabaseConnection,

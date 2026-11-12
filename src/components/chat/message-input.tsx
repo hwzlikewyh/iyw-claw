@@ -2731,15 +2731,14 @@ export function MessageInput({
   const handlePluginMenuSelect = useCallback(
     (plugin: ComposerPluginChoice, instruction: string) => {
       const editor = editorRef.current?.getEditor()
-      if (!editor) return
-      if (attachmentTabId) clearComposerPlugin(attachmentTabId)
-      insertPluginReferences(editor, {
-        plugin,
-        prefix: skillPrefix,
-        instruction,
-      })
+      if (editor)
+        insertPluginReferences(editor, {
+          plugin,
+          prefix: skillPrefix,
+          instruction,
+        })
     },
-    [attachmentTabId, skillPrefix]
+    [skillPrefix]
   )
 
   const handlePickFiles = useCallback(async () => {

@@ -47,13 +47,7 @@ interface DetailSidePanelProps {
 export function DetailSidePanel(props: DetailSidePanelProps) {
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   return (
-    <aside
-      className={
-        props.compact
-          ? "border-t bg-muted/10 p-5"
-          : "min-h-0 overflow-y-auto border-t bg-muted/10 p-4 lg:border-t-0 lg:border-l lg:p-5"
-      }
-    >
+    <aside className="min-h-0 overflow-y-auto border-t bg-muted/10 p-4 lg:border-t-0 lg:border-l lg:p-5">
       {props.detail.packageType === "plugin" &&
       props.detail.installedVersion ? (
         <PluginPreparationPanel

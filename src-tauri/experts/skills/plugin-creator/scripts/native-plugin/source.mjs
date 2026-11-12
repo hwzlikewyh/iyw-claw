@@ -13,6 +13,7 @@ const EXCLUDED = new Set([
   "tests",
   "design",
 ])
+const MAX_PACKAGE_BYTES = 25 * 1024 * 1024
 const SENSITIVE_FILES = /(^|\/)\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i
 
 export async function readJson(file) {
@@ -141,6 +142,7 @@ export async function resolveServer(source, spec) {
 }
 
 export async function copyNativeSource(root, output, omittedPaths = []) {
+  let bytes = 0
   let files = 0
   const collect = async (directory, prefix = "") => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -161,7 +163,8 @@ export async function copyNativeSource(root, output, omittedPaths = []) {
         continue
       }
       if (!info.isFile()) throw Error(`Unsupported package entry: ${relative}`)
-      if (++files > 350)
+      bytes += info.size
+      if (++files > 350 || bytes > MAX_PACKAGE_BYTES)
         throw Error("Native source exceeds plugin package limits")
       await cp(file, path.join(output, relative), {
         errorOnExist: true,

@@ -371,6 +371,9 @@ jobs:
     uses: ./.github/workflows/release-windows-verification.yml
     with:
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      # A reusable workflow resolves github.run_id to its own run, so the
+      # signed Windows artifact has to be addressed explicitly.
+      artifact_run_id: ${{ github.run_id }}
 
   verify-macos-x64-installer:
     needs:

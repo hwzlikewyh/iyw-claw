@@ -15,7 +15,10 @@ const OFFICIAL_MARKER: &str = ".iyw-claw-official-skill.json";
 const PUBLISH_STATE_MARKER: &str = ".iyw-claw-publish-state.json";
 const MANAGED_COPY_MARKER: &str = ".iyw-claw-managed-copy.json";
 const INTERNAL_MARKERS: &[&str] = &[
-    MARKET_MARKER, OFFICIAL_MARKER, PUBLISH_STATE_MARKER, MANAGED_COPY_MARKER,
+    MARKET_MARKER,
+    OFFICIAL_MARKER,
+    PUBLISH_STATE_MARKER,
+    MANAGED_COPY_MARKER,
 ];
 /// 本机依赖环境沿既有技能刷新策略保留，不作为发布源码的一部分。
 pub(crate) const RUNTIME_ENV_DIR_NAMES: [&str; 2] = [".venv", "node_modules"];
@@ -107,15 +110,21 @@ fn validate_zip_with_entry(
         }
         let path = validate_path(entry.name())?;
         register_path(&path, &mut seen_files, &mut seen_directories)?;
-        expanded = expanded.checked_add(entry.size())
-            .ok_or_else(|| invalid_package("Skill archive size overflow"))?;
-        let mut content = Vec::new();
-        let declared_size = entry.size();
-        entry
-            .by_ref()
-            .take(declared_size.saturating_add(1))
-            .read_to_end(&mut content)
-            .map_err(|error| invalid_zip(error.to_string()))?;
+        expanded = expanded
+            .checked_add(entry.size())
+            .ok_or_else(|| invalid_package("Skill archive expanded size is invalid"))?;
+        if require_root_skill && expanded > MAX_EXPANDED_BYTES {
+            return Err(invalid_package("Expanded Skill exceeds the 50 MiB limit"));
+        }
+        let read_limit = if require_root_skill {
+            MAX_EXPANDED_BYTES + 1
+        } else {
+            entry
+                .size()
+                .checked_add(1)
+                .ok_or_else(|| invalid_package("Skill archive entry size is invalid"))?
+        };
+        let content = read_archive_entry(entry.by_ref(), read_limit)?;
         if content.len() as u64 != entry.size() {
             return Err(invalid_package("Skill archive entry size is invalid"));
         }
@@ -138,6 +147,22 @@ fn validate_zip_with_entry(
         files,
         content_sha256,
     })
+}
+
+fn read_archive_entry(source: impl Read, limit: u64) -> Result<Vec<u8>, AppCommandError> {
+    let mut content = Vec::new();
+    let mut reader = source.take(limit);
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = reader.read(&mut buffer).map_err(invalid_zip)?;
+        if count == 0 {
+            return Ok(content);
+        }
+        content
+            .try_reserve(count)
+            .map_err(|_| invalid_package("Insufficient memory for Skill archive entry"))?;
+        content.extend_from_slice(&buffer[..count]);
+    }
 }
 
 fn validate_path(raw: &str) -> Result<PathBuf, AppCommandError> {
@@ -193,7 +218,9 @@ fn is_reserved_numbered_device(value: &str, prefix: &str) -> bool {
 }
 
 fn is_internal_marker(raw: &str) -> bool {
-    INTERNAL_MARKERS.iter().any(|marker| raw.eq_ignore_ascii_case(marker))
+    INTERNAL_MARKERS
+        .iter()
+        .any(|marker| raw.eq_ignore_ascii_case(marker))
 }
 
 fn register_path(

@@ -49,7 +49,7 @@ interface WorkbenchRouteContextValue {
   openConnectorMarket: () => void
   consumeConnectorMarket: () => void
   pluginMarketRequested: boolean
-  openPluginMarket: (slug?: string) => void
+  openPluginMarket: () => void
   consumePluginMarket: () => void
 }
 
@@ -85,18 +85,10 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
   const [connectorMarketRequested, setConnectorMarketRequested] =
     useState(false)
   const [pluginMarketRequested, setPluginMarketRequested] = useState(false)
-  const openPluginMarket = useCallback((slug?: string) => {
+  const openPluginMarket = useCallback(() => {
     setPluginMarketRequested(true)
     setConnectorMarketRequested(false)
-    setSkillMarketTarget(
-      slug
-        ? {
-            skillId: slug,
-            requestId: ++skillMarketRequestIdRef.current,
-            packageType: "plugin",
-          }
-        : null
-    )
+    setSkillMarketTarget(null)
     setRouteId("skills")
   }, [])
   const consumePluginMarket = useCallback(
@@ -116,22 +108,18 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
 
   const setRoute = useCallback((id: WorkbenchRouteId) => setRouteId(id), [])
   const openConversations = useCallback(() => setRouteId("conversations"), [])
-  const openSkillMarket = useCallback(
-    (skillId: string, packageType?: "skill" | "expert" | "plugin") => {
-      if (packageType === "plugin") return openPluginMarket(skillId)
-      const normalized = skillId.trim()
-      if (!normalized) return
-      setPluginMarketRequested(false)
-      setConnectorMarketRequested(false)
-      skillMarketRequestIdRef.current += 1
-      setSkillMarketTarget({
-        requestId: skillMarketRequestIdRef.current,
-        skillId: normalized,
-      })
-      setRouteId("skills")
-    },
-    [openPluginMarket]
-  )
+  const openSkillMarket = useCallback((skillId: string) => {
+    const normalized = skillId.trim()
+    if (!normalized) return
+    setPluginMarketRequested(false)
+    setConnectorMarketRequested(false)
+    skillMarketRequestIdRef.current += 1
+    setSkillMarketTarget({
+      requestId: skillMarketRequestIdRef.current,
+      skillId: normalized,
+    })
+    setRouteId("skills")
+  }, [])
   const consumeSkillMarketTarget = useCallback((requestId: number) => {
     setSkillMarketTarget((current) =>
       current?.requestId === requestId ? null : current

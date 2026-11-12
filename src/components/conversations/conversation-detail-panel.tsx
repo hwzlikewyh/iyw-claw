@@ -449,12 +449,7 @@ function buildUserTurnFromMessageBlocks(
 function closeTabAfterDraftOpened(tabId: string) {
   const state = useTabStore.getState()
   const active = state.rawTabs.find((tab) => tab.id === state.activeTabId)
-  if (
-    active?.conversationId === null &&
-    (active.id !== tabId || !active.isIndependentDraft)
-  ) {
-    state.closeTab(tabId)
-  }
+  if (active?.conversationId === null) state.closeTab(tabId)
 }
 
 const ConversationTabView = memo(function ConversationTabView({

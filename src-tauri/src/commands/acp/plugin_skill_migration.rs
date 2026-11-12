@@ -1,6 +1,6 @@
 use super::*;
 
-/// Only reuse old directories whose market and plugin component identities match.
+/// 只从同市场 ID、同插件和同组件的旧投放继承状态。
 pub(super) fn previous_source(source: &Path, marker: &MarketSkillMarker) -> PathBuf {
     if path_entry_exists(source) {
         return source.to_path_buf();
@@ -32,11 +32,7 @@ pub(super) fn stage(prepared: &PreparedMarketSkillInstall) -> Result<PathBuf, Ac
             cleanup_market_skill_staging(&staging, &prepared.skill_id);
             return Err(error);
         }
-        tracing::info!(
-            skill_id = %prepared.skill_id,
-            legacy = %legacy.display(),
-            "[skill-market] staged legacy plugin Skill migration"
-        );
+        tracing::info!(skill_id=%prepared.skill_id, legacy=%legacy.display(), "[skill-market] 已继承旧插件技能状态，提交成功后释放旧引用");
     }
     Ok(staging)
 }

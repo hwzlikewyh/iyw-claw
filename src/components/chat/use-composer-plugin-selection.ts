@@ -47,10 +47,12 @@ export function useComposerPluginSelection(input: {
       getTransport() === transport &&
       useTabStore.getState().activeTabId === input.tabId
     try {
-      if (!choice.needsPreparation) {
-        if (!current()) return false
-        input.onSelect(choice, t("usePrompt", { name: choice.label }))
-        return true
+      if (choice.skills.length) {
+        if (current()) {
+          input.onSelect(choice, t("usePrompt", { name: choice.label }))
+          return true
+        }
+        return false
       }
       const ready = await pluginReady(choice, {
         tabId: input.tabId,
@@ -73,7 +75,7 @@ export function useComposerPluginSelection(input: {
       if (alive.current) setBusy(false)
     }
   }
-  return { busy, error, select, clearError: () => setError("") }
+  return { busy, error, select }
 }
 
 async function pluginReady(
@@ -87,25 +89,24 @@ async function pluginReady(
   const tab = useTabStore
     .getState()
     .tabs.find((item) => item.id === context.tabId)
-  let conversationId = tab?.conversationId ?? null
   let view = await readPluginPreparation(
-    { marketSkillId: choice.id, conversationId },
+    { marketSkillId: choice.id, conversationId: tab?.conversationId ?? null },
     context.transport
   )
   if (!context.current() || view.installedVersion !== choice.version)
     return false
-  if (conversationId == null && view.state === "context_required") {
+  if (!view.connectors.length) return view.state === "unchecked"
+  if (tab?.conversationId == null) {
     const prepared = await prepareConnectorConversation(
       context.tabId,
       choice.label
     )
     if (!context.current()) return false
     prepared.bind()
-    conversationId = prepared.id
     view = await readPluginPreparation(
-      { marketSkillId: choice.id, conversationId },
+      { marketSkillId: choice.id, conversationId: prepared.id },
       context.transport
     )
   }
-  return context.current() && view.state === "unchecked"
+  return view.state === "unchecked"
 }

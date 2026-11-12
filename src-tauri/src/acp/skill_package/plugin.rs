@@ -17,7 +17,7 @@ pub(crate) fn plugin_skill_id(plugin: &str, component: &str) -> String {
 }
 
 impl ValidatedSkillPackage {
-    /// Transform only the Agent-facing copy; the verified plugin artifact stays unchanged.
+    /// 仅转换 Agent 投放副本；已验证的原插件包、清单及收据保持原摘要。
     pub(crate) fn plugin_skill_component(
         &self,
         root: &str,
@@ -127,5 +127,15 @@ fn rename_routing(metadata: &mut serde_yaml::Value, names: (&str, &str)) {
     let Some(value) = invocation.as_str() else {
         return;
     };
-    *invocation = serde_yaml::Value::String(rename_invocations(value, names));
+    let pattern = format!(
+        r"(?P<prefix>[$/]){}(?P<after>$|[^a-zA-Z0-9_-])",
+        regex::escape(names.0)
+    );
+    if let Ok(pattern) = regex::Regex::new(&pattern) {
+        *invocation = serde_yaml::Value::String(
+            pattern
+                .replace_all(value, format!("${{prefix}}{}${{after}}", names.1))
+                .into_owned(),
+        );
+    }
 }

@@ -19,7 +19,6 @@ export interface PluginPreparation {
     verified: boolean
     issues: string[]
     dependencies: Array<{
-      packageType: "skill" | "expert" | "plugin"
       id: string
       slug: string
       requiredVersion: string

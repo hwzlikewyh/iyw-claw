@@ -35,6 +35,7 @@ import { BranchDropdown } from "./branch-dropdown"
 import { NewFolderDropdown } from "./new-folder-dropdown"
 import { TitleBarUpdateControl } from "./title-bar-update-control"
 import { BrowserTitleButton } from "./folder-title-bar-browser-button"
+import { NetworkStatusBar } from "./network-status-bar"
 import { SearchCommandDialog } from "@/components/conversations/search-command-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -282,6 +283,7 @@ export function FolderTitleBar() {
               >
                 <Search className="h-3.5 w-3.5" />
               </Button>
+              <NetworkStatusBar />
             </div>
           )
         }

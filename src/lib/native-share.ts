@@ -2,7 +2,6 @@ import { getShellTransport } from "@/lib/transport"
 
 export const OPEN_NATIVE_SHARE = "iyw-claw:open-native-share"
 export const NATIVE_SHARE_DRAFT = "iyw-claw:native-share-draft"
-export const NATIVE_SHARE_OPENED = "iyw-claw:native-share-opened"
 export const NATIVE_SHARE_COUNT = "iyw-claw:native-share-count"
 let pendingNativeShares = 0
 
@@ -70,8 +69,8 @@ export const nativeShareStatus = () =>
 export const registerNativeShare = () =>
   getShellTransport().call<void>("native_share_register")
 
-export async function openNativeShareInbox(): Promise<void> {
-  await getShellTransport().call<void>("native_share_open")
+export function openNativeShareInbox(): void {
+  window.dispatchEvent(new Event(OPEN_NATIVE_SHARE))
 }
 
 export function addNativeShareToDraft(

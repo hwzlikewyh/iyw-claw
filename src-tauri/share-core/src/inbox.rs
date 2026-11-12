@@ -222,8 +222,6 @@ impl BatchWriter {
             .open(self.directory.join("manifest.json"))?;
         manifest.write_all(&serde_json::to_vec_pretty(&self.batch)?)?;
         manifest.sync_all()?;
-        // Windows 拒绝移动仍有子文件句柄打开的目录，先关闭清单再发布批次。
-        drop(manifest);
         fs::create_dir_all(self.root.join("Ready"))?;
         fs::rename(
             &self.directory,

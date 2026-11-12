@@ -3,7 +3,7 @@ export const DEFAULT_MARKET_PAGE_SIZE = MARKET_PAGE_SIZES[0]
 
 export function marketPageSize(value: unknown): number {
   const size = Number(value)
-  return Number.isSafeInteger(size) && size > 0
+  return MARKET_PAGE_SIZES.some((option) => option === size)
     ? size
     : DEFAULT_MARKET_PAGE_SIZE
 }
@@ -36,40 +36,16 @@ export function marketPageNumbers(
   )
 }
 
-export function persistMarketPage(
-  page: number,
-  size: number,
-  automatic = false
-): void {
+export function persistMarketPage(page: number, size: number): void {
   if (typeof window === "undefined") return
   const url = new URL(window.location.href)
   if (page === 1) url.searchParams.delete("page")
   else url.searchParams.set("page", String(page))
-  if (automatic) url.searchParams.delete("pageSize")
+  if (size === DEFAULT_MARKET_PAGE_SIZE) url.searchParams.delete("pageSize")
   else url.searchParams.set("pageSize", String(size))
   window.history.replaceState(
     null,
     "",
     `${url.pathname}${url.search}${url.hash}`
   )
-}
-
-export function fitMarketPage(input: {
-  availableHeight: number
-  cardHeight: number
-  rowGap: number
-  columns: number
-}): number {
-  const { availableHeight, cardHeight, rowGap, columns } = input
-  if (
-    ![availableHeight, cardHeight, rowGap, columns].every(Number.isFinite) ||
-    cardHeight <= 0 ||
-    columns < 1
-  )
-    return DEFAULT_MARKET_PAGE_SIZE
-  const rows = Math.max(
-    1,
-    Math.floor((availableHeight + rowGap) / (cardHeight + rowGap))
-  )
-  return Math.max(1, Math.floor(columns)) * rows
 }

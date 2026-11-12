@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 import { Boxes, Loader2, Search, Settings2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
@@ -25,6 +25,7 @@ interface Props {
 }
 
 export function ConversationPluginMenu(props: Props) {
+  const t = useTranslations("ComposerPlugins")
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState("")
   const state = useComposerPlugins({ ...props, open })
@@ -32,48 +33,20 @@ export function ConversationPluginMenu(props: Props) {
     ...props,
     scopeKey: state.scopeKey,
   })
-  const normalized = query.trim().toLocaleLowerCase()
   const visible = state.choices.filter((item) =>
-    `${item.label} ${item.slug}`.toLocaleLowerCase().includes(normalized)
+    `${item.label} ${item.slug}`
+      .toLocaleLowerCase()
+      .includes(query.trim().toLocaleLowerCase())
   )
   return (
-    <PluginSubmenu
+    <DropdownMenuSub
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
-        if (!next) setQuery("")
+        setQuery("")
       }}
-      triggerDisabled={!props.agentType || !props.tabId}
     >
-      <PluginSearch query={query} onChange={setQuery} />
-      <PluginResults
-        query={query}
-        choices={visible}
-        loading={state.loading}
-        error={state.error || selection.error}
-        busy={selection.busy}
-        onRetry={state.refresh}
-        onClearSelectionError={selection.clearError}
-        onSelect={(choice) => {
-          void selection.select(choice).then((accepted) => {
-            if (accepted) setOpen(false)
-          })
-        }}
-      />
-    </PluginSubmenu>
-  )
-}
-
-function PluginSubmenu(props: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  triggerDisabled: boolean
-  children: ReactNode
-}) {
-  const t = useTranslations("ComposerPlugins")
-  return (
-    <DropdownMenuSub open={props.open} onOpenChange={props.onOpenChange}>
-      <DropdownMenuSubTrigger disabled={props.triggerDisabled}>
+      <DropdownMenuSubTrigger disabled={!props.agentType || !props.tabId}>
         <Boxes className="size-4" />
         {t("menuLabel")}
       </DropdownMenuSubTrigger>
@@ -85,48 +58,32 @@ function PluginSubmenu(props: {
         }}
         aria-label={t("menuLabel")}
       >
-        {props.children}
+        <PluginSearch query={query} onChange={setQuery} />
+        <p className="px-3 py-1 text-xs text-muted-foreground">{t("hint")}</p>
+        <PluginMenuStatus
+          loading={state.loading}
+          error={state.error || selection.error}
+          empty={!visible.length}
+          query={query}
+          onRetry={state.refresh}
+        />
+        <div className="min-h-0 overflow-y-auto">
+          {visible.map((choice) => (
+            <PluginMenuRow
+              key={choice.id}
+              choice={choice}
+              busy={selection.busy}
+              onSelect={() => {
+                void selection.select(choice).then((accepted) => {
+                  if (accepted) setOpen(false)
+                })
+              }}
+            />
+          ))}
+        </div>
         <PluginMarketLink />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
-  )
-}
-
-function PluginResults(props: {
-  query: string
-  choices: ComposerPluginChoice[]
-  loading: boolean
-  error: string
-  busy: boolean
-  onRetry: () => void
-  onClearSelectionError: () => void
-  onSelect: (choice: ComposerPluginChoice) => void
-}) {
-  const t = useTranslations("ComposerPlugins")
-  return (
-    <>
-      <p className="px-3 py-1 text-xs text-muted-foreground">{t("hint")}</p>
-      <PluginMenuStatus
-        loading={props.loading}
-        error={props.error}
-        empty={!props.choices.length}
-        query={props.query}
-        onRetry={() => {
-          props.onClearSelectionError()
-          props.onRetry()
-        }}
-      />
-      <div className="min-h-0 overflow-y-auto">
-        {props.choices.map((choice) => (
-          <PluginMenuRow
-            key={choice.id}
-            choice={choice}
-            busy={props.busy}
-            onSelect={() => props.onSelect(choice)}
-          />
-        ))}
-      </div>
-    </>
   )
 }
 
@@ -246,10 +203,7 @@ function PluginMarketLink() {
   return (
     <>
       <DropdownMenuSeparator />
-      <DropdownMenuItem
-        className="shrink-0"
-        onSelect={() => route.openPluginMarket()}
-      >
+      <DropdownMenuItem className="shrink-0" onSelect={route.openPluginMarket}>
         <Settings2 className="size-4" />
         {t("manage")}
       </DropdownMenuItem>

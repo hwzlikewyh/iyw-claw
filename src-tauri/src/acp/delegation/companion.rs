@@ -2438,12 +2438,14 @@ pub fn render_feedback_result(outcome: &Value) -> Value {
     })
 }
 
-/// Map the `ask_user_question` round-trip outcome (a `{ answers, declined }`
-/// envelope from the listener) into an MCP `tools/call` result.
+/// Map the `ask_user_question` round-trip outcome (an `{ answers, declined }`
+/// envelope with an optional status from the listener) into an MCP
+/// `tools/call` result.
 ///
 /// The human-readable `content` text reports the user's selections per question
-/// so the agent can act on them; a declined / empty answer tells the agent to
-/// proceed with its own judgment. The raw envelope rides along in
+/// so the agent can act on them. A timeout is a separate recoverable state:
+/// the original Agent may ask once through the current channel, but must not
+/// treat the timeout as consent. The raw envelope rides along in
 /// `structuredContent` 保留原始结果。用户跳过是正常结果，注册失败则明确返回工具错误。
 pub fn render_ask_result(outcome: &Value) -> Value {
     if let Some(message) = outcome
@@ -2461,12 +2463,24 @@ pub fn render_ask_result(outcome: &Value) -> Value {
         .get("declined")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let status = outcome
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "answered" | "declined" | "canceled" | "timed_out"));
+    let timed_out = status == Some("timed_out");
+    let canceled = status == Some("canceled");
     let answers = outcome
         .get("answers")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    let text = if declined || answers.is_empty() {
+    let text = if timed_out {
+        "The question timed out without a user answer. Do not treat this as consent or rejection. If this session has a bound chat-channel capability, use the current-channel iyw.channel.*.send capability (discover it if needed) to send one concise text question to the same user, then end this turn so the user can reply. Do not choose a different global target. Otherwise tell the user to continue in the original conversation."
+            .to_string()
+    } else if canceled {
+        "The question was canceled before the user answered. Do not claim that the user chose an option; continue only when a reasonable default is safe."
+            .to_string()
+    } else if declined || answers.is_empty() {
         "The user dismissed the question(s) without choosing an answer. Proceed \
          using your best judgment and reasonable defaults."
             .to_string()
@@ -2492,10 +2506,19 @@ pub fn render_ask_result(outcome: &Value) -> Value {
         }
         s
     };
+    let mut structured = json!({ "answers": answers, "declined": declined });
+    if let Some(status) = status {
+        structured["status"] = Value::String(status.to_string());
+    }
+    if let Some(fallback) = outcome.get("fallback").and_then(Value::as_str) {
+        if fallback == "current_channel" {
+            structured["fallback"] = Value::String(fallback.to_string());
+        }
+    }
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,
-        "structuredContent": { "answers": answers, "declined": declined },
+        "structuredContent": structured,
     })
 }
 

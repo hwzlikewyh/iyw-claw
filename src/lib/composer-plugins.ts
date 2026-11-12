@@ -1,6 +1,7 @@
 import type { Transport } from "@/lib/transport"
 import type {
   AgentSkillItem,
+  AgentSkillsListResult,
   AgentType,
   SkillInventorySnapshot,
 } from "@/lib/types"
@@ -14,18 +15,19 @@ export interface ComposerPluginChoice {
   version: string
   skills: AgentSkillItem[]
   blocked: boolean
-  needsPreparation: boolean
 }
 
 export async function loadComposerPluginInventory(
   transport: Transport,
   context: { agentType: AgentType; workspacePath: string | null }
 ) {
-  const inventory = await transport.call<SkillInventorySnapshot>(
-    "skill_inventory_list",
-    { workspacePath: context.workspacePath }
-  )
-  return { inventory }
+  const [inventory, agent] = await Promise.all([
+    transport.call<SkillInventorySnapshot>("skill_inventory_list", {
+      workspacePath: context.workspacePath,
+    }),
+    transport.call<AgentSkillsListResult>("acp_list_agent_skills", context),
+  ])
+  return { inventory, agent }
 }
 
 export function inventoryPluginChoices(
@@ -46,43 +48,26 @@ export function inventoryPluginChoices(
       version: observation.installedVersion ?? "",
       skills: [],
       blocked: false,
-      needsPreparation: true,
     }
-    const location = observation.locations.find((item) =>
-      item.agentTypes.includes(agentType)
+    const entry = data.agent.skills.find(
+      (item) => item.id === skill.skillId && item.scope === skill.scope
     )
     const state = skill.agentStates.find((item) => item.agentType === agentType)
     const usable =
-      location?.enabled && state?.effectiveEnabled && state.actualEnabled
-    const structurallyUsable =
-      !skill.conflict &&
-      !skill.duplicate &&
-      !skill.staleMarketRecord &&
-      skill.pluginAvailable
-    if (
-      location &&
-      usable &&
-      structurallyUsable &&
-      !group.skills.some((item) => item.id === skill.skillId)
-    ) {
+      entry?.enabled && state?.effectiveEnabled && state.actualEnabled
+    group.blocked ||= Boolean(
+      !usable ||
+      skill.conflict ||
+      skill.duplicate ||
+      skill.staleMarketRecord ||
+      !skill.pluginAvailable
+    )
+    if (entry && !group.skills.some((item) => item.id === entry.id)) {
       group.skills.push({
-        id: skill.skillId,
-        name: observation.pluginComponentKey || skill.name,
-        scope: skill.scope,
-        layout: observation.layout,
-        path: location.path,
-        description: observation.description,
-        routing: observation.routing,
-        routing_status: observation.routingStatus,
-        routing_error: observation.routingError,
-        enabled: location.enabled,
-        copy_mode: Boolean(location.projectionSource),
-        read_only: observation.readOnly,
-        official: observation.ownership === "market",
-        market_managed: Boolean(observation.marketSkillId),
+        ...entry,
+        name: observation.pluginComponentKey || entry.name,
       })
     }
-    group.blocked = group.skills.length === 0
     groups.set(id, group)
   }
   return [...groups.values()]
@@ -95,32 +80,23 @@ export function enrichPluginChoices(
   const choices = new Map(local.map((item) => [item.id, { ...item }]))
   for (const item of catalog) {
     if (item.packageType !== "plugin" || !item.installedVersion) continue
-    const manifest = item.currentVersion.plugin
-    const hasSkills =
-      manifest?.components.some((part) => part.type === "skill") ?? false
-    const hasExecution =
-      item.currentVersion.version !== item.installedVersion ||
-      (manifest?.components.some((part) =>
-        ["connector", "runtime", "capability", "app"].includes(part.type)
-      ) ??
-        true)
-    const hasApps =
-      manifest?.components.some((part) => part.type === "app") ?? false
     const existing = choices.get(item.id)
     if (existing) {
       if (existing.slug === item.slug) existing.label = item.displayName
-      existing.needsPreparation = hasExecution
       continue
     }
-    if (hasSkills || hasApps || !hasExecution) continue
+    const manifest = item.currentVersion.plugin
+    const connectorOnly =
+      item.currentVersion.version === item.installedVersion &&
+      manifest?.components.some((part) => part.type === "connector") &&
+      !manifest.components.some((part) => part.type === "skill")
     choices.set(item.id, {
       id: item.id,
       slug: item.slug,
       label: item.displayName,
       version: item.installedVersion,
       skills: [],
-      blocked: false,
-      needsPreparation: hasExecution,
+      blocked: !connectorOnly,
     })
   }
   return [...choices.values()].sort((left, right) =>
@@ -128,6 +104,7 @@ export function enrichPluginChoices(
   )
 }
 
+// 市场仅补充名称及无技能的插件；离线时本地安装库存仍可选用。
 export async function loadComposerPluginCatalog() {
   const result = await getSkillMarketSource().list({
     view: "installed",

@@ -9,9 +9,9 @@ export function usePluginMarketNavigation() {
       setOpen(false)
       route.openPluginMarket()
     },
-    openPlugin: (slug: string) => {
+    openSkillMarket: (slug: string) => {
       setOpen(false)
-      route.openPluginMarket(slug)
+      route.openSkillMarket(slug)
     },
   }
 }

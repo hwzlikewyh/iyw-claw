@@ -47,14 +47,13 @@ export function useComposerPlugins(input: {
     let local: ComposerPluginChoice[] | null = null
     let catalog: SkillMarketV2Item[] = []
     const publish = () => {
-      if (alive && local) {
+      if (alive && local)
         setState({
           key,
           choices: enrichPluginChoices(local, catalog),
           loading: false,
           error: "",
         })
-      }
     }
     const agentType = input.agentType
     void loadComposerPluginInventory(transport, {
@@ -66,14 +65,13 @@ export function useComposerPlugins(input: {
         publish()
       })
       .catch((cause) => {
-        if (alive) {
+        if (alive)
           setState({
             key,
             choices: [],
             loading: false,
             error: toErrorMessage(cause),
           })
-        }
       })
     void loadComposerPluginCatalog()
       .then((items) => {
@@ -81,7 +79,7 @@ export function useComposerPlugins(input: {
         publish()
       })
       .catch(() => {
-        // Local skill inventory remains usable while the market is offline.
+        /* 本地库存不依赖市场在线。 */
       })
     return () => {
       alive = false

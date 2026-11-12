@@ -3,14 +3,12 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { MessageSquare } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { isDesktop } from "@/lib/transport"
 import {
   NATIVE_SHARE_COUNT,
   nativeSharePendingCount,
   openNativeShareInbox,
-  shareError,
 } from "@/lib/native-share"
 
 const subscribeDesktop = () => () => {}
@@ -34,20 +32,16 @@ export function NativeShareButton() {
   const label = pending ? t("pendingCount", { count: pending }) : t("title")
   return (
     <Button
-      variant="outline"
-      size="sm"
+      variant="ghost"
+      size="icon"
       title={label}
       aria-label={label}
-      onClick={() =>
-        void openNativeShareInbox().catch((error) =>
-          toast.error(shareError(error))
-        )
-      }
+      className="relative size-7 shrink-0 rounded-md text-muted-foreground"
+      onClick={openNativeShareInbox}
     >
       <MessageSquare className="size-3.5" />
-      {t("manageImports")}
       {pending > 0 && (
-        <span className="rounded bg-muted px-1 text-xs tabular-nums text-foreground">
+        <span className="absolute -right-1 -top-1 min-w-3 rounded bg-muted px-0.5 text-[11px] tabular-nums text-foreground">
           {pending}
         </span>
       )}

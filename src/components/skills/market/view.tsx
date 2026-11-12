@@ -211,66 +211,57 @@ export function SkillMarketView({
   )
 
   return (
-    <div className="min-w-0 bg-background">
-      <>
-        <SkillMarketToolbar
-          query={market.query}
-          categories={market.categories}
-          revision={
-            inventoryView
-              ? (inventory.snapshot?.revision ?? "")
-              : market.list.revision
-          }
-          offline={market.list.offline}
-          loading={inventoryView ? inventory.loading : market.list.loading}
-          onQueryChange={market.updateQuery}
-          onRefresh={() => {
-            if (inventoryView) void inventory.refresh()
-            else market.refresh()
-          }}
-          onUpload={() => openUpload("publish")}
-          pagination={{
-            ...market.pagination,
-            total: market.list.total,
-            loading: market.list.loading,
-          }}
-        />
-        <section
-          className={inventoryView ? "h-[min(65vh,720px)] min-w-0" : "min-w-0"}
-        >
-          {inventoryView ? (
-            <InstalledInventoryView
-              snapshot={inventory.snapshot}
-              query={market.query.q}
-              enabledOnly={market.query.view === "enabled"}
-              loading={inventory.loading}
-              error={inventory.error}
-              busyKey={inventory.busyKey}
-              onRetry={() => void inventory.refresh()}
-              onToggle={inventory.setActivation}
-              onTakeOver={inventory.takeOver}
-              onReconcile={inventory.reconcile}
-            />
-          ) : (
-            <SkillMarketList
-              items={market.list.items}
-              selectedId={market.selectedId}
-              loading={market.list.loading}
-              error={market.list.error}
-              total={market.list.total}
-              {...market.pagination}
-              onSelect={(item) => {
-                market.selectItem(item)
-                setDetailOpen(true)
-              }}
-              onPrimaryAction={(item) =>
-                handlePrimaryAction(item, item.currentVersion.version)
-              }
-              onRetry={market.refresh}
-            />
-          )}
-        </section>
-      </>
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <SkillMarketToolbar
+        query={market.query}
+        categories={market.categories}
+        revision={
+          inventoryView
+            ? (inventory.snapshot?.revision ?? "")
+            : market.list.revision
+        }
+        offline={market.list.offline}
+        loading={inventoryView ? inventory.loading : market.list.loading}
+        onQueryChange={market.updateQuery}
+        onRefresh={() => {
+          if (inventoryView) void inventory.refresh()
+          else market.refresh()
+        }}
+        onUpload={() => openUpload("publish")}
+      />
+      <section className="min-h-0 min-w-0 flex-1">
+        {inventoryView ? (
+          <InstalledInventoryView
+            snapshot={inventory.snapshot}
+            query={market.query.q}
+            enabledOnly={market.query.view === "enabled"}
+            loading={inventory.loading}
+            error={inventory.error}
+            busyKey={inventory.busyKey}
+            onRetry={() => void inventory.refresh()}
+            onToggle={inventory.setActivation}
+            onTakeOver={inventory.takeOver}
+            onReconcile={inventory.reconcile}
+          />
+        ) : (
+          <SkillMarketList
+            items={market.list.items}
+            selectedId={market.selectedId}
+            loading={market.list.loading}
+            error={market.list.error}
+            total={market.list.total}
+            {...market.pagination}
+            onSelect={(item) => {
+              market.selectItem(item)
+              setDetailOpen(true)
+            }}
+            onPrimaryAction={(item) =>
+              handlePrimaryAction(item, item.currentVersion.version)
+            }
+            onRetry={market.refresh}
+          />
+        )}
+      </section>
       <SkillMarketDetailDialog
         open={detailOpen}
         onOpenChange={setDetailOpen}

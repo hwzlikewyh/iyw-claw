@@ -63,7 +63,6 @@ function AuxWorkspace() {
           visible={isOpen && activeApp?.id === tab.id}
           sync={panels.updates.states[tab.id]}
           refresh={panels.updates.refresh}
-          retry={() => panels.retry(tab.id)}
         />
       ))}
     </aside>

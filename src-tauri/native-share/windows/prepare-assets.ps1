@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Source, [Parameter(Mandatory=$true)][string]$Output)
+﻿param([Parameter(Mandatory=$true)][string]$Source, [Parameter(Mandatory=$true)][string]$Output)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 . (Join-Path $PSScriptRoot 'share-resources.ps1')

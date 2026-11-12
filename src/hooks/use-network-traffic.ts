@@ -23,13 +23,13 @@ const EMPTY_VIEW: TrafficView = {
   empty: false,
 }
 
-export function useNetworkTraffic(transport: Transport | null) {
+export function useNetworkTraffic(transport: Transport | null, enabled = true) {
   const scope = useMemo(() => ({ transport }), [transport])
   const [view, setView] = useState({ scope, traffic: EMPTY_VIEW })
   useEffect(() => {
-    if (!transport) return
+    if (!transport || !enabled) return
     return pollTraffic(transport, (traffic) => setView({ scope, traffic }))
-  }, [transport, scope])
+  }, [transport, scope, enabled])
   return view.scope === scope ? view.traffic : EMPTY_VIEW
 }
 

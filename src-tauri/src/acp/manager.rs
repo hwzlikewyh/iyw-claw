@@ -3031,6 +3031,20 @@ impl ConnectionManager {
         }
     }
 
+    pub async fn disconnect_for_account_change(&self) -> usize {
+        let connections = {
+            let mut connections = self.connections.lock().await;
+            std::mem::take(&mut *connections)
+        };
+        let disconnected = connections.len();
+        for (connection_id, connection) in connections {
+            tracing::info!(connection_id, source = "account_session_change",
+                "[ACP] disconnect requested");
+            connection.request_disconnect();
+        }
+        disconnected
+    }
+
     async fn take_replaceable_connection(
         &self,
         conn_id: &str,

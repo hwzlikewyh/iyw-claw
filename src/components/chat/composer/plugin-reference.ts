@@ -16,14 +16,21 @@ export function insertPluginReferences(
       existing.add(String(node.attrs.id))
     }
   })
+  const hasExistingPluginReference = input.plugin.skills.some((skill) =>
+    existing.has(skill.id)
+  )
   const references = input.plugin.skills
     .filter((skill) => !existing.has(skill.id))
-    .map((skill) =>
-      skillToReference(
-        { ...skill, name: `${input.plugin.label} · ${skill.name}` },
+    .map((skill, index) => {
+      const reference = skillToReference(
+        { ...skill, name: input.plugin.label },
         input.prefix
       )
-    )
+      if (hasExistingPluginReference || index > 0) {
+        reference.meta = { ...reference.meta, hiddenFromDisplay: true }
+      }
+      return reference
+    })
   if (!references.length && input.plugin.skills.length) return
   const { $from } = editor.state.selection
   const charBefore =
@@ -41,10 +48,7 @@ export function insertPluginReferences(
     chain = chain.insertReference(reference).insertContent(" ")
   }
   if (!input.plugin.skills.length) {
-    chain = chain.insertContent({
-      type: "text",
-      text: `${input.instruction} `,
-    })
+    chain = chain.insertContent({ type: "text", text: input.instruction })
   }
   chain.run()
 }

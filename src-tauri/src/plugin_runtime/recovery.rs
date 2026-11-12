@@ -2,7 +2,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::app_error::AppCommandError;
 use crate::db::service::plugin_installation_service::PluginInstallationRecord;
+use sea_orm::DatabaseConnection;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,4 +78,29 @@ pub(super) fn log_recovery_artifacts() {
             );
         }
     }
+}
+
+pub(super) async fn recover_interrupted_installations(
+    conn: &DatabaseConnection,
+) -> Result<(), AppCommandError> {
+    let records = crate::db::service::plugin_installation_service::list_installations(conn)
+        .await
+        .map_err(AppCommandError::db)?;
+    for record in records
+        .into_iter()
+        .filter(|record| record.status == "installing" || record.reconcile_state == "installing")
+    {
+        tracing::warn!(
+            plugin=%record.slug,
+            version=%record.version,
+            "[plugin-registry] interrupted installation marked for repair"
+        );
+        crate::db::service::plugin_installation_service::mark_repair_required(
+            conn,
+            record.market_skill_id,
+        )
+        .await
+        .map_err(AppCommandError::db)?;
+    }
+    Ok(())
 }

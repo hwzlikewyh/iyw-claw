@@ -4,7 +4,7 @@
  * Read-only inline view of the iyw-claw-mcp `ask_user_question` tool in the message
  * stream (historical transcripts + the in-flight tool marker).
  *
- * The answered / declined record is collapsed by default into a capsule that
+ * The answered / declined / timed-out record is collapsed by default into a capsule that
  * summarizes the picks; expanding it reveals the live `AskQuestionCard` in its
  * `readOnly` mode, so the layout (tabs, headers, option cards) stays identical
  * to the interactive card the user actually answered — it just renders the
@@ -61,6 +61,14 @@ export function AskQuestionResultCard({
   const isError = !!errorText?.trim()
   const isRunning = state === "input-available" || state === "input-streaming"
   const isInFlight = !isError && !outcome && isRunning
+  const statusLabel =
+    outcome?.status === "timed_out"
+      ? t("timedOut")
+      : outcome?.status === "canceled"
+        ? t("canceled")
+        : outcome?.declined
+          ? t("declined")
+          : null
 
   // The question set, shaped for AskQuestionCard (synthetic ids: the persisted
   // input carries none — the backend mints them server-side).
@@ -175,9 +183,11 @@ export function AskQuestionResultCard({
   // show the answers as chips so the record isn't lost.
   if (!pending) {
     const answers = outcome?.answers ?? []
-    if (answers.length === 0) return null
+    if (answers.length === 0) {
+      return statusLabel ? shell(statusLabel) : null
+    }
     return shell(
-      outcome?.declined ? t("declined") : null,
+      statusLabel,
       <div className="space-y-2">
         {answers.map((a, i) => {
           const labels = matchSelections(a.selected, []).other
@@ -220,8 +230,8 @@ export function AskQuestionResultCard({
     )
     .flatMap((a) => a.selected)
     .filter(Boolean)
-  const summary = outcome?.declined
-    ? t("declined")
+  const summary = statusLabel
+    ? statusLabel
     : picks.length > 0
       ? picks.join(", ")
       : t("noSelection")
@@ -261,7 +271,7 @@ export function AskQuestionResultCard({
         onAnswer={NOOP}
         initialSelections={initialSelections}
         title={t("title")}
-        subtitle={outcome?.declined ? t("declined") : ""}
+        subtitle={statusLabel ?? ""}
       />
     </div>
   )

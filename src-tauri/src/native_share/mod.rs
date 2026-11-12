@@ -5,8 +5,6 @@ use tauri::{AppHandle, Emitter, Manager};
 mod registration;
 #[cfg(target_os = "windows")]
 mod registration_windows;
-#[cfg(target_os = "macos")]
-mod registration_macos;
 pub use registration::{register, status, ShareStatus};
 
 #[cfg(target_os = "macos")]

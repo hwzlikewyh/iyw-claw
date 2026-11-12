@@ -26,67 +26,47 @@ export function CapabilityMarketShell(props: Props) {
   const t = useTranslations("CapabilityMarket")
   const c = useTranslations("CapabilityMarket.catalog")
   return (
-    <div className="h-full min-h-0 bg-[#f3f5f6] p-2 dark:bg-[#171717] max-sm:p-0">
-      <main
-        data-market-scroll
-        className="@container h-full overflow-y-auto rounded-2xl border bg-background px-[30px] pt-[26px] pb-5 max-sm:rounded-none max-sm:border-x-0 max-sm:px-[18px] max-sm:pt-[22px] [&_button]:rounded-md"
-      >
-        <header className="mb-[18px] flex flex-wrap items-center justify-between gap-6 max-sm:gap-4">
-          <div>
-            <h1 className="text-2xl leading-[1.4] font-semibold tracking-[-0.6px] max-sm:text-[22px]">
-              {t("title")}
-            </h1>
-            <p className="mt-[7px] text-[13px] text-muted-foreground">
-              {t("subtitle")}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 max-sm:w-full">
-            <Button
-              variant="outline"
-              className="min-h-9 rounded-md max-sm:min-h-11"
-              onClick={() => props.onAction("mine")}
-            >
-              {c("myUploads")}
-            </Button>
-            <Button
-              className="min-h-9 rounded-md bg-foreground text-background hover:bg-foreground/90 max-sm:min-h-11"
-              onClick={() => props.onAction("upload")}
-            >
-              <Plus className="size-4" />
-              {c("createUpload")}
-            </Button>
-          </div>
-        </header>
-        <div className="flex items-center justify-between gap-5 border-b">
-          <nav
-            aria-label={t("navLabel")}
-            className="flex min-w-0 gap-6 overflow-x-auto overflow-y-hidden"
-          >
-            {SECTIONS.map((section) => (
-              <button
-                key={section}
-                type="button"
-                onClick={() => props.onSectionChange(section)}
-                aria-current={
-                  section === props.activeSection ? "page" : undefined
-                }
-                className={cn(
-                  "min-h-11 shrink-0 !rounded-none border-b-2 px-0 pt-2.5 pb-[13px] text-sm",
-                  section === props.activeSection
-                    ? "border-foreground font-medium text-foreground"
-                    : "border-transparent text-muted-foreground"
-                )}
-              >
-                {t(`sections.${section}`)}
-              </button>
-            ))}
-          </nav>
+    <div className="flex min-w-0 items-center gap-2.5">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+        <PackageOpen className="size-3.5" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <h1 className="truncate text-sm font-semibold leading-5">
+          <span className="sm:hidden">{t("shortTitle")}</span>
+          <span className="hidden sm:inline">{t("title")}</span>
+        </h1>
+      </div>
+    </div>
+  )
+}
+
+function MarketNavigation({
+  activeSection,
+  onSectionChange,
+}: Omit<CapabilityMarketShellProps, "children">) {
+  const t = useTranslations("CapabilityMarket")
+  return (
+    <nav
+      className="flex min-w-0 flex-1 items-center justify-start gap-1 overflow-x-auto overflow-y-hidden pl-1 [scrollbar-width:none] sm:pl-5 lg:pl-10 [&::-webkit-scrollbar]:hidden"
+      aria-label={t("navLabel")}
+    >
+      {SECTIONS.map(({ id, icon: Icon }) => {
+        const active = activeSection === id
+        return (
           <button
-            className="flex min-h-11 shrink-0 items-center gap-1 text-[13px] text-muted-foreground"
-            onClick={() => props.onAction("installed")}
+            key={id}
+            type="button"
+            className={cn(
+              "relative flex h-9 flex-none items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors sm:gap-2 sm:px-3 sm:text-sm",
+              active
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            )}
+            onClick={() => onSectionChange(id)}
+            aria-current={active ? "page" : undefined}
           >
-            {c("installed")}
-            <ChevronRight className="size-4" />
+            <Icon className="size-3.5 sm:size-4" aria-hidden="true" />
+            <span>{t(`sections.${id}`)}</span>
           </button>
         </div>
         {props.children}

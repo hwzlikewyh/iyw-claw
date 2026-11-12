@@ -1,6 +1,7 @@
 import type { Transport } from "@/lib/transport"
 
-export const NETWORK_SAMPLE_INTERVAL_MS = 2_000
+export const NETWORK_SAMPLE_INTERVAL_MS = 60_000
+export const NETWORK_LATENCY_INITIAL_STAGGER_MS = NETWORK_SAMPLE_INTERVAL_MS
 const MAX_SAMPLE_GAP_MS = 15_000
 const BITS_PER_MEGABIT = 1_000_000
 

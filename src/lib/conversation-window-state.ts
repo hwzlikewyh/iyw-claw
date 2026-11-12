@@ -13,11 +13,6 @@ export interface ConversationWindowPayload {
 
 export const MOVE_CONVERSATION_WINDOW_EVENT =
   "iyw-claw:move-conversation-window"
-export interface ConversationWindowRequest {
-  tabId: string
-  returnToWorkspace?: boolean
-  dropOnly?: boolean
-}
 const VIRTUAL_ID_HASH_MULTIPLIER = 31
 let initialized = false
 
@@ -30,25 +25,13 @@ export function isConversationWindowPending(): boolean {
   return !initialized && conversationWindowLabel() !== null
 }
 
-export function isDetachedConversationWindow(): boolean {
-  if (typeof window === "undefined" || !isDesktop()) return false
-  return (
-    new URLSearchParams(window.location.search).get("conversationOnly") === "1"
-  )
-}
-
 export function markConversationWindowInitialized() {
   initialized = true
 }
 
-export function requestConversationWindow(
-  tabId: string,
-  options?: Omit<ConversationWindowRequest, "tabId">
-) {
+export function requestConversationWindow(tabId: string) {
   window.dispatchEvent(
-    new CustomEvent(MOVE_CONVERSATION_WINDOW_EVENT, {
-      detail: { tabId, ...options },
-    })
+    new CustomEvent(MOVE_CONVERSATION_WINDOW_EVENT, { detail: tabId })
   )
 }
 

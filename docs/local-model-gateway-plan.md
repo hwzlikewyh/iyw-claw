@@ -1,35 +1,12 @@
 # 本地模型网关实现方案
 
-## 2026-11-06 图片请求前准备耗时（用户要求继续优化）
+## 2026-11-12 图片 edits 全链路 URL 传输
 
-会话896的首字12.680秒中，请求构造前3.342秒、request_ready到首内容9.338秒；
-Fusion同请求首内容8.755秒、协议准备2ms、无恢复重试。优先优化PC已证实重复工作。
-
-验收：保留原图与SDK现有detail/处理策略；健康请求继续URL/受管ID减流；取消及账号隔离有效；
-命中缓存减少控制请求，不增加模型调用；新增计时能区分编码、查重/上传、历史和请求构造。
-
-1. 调用链核对（完成） -> 主请求is_resolvable默认直接返回，不把1.2秒未经证实归为resolve；
-   确认星河lookup未命中后upload、本地upload再init的重复查重。
-2. 合并本地上传准备（本地完成） -> 只对严格匹配的进程网关地址直接调用既有upload，复用网关
-   init查重、对象直传和缓存；直连云端仍先lookup，避免全量Base64上行。
-3. 资源复用与分段计时（本地完成） -> 沿用编码摘要缓存与同资源锁，热命中不新增云端请求；
-   image_encode/client_setup/lookup/upload、history_media_prepare/record、initial_step_context、
-   sampling_prepare/history_for_prompt、prompt_build/request_build分别记录阶段耗时。
-4. 静态验证（完成） -> AGENTS/AGENT禁止本机桌面编译与默认测试；仅执行静态链路、并发/
-   取消/鉴权审查，新增模块rustfmt检查、全部修改Rust文件语法解析及diff检查通过。
-   真实首字节约值与冷/热性能仍待CI构建和安装后对照，不宣称3.342秒已消除。
-
-隔离分支基于本地origin/main=604eff1a，不覆盖原工作区其它任务。无删技能/工具、换模型、
-改变UI首字口径或绕过图像校验。本轮不预设能节约完整3.342秒。
-
-静态请求计数：新图从lookup→upload(init→PUT→complete)变为upload(init→PUT→complete)，
-少一次Fusion查重往返；同编码/同token缓存命中时仅本地upload即返回资源，无云端lookup。
-本地缓存冷但云端已存在时仍需一次init，与原来一次lookup相同；此场景增加本地编码扫描，
-不能宣称所有首传都更快。增加的Base64仅在进程内回环发送，不增加PC→Fusion的图片带宽。
-未增加图片缓存、改变绝对TTL或复用跨账号结果。直连云端及非标准本地地址仍按原路径先lookup。
-
-阶段计时使用单调Instant，超过100ms记INFO，其余DEBUG；嵌套阶段不可相加，异常/取消退出
-也会记录已耗时间而不宣称成功。只记录关联ID、固定阶段名、大小/耗时，不记录正文、图片或签名。
+经过本地模型网关的 edits 均发送 `images[].image_url` 与 `mask.image_url`。
+历史 JSON inline 内容仍由本机直传对象存储；multipart 由本地网关受限落盘、校验、
+复用同一存储票据后改成 JSON URL。Fusion 将兼容直连旧客户端的 multipart 转成
+同一 JSON URL 契约。上游拒绝 URL 格式时返回原错误，不回退为图片文件流。
+对象存储或 URL 解析失败时在远程模型调用前终止，不把图片字节送入 Fusion 上游。
 
 ## 2026-10-27 跨渠道本地图片转换（用户要求直接优化）
 
@@ -127,9 +104,9 @@ OpenAI Docs 官方站点在调研时无法取得正文，接口类型补充核�
 
 普通 JSON：Responses input_image、Chat image_url、Messages image/source，以及 tool_result 的嵌套图片按结构处理。只替换图片源字段范围，原始 JSON 其余字节尽可能不动；大字符串不加载为 String。
 
-已有 image_id 透传。HTTPS 源不下载。multipart 有界接收后按原文件契约转发，**本轮不将 multipart 文件转成 URL，因此这类请求仍占 Fusion 图片带宽**。SDK 通过 prepare 的 upload 请求也在本地转换为直传，返回原资源响应契约。
+已有 image_id 解析后始终转换为 `image_url`。HTTPS 源不下载。multipart 有界接收后校验文件并使用现有对象存储 prepare/init、PC 直传和 complete；相同内容复用本地元数据和签名票据，转换成 JSON `images[].image_url` / `mask.image_url` 后才进入 Fusion relay。SDK 通过 prepare 的 upload 请求也在本地转换为直传，返回原资源响应契约。
 
-编辑兼容 JSON 的 `images[].image_url` 和 `mask.image_url` 转为受管引用；Fusion 校验所有者后先改 HTTPS。沿用既有 400/415/422 格式拒绝时的 JSON→multipart 回退，仅在该阶段从自己的受管对象读取原字节，不下载任意客户端 URL。读取总原图受 32 MiB 限制，multipart 最终仍受原有 32 MiB 限制。此兼容分支节省 PC→Fusion 入站，不能节省 TOS→Fusion→上游的原图流量；没有重复调用成功生图的本地重试。
+编辑 inline data URL、历史受管引用及 mask 均经直传存储再转成受管 HTTPS `image_url`；客户端 HTTPS 源不下载。Fusion 校验所有者后使用 HTTPS 引用，不读取或恢复图片字节。远程上游的格式拒绝不会触发 JSON→multipart 回退，保留原响应并交由调用方显式处理。单图仍受 32 MiB 限制，图片数量与请求体遵循原有上限；没有重复调用成功生图的本地重试。
 
 WebSocket 用独立双向桥接，上传准备不阻塞上游响应接收，转发子协议及关闭码/原因；文本请求帧经过同一转换，二进制帧原样传递。8 MiB 是明确兼容边界，超限不分割消息、不承诺适用于所有长历史；Fusion 未开放对应 WebSocket 路由时保留其非 101 状态，由 SDK 按原有策略决定是否使用 HTTP。本轮不为 Fusion 新增 WebSocket 服务，也未实测系统代理兼容性。
 
@@ -190,7 +167,7 @@ WebSocket 用独立双向桥接，上传准备不阻塞上游响应接收，转�
 
 - Fusion `go test ./... -count=1`、`go vet ./...`、`go build ./...` 通过；包含三类 LLM 入口非流式/流式 smoke。
 - 最后测试整理后再次执行 relay/objectstorage/imagetransfer 三包 test/vet/build 通过。
-- 聚焦覆盖：包装器接口委托、私有不可覆盖签名、HEAD 完成不读图、init 已有对象校验、图像模型准备、用户隔离、Messages source 未知字段保留、三入口禁止摘要、edits URL 被拒后原字节 multipart 和消费记录。
+- 聚焦覆盖：包装器接口委托、私有不可覆盖签名、HEAD 完成不读图、init 已有对象校验、图像模型准备、用户隔离、Messages source 未知字段保留、三入口禁止摘要、edits URL 上游格式拒绝保留且不读回原图、multipart URL 转换与消费记录。
 - Rust 新模块通过独立临时 Cargo 工程类型检查，仅引用真实新模块、对主项目两处调用做 stub；不是完整桌面编译。没有新增/运行桌面测试、打包或启动桌面。
 - 新模块 rustfmt、行数/函数边界与本轮 diff 检查；既有大文件不借机重构或整体格式化。
 - requesting-code-review 技能要求的只读审查代理多次收到空任务，未形成独立结论；主代理完成静态复核，不声称独立审查通过。
@@ -203,10 +180,10 @@ WebSocket 用独立双向桥接，上传准备不阻塞上游响应接收，转�
 1. 先发布 Fusion，核验带 imagetransfer 包装器时 prepare 不再 503；真实 TOS 验证 PUT、错误摘要/大小拒绝、不可覆盖、complete HEAD，以及跨账号拒绝。
 2. 在允许的远端 CI 构建桌面/服务器二进制；核验主进程启动顺序、动态端口覆盖、休眠恢复、关闭与现有会话重新连接。
 3. 选已验证原生视觉的实际模型，分别验证三种协议、工具结果图片、细字原图、历史重放和压缩后重读；不支持视觉的模型应明确失败。
-4. 按候选协议开启现有 URL 能力，保留未验证渠道的 inline/multipart 兼容。此操作为生产配置变更，本轮未执行。
+4. 按候选协议开启现有 URL 能力，保留调用方 inline/multipart 的输入兼容，同时以对象 URL 传输图片。此操作为生产配置变更，本轮未执行。
 5. 测量纯文本 64 KiB/1 MiB、1/8/32 MiB 图片首传/重复/并发、取消和磁盘满的 P50/P95、CPU、RSS/峰值、磁盘临时量、Fusion 入/出站及 TOS 字节；检查 WebSocket 8 MiB 限制是否满足真实会话。
 
-本轮明确不覆盖：流光等未走受管 provider 的 Agent、任意 SDK 自定义 endpoint、multipart 减流、二进制 WebSocket 图片识别、持久本地缓存、生产部署。附件最初由 SDK 读取/压缩的行为仍属原 SDK；网关不能把已被别的工具总结成文字的消息恢复成原图。
+本轮明确不覆盖：流光等未走受管 provider 的 Agent、任意 SDK 自定义 endpoint、二进制 WebSocket 图片识别、持久本地缓存、生产部署。附件最初由 SDK 读取/压缩的行为仍属原 SDK；网关不能把已被别的工具总结成文字的消息恢复成原图。
 
 ### 用户追加的本机打包验证
 

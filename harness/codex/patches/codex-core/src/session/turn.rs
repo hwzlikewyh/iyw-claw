@@ -659,7 +659,6 @@ pub(crate) async fn run_turn(
                 .clone_history()
                 .instrument(trace_span!("run_turn.prepare_sampling_request_input"))
                 .await;
-            drop(sampling_preparation);
 
             run_sampling_request(
                 Arc::clone(&sess),
@@ -2136,18 +2135,12 @@ async fn run_sampling_request(
             sess.clone_history().await
         };
         let input_item_count = history.raw_items().len();
-        let mut prompt_input = {
-            let _timing = crate::client::timing::PreparationTiming::new(
-                &sess.thread_id,
-                "history_for_prompt",
-            );
-            history
-                .for_prompt(
-                    &step_context.settings.model_info.input_modalities,
-                    sess.services.image_store.as_ref(),
-                )
-                .await
-        };
+        let mut prompt_input = history
+            .for_prompt(
+                &step_context.settings.model_info.input_modalities,
+                sess.services.image_store.as_ref(),
+            )
+            .await;
         sess.services
             .executed_tool_calls
             .attach_to_prompt(&mut prompt_input, &mut executed_tool_calls_by_output);

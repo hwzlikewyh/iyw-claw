@@ -10,13 +10,10 @@ import {
 } from "@/contexts/acp-connections-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { toErrorMessage } from "@/lib/app-error"
-import { useReturnedConversation } from "@/hooks/use-returned-conversation"
-import { useConversationDropBounds } from "@/hooks/use-conversation-drop-bounds"
 import { getShellTransport } from "@/lib/transport"
 import {
   conversationWindowLabel,
   MOVE_CONVERSATION_WINDOW_EVENT,
-  type ConversationWindowRequest,
 } from "@/lib/conversation-window-state"
 import {
   moveConversationWindow,
@@ -48,9 +45,7 @@ function useWindowInitialization() {
   useEffect(() => {
     if (!label || !foldersHydrated) return
     let active = true
-    initialization.current ??= restoreConversationWindow(label, actions, {
-      connections,
-    })
+    initialization.current ??= restoreConversationWindow(label, actions, connections)
     void initialization.current
       .then(() => {
         if (active) setReady(true)
@@ -76,14 +71,13 @@ function useMoveWindow(ready: boolean) {
   const connections = useConnectionStore()
   const [moving, setMoving] = useState(false)
   const busy = useRef(false)
-  useReturnedConversation({ ready, busy, setMoving })
   useEffect(() => {
     const onMove = (event: Event) => {
-      const request = (event as CustomEvent<ConversationWindowRequest>).detail
-      if (busy.current || !ready || !request?.tabId) return
+      const tabId = (event as CustomEvent<string>).detail
+      if (busy.current || !ready || !tabId) return
       busy.current = true
       setMoving(true)
-      void moveConversationWindow({ ...request, actions, connections })
+      void moveConversationWindow({ tabId, actions, connections })
         .catch((error) => {
           console.error("[conversation-window] move failed", error)
           toast.error(t("moveFailed", { message: toErrorMessage(error) }))
@@ -101,7 +95,6 @@ function useMoveWindow(ready: boolean) {
 }
 
 export function ConversationWindowGate({ children }: { children: ReactNode }) {
-  useConversationDropBounds()
   const ready = useWindowInitialization()
   const moving = useMoveWindow(ready)
   useEffect(() => {

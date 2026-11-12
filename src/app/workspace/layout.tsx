@@ -12,8 +12,6 @@ import {
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
 import { NetworkStatusBar } from "@/components/layout/network-status-bar"
-import { DetachedConversationShell } from "@/components/workspace/detached-conversation-shell"
-import { isDetachedConversationWindow } from "@/lib/conversation-window-state"
 import { useNewConversationBrowser } from "@/hooks/use-new-conversation-browser"
 import { Sidebar } from "@/components/layout/sidebar"
 import {
@@ -1010,13 +1008,15 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile()
   const [auxSlot, setAuxSlot] = useState<HTMLDivElement | null>(null)
   useNewConversationBrowser()
-  if (isDetachedConversationWindow()) {
-    return <DetachedConversationShell>{children}</DetachedConversationShell>
-  }
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">
       <FolderTitleBar />
+      {isMobile && (
+        <div className="flex h-7 shrink-0 items-center justify-end px-3">
+          <NetworkStatusBar />
+        </div>
+      )}
       {isMobile ? (
         <MobileFolderWorkspaceShell>{children}</MobileFolderWorkspaceShell>
       ) : (
@@ -1025,7 +1025,6 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
         </FolderWorkspaceShell>
       )}
       <MobileAuxPanel mobile={isMobile} desktopSlot={auxSlot} />
-      <NetworkStatusBar />
       <AppToaster
         position="bottom-right"
         duration={TOAST_DURATION_MS}

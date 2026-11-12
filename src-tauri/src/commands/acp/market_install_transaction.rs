@@ -1,5 +1,7 @@
 use super::*;
 
+mod policy_migration;
+
 /// 插件外层事务确认前保留原技能目录与发布状态；不跨await持有同步锁。
 pub(crate) struct MarketSkillInstallTransaction {
     root_id: i64,
@@ -70,9 +72,6 @@ impl MarketSkillInstallTransaction {
             let Some(legacy) = &value.legacy_source else {
                 continue;
             };
-            if !path_entry_exists(legacy) {
-                continue;
-            }
             let Some(legacy_id) = legacy.file_name().and_then(|name| name.to_str()) else {
                 continue;
             };
@@ -83,7 +82,7 @@ impl MarketSkillInstallTransaction {
                     skill_id = %value.skill_id,
                     legacy = %legacy.display(),
                     error = %error,
-                    "[skill-market] superseded plugin Skill cleanup failed; legacy directory retained"
+                    "[skill-market] 旧插件技能清理失败，保留目录供恢复"
                 );
             }
         }
@@ -113,40 +112,6 @@ impl Drop for MarketSkillInstallTransaction {
                 tracing::error!(root_skill_id=self.root_id,error=%error,"[skill-market] 中断安装的技能回退未完成，保留备份");
             }
         }
-    }
-}
-
-impl MarketSkillInstallTransaction {
-    pub(crate) async fn migrate_plugin_skill_policies(
-        &self,
-        conn: &sea_orm::DatabaseConnection,
-    ) -> Result<(), crate::app_error::AppCommandError> {
-        let migrations = self
-            .replaced
-            .iter()
-            .filter_map(|value| {
-                value.legacy_source.as_ref().map(|path| {
-                    (
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .map(str::to_string),
-                        value.skill_id.clone(),
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
-        if migrations.iter().any(|(previous, _)| previous.is_none()) {
-            return Err(crate::app_error::AppCommandError::configuration_invalid(
-                "Legacy plugin Skill identity is invalid",
-            ));
-        }
-        let migrations = migrations
-            .into_iter()
-            .map(|(previous, current)| (previous.unwrap_or_default(), current))
-            .collect::<Vec<_>>();
-        crate::db::service::skill_activation_policy_service::migrate_skill_ids(conn, &migrations)
-            .await
-            .map_err(crate::app_error::AppCommandError::db)
     }
 }
 

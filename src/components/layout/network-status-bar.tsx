@@ -1,6 +1,6 @@
 "use client"
 
-import { useSyncExternalStore } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useTranslations } from "next-intl"
 import {
   Popover,
@@ -13,7 +13,6 @@ import {
 } from "@/components/layout/network-speed-test-panel"
 import { useNetworkTraffic } from "@/hooks/use-network-traffic"
 import { useNetworkSpeedTest } from "@/hooks/use-network-speed-test"
-import { formatNetworkRate } from "@/lib/network-diagnostics"
 import {
   getTransport,
   getShellTransport,
@@ -24,50 +23,64 @@ import {
 const serverTransport = () => null
 
 export function NetworkStatusBar() {
-  const t = useTranslations("NetworkDiagnostics")
+  const [open, setOpen] = useState(false)
   const transport = useSyncExternalStore(
     onTransportChange,
     getTransport,
     serverTransport
   )
-  const traffic = useNetworkTraffic(transport)
+  const traffic = useNetworkTraffic(transport, open)
   const { test, start } = useNetworkSpeedTest(transport)
   const remote =
     transport && (transport !== getShellTransport() || !isDesktop())
   return (
-    <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-t border-border bg-muted px-3 text-xs text-muted-foreground">
-      <span className="min-w-0 truncate">
-        {t(remote ? "serverNetwork" : "localNetwork")}
-      </span>
+    <div className="flex h-6 shrink-0 items-center text-xs text-muted-foreground">
       <NetworkStatusPopover
         {...traffic}
         test={test}
         onStart={() => void start()}
+        open={open}
+        onOpenChange={setOpen}
+        remote={Boolean(remote)}
       />
     </div>
   )
 }
 
-function NetworkStatusPopover(props: NetworkSpeedTestPanelProps) {
+function NetworkStatusPopover({
+  open,
+  onOpenChange,
+  remote,
+  ...props
+}: NetworkSpeedTestPanelProps & {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  remote: boolean
+}) {
   const t = useTranslations("NetworkDiagnostics")
+  const latency = props.test.outcomes.latency
+  const latencyValue = latency?.result?.elapsed_ms
+  const label =
+    latencyValue !== undefined
+      ? t("latencyValue", { value: Math.round(latencyValue) })
+      : t(latency?.error ? "failed" : "latencySampling")
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={t("open")}
-          className="flex h-full shrink-0 items-center gap-2 rounded-sm px-1 tabular-nums hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          aria-label={t("open", {
+            network: t(remote ? "serverNetwork" : "localNetwork"),
+          })}
+          aria-busy={props.test.phase !== null}
+          className="flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1 tabular-nums hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
-          <span>
-            {props.rates
-              ? `↓ ${formatNetworkRate(props.rates.download)}  ↑ ${formatNetworkRate(props.rates.upload)} Mbps`
-              : t(props.error || props.empty ? "unavailable" : "sampling")}
-          </span>
-          <span>{props.test.phase ? t("running") : t("test")}</span>
+          <span>{t(remote ? "serverNetwork" : "localNetwork")}</span>
+          <span>{label}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
-        side="top"
+        side="bottom"
         align="end"
         aria-label={t("title")}
         className="max-h-[min(36rem,80dvh)] w-80 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg"

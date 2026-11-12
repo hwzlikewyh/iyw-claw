@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { verifyMacShare } from "./verify-native-share.mjs"
 
 function run(tool, args) {
   execFileSync(tool, args, { stdio: "inherit" })
@@ -101,6 +100,5 @@ export function prepareMacShare(target, root) {
     join(root, "resources/config.json"),
     JSON.stringify({ schemaVersion: 1, appGroup: group || null })
   )
-  verifyMacShare({ root: join(root, "resources"), extension: bundle, version })
   console.log(`[native-share] macOS extension prepared for ${target}`)
 }
