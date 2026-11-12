@@ -1,5 +1,14 @@
 # 本地模型网关实现方案
 
+## 2026-11-12 图片 edits 全链路 URL 传输
+
+本地模型网关里的图片 edits 将 multipart 图片按单图 32 MiB 上限流式落到受管临时文件，
+校验 MIME 与实际字节，再通过现有 InputImageStore / init、TOS 直传和 complete 准备 URL。
+重写为 JSON `images[].image_url` 与 `mask.image_url` 后发送 Fusion；同内容输入沿用本机摘要缓存。
+历史 JSON inline/受管引用 edits 也要求 Fusion 返回 HTTPS URL，不能退回 opaque ID。
+Fusion 到模型网关保持 JSON URL；格式拒绝时不读取原图或重发 multipart 文件。
+存储和资源查询失败时停止该模型请求。保留请求体、并发许可、准备时限和单图大小上限。
+
 ## 2026-11-06 图片请求前准备耗时（用户要求继续优化）
 
 会话896的首字12.680秒中，请求构造前3.342秒、request_ready到首内容9.338秒；
@@ -127,9 +136,9 @@ OpenAI Docs 官方站点在调研时无法取得正文，接口类型补充核�
 
 普通 JSON：Responses input_image、Chat image_url、Messages image/source，以及 tool_result 的嵌套图片按结构处理。只替换图片源字段范围，原始 JSON 其余字节尽可能不动；大字符串不加载为 String。
 
-已有 image_id 透传。HTTPS 源不下载。multipart 有界接收后按原文件契约转发，**本轮不将 multipart 文件转成 URL，因此这类请求仍占 Fusion 图片带宽**。SDK 通过 prepare 的 upload 请求也在本地转换为直传，返回原资源响应契约。
+已有 image_id 透传。HTTPS 源不下载。普通模型 API 的非-edit multipart 仍按原文件契约转发。图片 edits 的 multipart 受限落盘并按原 MIME、字节和大小验证；兼容的图片 part 直传并重写成 JSON 图片 URL，不将图片文件放进 Fusion relay。非图片未知文件 part 不会作为模型请求透传。SDK 通过 prepare 的 upload 请求也在本地转换为直传，返回原资源响应契约。
 
-编辑兼容 JSON 的 `images[].image_url` 和 `mask.image_url` 转为受管引用；Fusion 校验所有者后先改 HTTPS。沿用既有 400/415/422 格式拒绝时的 JSON→multipart 回退，仅在该阶段从自己的受管对象读取原字节，不下载任意客户端 URL。读取总原图受 32 MiB 限制，multipart 最终仍受原有 32 MiB 限制。此兼容分支节省 PC→Fusion 入站，不能节省 TOS→Fusion→上游的原图流量；没有重复调用成功生图的本地重试。
+编辑 JSON `data:` 与受管 ID 先通过已验证的受管图片存储转换为 JSON HTTPS `image_url`；本地编辑路径不能以 `iyw-image:` 或 image_id 退回直传 Fusion。multipart 编辑直接在本机上传后发送 JSON URL。Fusion 独立接受旧客户端直连的 multipart / data URL，并转换为受管 URL；无效 JSON、任意非 HTTPS 来源、丢失图片、权限、存储或元数据校验失败时不发起上游模型请求。上游拒绝 URL 时保留原始错误；显式关闭编辑专用原图恢复与格式 multipart fallback。读取总原图和本地上传遵守原图 32 MiB 与请求体边界，不重复调用模型。
 
 WebSocket 用独立双向桥接，上传准备不阻塞上游响应接收，转发子协议及关闭码/原因；文本请求帧经过同一转换，二进制帧原样传递。8 MiB 是明确兼容边界，超限不分割消息、不承诺适用于所有长历史；Fusion 未开放对应 WebSocket 路由时保留其非 101 状态，由 SDK 按原有策略决定是否使用 HTTP。本轮不为 Fusion 新增 WebSocket 服务，也未实测系统代理兼容性。
 
@@ -190,7 +199,7 @@ WebSocket 用独立双向桥接，上传准备不阻塞上游响应接收，转�
 
 - Fusion `go test ./... -count=1`、`go vet ./...`、`go build ./...` 通过；包含三类 LLM 入口非流式/流式 smoke。
 - 最后测试整理后再次执行 relay/objectstorage/imagetransfer 三包 test/vet/build 通过。
-- 聚焦覆盖：包装器接口委托、私有不可覆盖签名、HEAD 完成不读图、init 已有对象校验、图像模型准备、用户隔离、Messages source 未知字段保留、三入口禁止摘要、edits URL 被拒后原字节 multipart 和消费记录。
+- 聚焦覆盖：包装器接口委托、私有不可覆盖签名、HEAD 完成不读图、init 已有对象校验、图像模型准备、用户隔离、Messages source 未知字段保留、三入口禁止摘要、edits URL 上游格式拒绝保留且不读回原图、multipart URL 转换与消费记录。
 - Rust 新模块通过独立临时 Cargo 工程类型检查，仅引用真实新模块、对主项目两处调用做 stub；不是完整桌面编译。没有新增/运行桌面测试、打包或启动桌面。
 - 新模块 rustfmt、行数/函数边界与本轮 diff 检查；既有大文件不借机重构或整体格式化。
 - requesting-code-review 技能要求的只读审查代理多次收到空任务，未形成独立结论；主代理完成静态复核，不声称独立审查通过。
@@ -203,10 +212,10 @@ WebSocket 用独立双向桥接，上传准备不阻塞上游响应接收，转�
 1. 先发布 Fusion，核验带 imagetransfer 包装器时 prepare 不再 503；真实 TOS 验证 PUT、错误摘要/大小拒绝、不可覆盖、complete HEAD，以及跨账号拒绝。
 2. 在允许的远端 CI 构建桌面/服务器二进制；核验主进程启动顺序、动态端口覆盖、休眠恢复、关闭与现有会话重新连接。
 3. 选已验证原生视觉的实际模型，分别验证三种协议、工具结果图片、细字原图、历史重放和压缩后重读；不支持视觉的模型应明确失败。
-4. 按候选协议开启现有 URL 能力，保留未验证渠道的 inline/multipart 兼容。此操作为生产配置变更，本轮未执行。
+4. 按候选协议开启现有 URL 能力，保留调用方 inline/multipart 的输入兼容，同时以对象 URL 传输图片。此操作为生产配置变更，本轮未执行。
 5. 测量纯文本 64 KiB/1 MiB、1/8/32 MiB 图片首传/重复/并发、取消和磁盘满的 P50/P95、CPU、RSS/峰值、磁盘临时量、Fusion 入/出站及 TOS 字节；检查 WebSocket 8 MiB 限制是否满足真实会话。
 
-本轮明确不覆盖：流光等未走受管 provider 的 Agent、任意 SDK 自定义 endpoint、multipart 减流、二进制 WebSocket 图片识别、持久本地缓存、生产部署。附件最初由 SDK 读取/压缩的行为仍属原 SDK；网关不能把已被别的工具总结成文字的消息恢复成原图。
+本轮明确不覆盖：流光等未走受管 provider 的 Agent、任意 SDK 自定义 endpoint、二进制 WebSocket 图片识别、持久本地缓存、生产部署。附件最初由 SDK 读取/压缩的行为仍属原 SDK；网关不能把已被别的工具总结成文字的消息恢复成原图。
 
 ### 用户追加的本机打包验证
 
