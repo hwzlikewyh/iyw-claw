@@ -50,6 +50,6 @@
       "resourceDomains": ["https://raw.githubusercontent.com"],
       "frameDomains": []
     },
-    "host": ["send-message", "clipboard-write", "open-link", "model-gateway"]
+    "host": ["send-message", "clipboard-write", "open-link"]
   }
 }
