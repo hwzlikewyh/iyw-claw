@@ -185,19 +185,7 @@ async fn route_local_app_tool(
         .filter(|plugin| plugin.available && plugin.version == instance.plugin_version)
         .ok_or_else(|| plugin_error("plugin_app_unavailable", "Plugin app is unavailable"))?;
     let is_gateway = name == "infinite_canvas_model_request";
-    if plugin.slug != "infinite-canvas"
-        || (is_gateway
-            && plugin
-                .manifest
-                .permissions
-                .as_ref()
-                .is_none_or(|permissions| {
-                    !permissions
-                        .host
-                        .iter()
-                        .any(|permission| permission == "model-gateway")
-                }))
-    {
+    if plugin.slug != "infinite-canvas" {
         return Err(plugin_error(
             "plugin_app_unauthorized",
             "The plugin does not have local model gateway access",
