@@ -88,6 +88,10 @@ async fn commit_standalone(input: MarketInstallPlanExecution<'_>) -> Result<(), 
         return Err(error);
     }
     if let Some(skills) = skills {
+        if let Err(error) = skills.migrate_plugin_skill_policies(input.conn).await {
+            skills.rollback().map_err(map_skill_error)?;
+            return Err(error);
+        }
         skills.finish();
     }
     Ok(())
@@ -126,13 +130,28 @@ fn plugin_skill_installs(
     plugin: &PreparedPluginInstall,
 ) -> Result<Vec<MarketSkillInstall>, AppCommandError> {
     let mut installs = Vec::new();
+    let names = plugin
+        .plugin
+        .manifest
+        .components
+        .iter()
+        .filter(|component| component.kind == "skill")
+        .map(|component| {
+            (
+                component.path.rsplit('/').next().unwrap_or(&component.key).to_string(),
+                crate::acp::skill_package::plugin_skill_id(&plugin.slug, &component.key),
+            )
+        })
+        .collect();
     for component in &plugin.plugin.manifest.components {
         if component.kind != "skill" {
             continue;
         }
-        let package = plugin.package.skill_component(&component.path)?;
+        let package = plugin
+            .package
+            .plugin_skill_component(&component.path, &names)?;
         let mut marker = plugin.marker.clone();
-        marker.slug = component.key.clone();
+        marker.slug = crate::acp::skill_package::plugin_skill_id(&plugin.slug, &component.key);
         marker.content_sha256 = package.content_sha256.clone();
         marker.plugin_slug = Some(plugin.slug.clone());
         marker.plugin_component_key = Some(component.key.clone());
