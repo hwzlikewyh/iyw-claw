@@ -2,21 +2,26 @@
 
 import { useOptionalIywAccount } from "@/contexts/iyw-account-context"
 
-export function hasAvailableAccountPoints(
+export function hasKnownAccountPoints(
   balancePoints: number | null | undefined
-) {
+): balancePoints is number {
   return (
     typeof balancePoints === "number" &&
     Number.isFinite(balancePoints) &&
-    balancePoints > 0
+    balancePoints >= 0
   )
+}
+
+export function hasAvailableAccountPoints(
+  balancePoints: number | null | undefined
+) {
+  return hasKnownAccountPoints(balancePoints) && balancePoints > 0
 }
 
 export function useAccountPointsInsufficient() {
   const account = useOptionalIywAccount()
-  return Boolean(
-    account && !hasAvailableAccountPoints(account.profile?.balance_points)
-  )
+  const balance = account?.profile?.balance_points
+  return Boolean(account && hasKnownAccountPoints(balance) && balance === 0)
 }
 
 export function useAccountRequestsBlocked() {
@@ -28,7 +33,6 @@ export function useAccountRequestsBlocked() {
 }
 
 export function useAccountChatRequestsBlocked() {
-  const requestsBlocked = useAccountRequestsBlocked()
-  const pointsInsufficient = useAccountPointsInsufficient()
-  return requestsBlocked || pointsInsufficient
+  // 点数缓存只用于展示，消费准入由后端检查；空间切换仍阻止新请求。
+  return useAccountRequestsBlocked()
 }

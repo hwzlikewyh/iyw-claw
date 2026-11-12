@@ -50,10 +50,15 @@ pub(super) async fn fetch(client: &reqwest::Client, token: &str) -> Result<f64, 
         )));
     }
     if result.code != 1 {
+        let error_code = match result.data.error_code.as_deref() {
+            Some("points_balance_unavailable") => "points_balance_unavailable",
+            _ => "unexpected_business_error",
+        };
         return Err(unavailable().with_detail(format!(
-            "stage=response http_status={} business_code={}",
+            "stage=response http_status={} business_code={} error_code={}",
             status.as_u16(),
-            result.code
+            result.code,
+            error_code
         )));
     }
     result

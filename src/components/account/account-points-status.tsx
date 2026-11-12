@@ -8,6 +8,7 @@ import { useIywAccount } from "@/contexts/iyw-account-context"
 import type { IywAccountProfile } from "@/lib/types"
 import {
   hasAvailableAccountPoints,
+  hasKnownAccountPoints,
   useAccountPointsInsufficient,
 } from "./use-account-request-guard"
 
@@ -22,6 +23,17 @@ export function AccountPointsStatus({
   const points = useTranslations("Folder.conversation.pointsGate")
   if (!profile?.points_stale) return null
   const available = hasAvailableAccountPoints(profile.balance_points)
+  const known = hasKnownAccountPoints(profile.balance_points)
+  const title = !known
+    ? points("unknownTitle")
+    : available
+      ? t("pointsStale")
+      : points("insufficientTitle")
+  const description = !known
+    ? points("unknownDescription")
+    : available
+      ? t("pointsCacheHint")
+      : points("insufficientDescription")
   return (
     <div
       role="status"
@@ -29,16 +41,8 @@ export function AccountPointsStatus({
     >
       <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
       <div>
-        <p className="font-medium">
-          {available ? t("pointsStale") : points("insufficientTitle")}
-        </p>
-        {!compact ? (
-          <p className="mt-0.5 opacity-80">
-            {available
-              ? t("pointsCacheHint")
-              : points("insufficientDescription")}
-          </p>
-        ) : null}
+        <p className="font-medium">{title}</p>
+        {!compact ? <p className="mt-0.5 opacity-80">{description}</p> : null}
       </div>
     </div>
   )

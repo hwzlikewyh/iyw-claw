@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { balancePoints } from "@/components/account/account-profile-panel"
 import { AccountPointsStatus } from "@/components/account/account-points-status"
+import { hasKnownAccountPoints } from "@/components/account/use-account-request-guard"
 import type { IywAccountProfile } from "@/lib/types"
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
 export function SidebarAccountBalance(props: Props) {
   const t = useTranslations("SidebarAccount")
   const flow = useTranslations("AccountFlow")
+  const points = useTranslations("Folder.conversation.pointsGate")
   const details = useTranslations("SidebarDesign")
   return (
     <div className="mx-4 mb-2 grid gap-3">
@@ -25,7 +27,9 @@ export function SidebarAccountBalance(props: Props) {
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-medium text-muted-foreground">
             {props.profile.points_stale
-              ? flow("lastConfirmedPoints")
+              ? hasKnownAccountPoints(props.profile.balance_points)
+                ? flow("lastConfirmedPoints")
+                : points("unknownTitle")
               : flow("availablePoints")}
           </p>
           <Button
