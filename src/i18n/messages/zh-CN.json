@@ -4800,6 +4800,8 @@
         "answeredLabel": "提问回答：",
         "awaiting": "等待你的回答…",
         "declined": "你已忽略此问题 — 代理已自行判断。",
+        "timedOut": "等待超时 — 代理会尝试通过聊天渠道再次询问。",
+        "canceled": "此问题已取消，代理未收到你的选择。",
         "noSelection": "未选择"
       },
       "scheduledTaskResult": {

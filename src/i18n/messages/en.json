@@ -4800,6 +4800,8 @@
         "answeredLabel": "Q&A:",
         "awaiting": "Waiting for your answer…",
         "declined": "You dismissed this — the agent used its own judgment.",
+        "timedOut": "Waiting timed out — the agent may ask again through chat.",
+        "canceled": "This question was canceled before you answered.",
         "noSelection": "No selection"
       },
       "scheduledTaskResult": {

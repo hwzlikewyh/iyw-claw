@@ -173,6 +173,10 @@ pub struct BrokerCommitFeedbackRequest {
 /// and parks the response until the user answers (or the tool call is canceled,
 /// detected via peer-close on this connection). The companion has already
 /// validated the schema, so `questions` is well-formed and carries stable ids.
+/// The response keeps the legacy `answers`/`declined` fields and may add a
+/// `status` (`answered`, `declined`, `canceled`, or `timed_out`); timeout also
+/// carries `fallback: "current_channel"` so the original Agent can make one
+/// bounded channel follow-up.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrokerAskRequest {
     pub token: String,
@@ -608,7 +612,8 @@ pub async fn client_commit_feedback(
 /// inherent (waiting on a human). If the tool call is canceled, the companion
 /// drops this future, closing the socket; the listener observes the peer-close
 /// and tears the pending question down. Returns a `{ answers, declined }`
-/// envelope.
+/// envelope. The envelope may include a `status` field; a timeout is marked as
+/// `timed_out` rather than being indistinguishable from an explicit decline.
 pub async fn client_ask_round_trip(
     socket_path: &str,
     req: &BrokerAskRequest,

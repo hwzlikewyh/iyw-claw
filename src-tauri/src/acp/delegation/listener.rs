@@ -1106,9 +1106,20 @@ impl DelegationListener {
             );
             self.questions.cancel_question(&parent, &question_id).await;
         }
-        let response = match outcome.filter(|_| !timed_out) {
-            Some(outcome) => ask_response(&outcome)?,
-            None => ask_declined_response()?,
+        let response = if timed_out {
+            ask_timeout_response()?
+        } else {
+            match outcome {
+                Some(outcome) => {
+                    let status = if outcome.declined {
+                        "declined"
+                    } else {
+                        "answered"
+                    };
+                    ask_response(&outcome, status, None)?
+                }
+                None => ask_canceled_response()?,
+            }
         };
         write_frame(conn, &response).await
     }
@@ -2188,13 +2199,27 @@ fn feedback_response(items: &[PendingFeedback]) -> std::io::Result<BrokerRespons
 }
 
 /// Serialize a resolved [`QuestionOutcome`] into a [`BrokerResponse`] for the
-/// `Ask` arm — the `{ answers, declined }` envelope the companion renders.
-fn ask_response(outcome: &QuestionOutcome) -> std::io::Result<BrokerResponse> {
-    Ok(BrokerResponse {
-        outcome: serde_json::to_value(outcome).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
-        })?,
-    })
+/// `Ask` arm. `status` is additive so older companions can continue reading
+/// `answers` and `declined`; `fallback` is only present for timeout recovery.
+fn ask_response(
+    outcome: &QuestionOutcome,
+    status: &str,
+    fallback: Option<&str>,
+) -> std::io::Result<BrokerResponse> {
+    let mut value = serde_json::to_value(outcome).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
+    })?;
+    let object = value.as_object_mut().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "question outcome must serialize as an object",
+        )
+    })?;
+    object.insert("status".into(), Value::String(status.into()));
+    if let Some(fallback) = fallback {
+        object.insert("fallback".into(), Value::String(fallback.into()));
+    }
+    Ok(BrokerResponse { outcome: value })
 }
 
 /// Serialize a resolved [`SessionInfo`] into a [`BrokerResponse`] for the
@@ -2313,14 +2338,29 @@ fn memory_failure_outcome(default_code: &str, message: String) -> Value {
         })),
     })
 }
-/// The `declined` outcome — used when the token is invalid, the connection is
-/// gone, or the answer one-shot was dropped without a response. The LLM reads it
-/// as "the user didn't answer; proceed with your own judgment".
-fn ask_declined_response() -> std::io::Result<BrokerResponse> {
-    ask_response(&QuestionOutcome {
-        answers: Vec::new(),
-        declined: true,
-    })
+/// A canceled outcome when the host drops the waiter without a user answer.
+fn ask_canceled_response() -> std::io::Result<BrokerResponse> {
+    ask_response(
+        &QuestionOutcome {
+            answers: Vec::new(),
+            declined: true,
+        },
+        "canceled",
+        None,
+    )
+}
+
+/// A timeout outcome is distinct from an explicit user decline so the Agent
+/// can make one bounded attempt to ask through the current chat channel.
+fn ask_timeout_response() -> std::io::Result<BrokerResponse> {
+    ask_response(
+        &QuestionOutcome {
+            answers: Vec::new(),
+            declined: true,
+        },
+        "timed_out",
+        Some("current_channel"),
+    )
 }
 
 /// A `Canceled` report for a setup-side rejection the LLM can't react to (bad

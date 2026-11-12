@@ -42,9 +42,18 @@ export interface AskQuestionAnswer {
   selected: string[]
 }
 
+export type AskQuestionOutcomeStatus =
+  | "answered"
+  | "declined"
+  | "canceled"
+  | "timed_out"
+
 export interface AskQuestionOutcome {
   declined: boolean
   answers: AskQuestionAnswer[]
+  /** Optional on old transcripts; present on current broker results. */
+  status?: AskQuestionOutcomeStatus
+  fallback?: "current_channel"
 }
 
 /**
@@ -174,8 +183,19 @@ function parseAnswers(raw: unknown): AskQuestionAnswer[] {
   return out
 }
 
+function parseOutcomeStatus(
+  value: unknown
+): AskQuestionOutcomeStatus | undefined {
+  return value === "answered" ||
+    value === "declined" ||
+    value === "canceled" ||
+    value === "timed_out"
+    ? value
+    : undefined
+}
+
 /**
- * Parse the structured `{ answers, declined }` envelope the agent CLI persists
+ * Parse the structured `{ answers, declined, status? }` envelope the agent CLI persists
  * for the tool result (the companion's `structuredContent`). It may sit at the
  * top level or nested under `structuredContent`. Returns `null` when `output`
  * is not that envelope, so the text fallback can take over.
@@ -211,19 +231,30 @@ function parseOutcomeJson(output: string): AskQuestionOutcome | null {
   if (!Array.isArray(env.answers) && typeof env.declined !== "boolean") {
     return null
   }
-  if (env.declined === true) return { declined: true, answers: [] }
-  return { declined: false, answers: parseAnswers(env.answers) }
+  const status = parseOutcomeStatus(env.status)
+  const fallback = env.fallback === "current_channel" ? env.fallback : undefined
+  if (env.declined === true) {
+    return { declined: true, answers: [], status, fallback }
+  }
+  return {
+    declined: false,
+    answers: parseAnswers(env.answers),
+    status,
+    fallback,
+  }
 }
 
 /**
- * Reconstruct the answered/declined outcome from the persisted tool result.
+ * Reconstruct the answered/declined/timed-out outcome from the persisted tool result.
  *
  * Primary shape — the structured envelope the CLI stores verbatim:
- *   {"answers":[{"header":"…","question":"…","selected":["A","B"]}],"declined":false}
+ *   {"answers":[{"header":"…","question":"…","selected":["A","B"]}],"declined":false,"status":"answered"}
  *
  * Fallback shape — the companion's human-readable text, for any CLI that keeps
  * `content` instead of `structuredContent` (see `render_ask_result`):
  *   "The user dismissed the question(s) …"  (declined)
+ *   "The question timed out without a user answer …"  (timed out)
+ *   "The question was canceled before the user answered …"  (canceled)
  *   "The user answered your question(s):\n1. [Header] Question\n   → a, b\n…"
  *
  * Returns `null` when there is no output yet (the call is still in flight). In
@@ -241,6 +272,14 @@ export function parseAskQuestionOutcome(
 
   const fromJson = parseOutcomeJson(body)
   if (fromJson) return fromJson
+
+  if (/\bquestion timed out without a user answer/i.test(body)) {
+    return { declined: true, answers: [], status: "timed_out" }
+  }
+
+  if (/\bquestion was canceled before the user answered/i.test(body)) {
+    return { declined: true, answers: [], status: "canceled" }
+  }
 
   if (/\bdismissed the question/i.test(body)) {
     return { declined: true, answers: [] }
