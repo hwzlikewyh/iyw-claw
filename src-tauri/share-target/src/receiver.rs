@@ -50,7 +50,7 @@ pub fn run() -> Result<()> {
 
 fn check_identity() -> Result<()> {
     let package = Package::Current()?.Id()?;
-    let expected_app = format!("{}!Share", package.FamilyName()?);
+    let expected_app = format!("{}!Share.Hub", package.FamilyName()?);
     if package.Name()?.to_string() != "IywAssistant.ShareTarget" {
         return Err("分享接收程序取得了其它包的身份".into());
     }

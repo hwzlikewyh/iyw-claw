@@ -13,7 +13,7 @@ try {
     $identity = $package.Package.Identity
     $application = $package.Package.Applications.Application
     $msix = $executable.assembly.msix
-    if ($identity.Name -ne 'IywAssistant.ShareTarget' -or $application.Id -ne 'Share' -or
+    if ($identity.Name -ne 'IywAssistant.ShareTarget' -or $application.Id -ne 'Share.Hub' -or
         $msix.packageName -ne $identity.Name -or $msix.publisher -ne $identity.Publisher -or
         $msix.applicationId -ne $application.Id -or $application.Executable -ne 'iyw-share-target.exe') {
         throw 'Share receiver EXE identity does not match the MSIX manifest'

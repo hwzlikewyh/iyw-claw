@@ -14,7 +14,7 @@
  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
  <Capabilities><rescap:Capability Name="runFullTrust" /><rescap:Capability Name="unvirtualizedResources" /></Capabilities>
  <Applications>
-  <Application Id="Share" Executable="iyw-share-target.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+  <Application Id="Share.Hub" Executable="iyw-share-target.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
    <uap:VisualElements AppListEntry="none" DisplayName="原助理" Description="将聊天记录交给原助理"
     BackgroundColor="transparent" Square44x44Logo="Assets\Square44x44Logo.png" Square150x150Logo="Assets\Square150x150Logo.png" />
    <Extensions><uap:Extension Category="windows.shareTarget"><uap:ShareTarget Description="原助理">
