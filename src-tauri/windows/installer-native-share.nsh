@@ -4,7 +4,9 @@ Function IywClawRegisterNativeShare
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$IywClawAppDir\native-share\register.ps1"'
   Pop $R0
   StrCmp $R0 "0" native_share_install_done 0
-  DetailPrint "系统分享入口尚未注册（退出码=$R0），可在原助理的微信聊天记录窗口重试启用。"
+  DetailPrint "系统分享入口暂未注册（退出码=$R0），原助理启动时将自动检查并重试。"
+  Push "native share registration failed: exit=$R0; application startup will retry for current user"
+  Call IywClawAppendInstallerLog
   native_share_install_done:
 FunctionEnd
 

@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process"
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   rmSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
 } from "node:fs"
 import { dirname, join, resolve } from "node:path"
@@ -90,6 +92,10 @@ function buildReceiver({ target, root, subject, output }) {
     executable
   )
   copyFileSync(join(root, "windows/register.ps1"), join(output, "register.ps1"))
+  copyFileSync(
+    join(root, "windows/share-resources.ps1"),
+    join(output, "share-resources.ps1")
+  )
 }
 
 function preparePackageFiles({ root, output, stage, subject, version }) {
@@ -114,11 +120,7 @@ function preparePackageFiles({ root, output, stage, subject, version }) {
     .replaceAll("{{version}}", version)
   writeFileSync(join(stage, "AppxManifest.xml"), `\uFEFF${manifest}`)
   mkdirSync(join(stage, "Assets"), { recursive: true })
-  for (const size of [44, 150])
-    copyFileSync(
-      join(output, `Assets/Square${size}x${size}Logo.png`),
-      join(stage, `Assets/Square${size}x${size}Logo.png`)
-    )
+  cpSync(join(output, "Assets"), join(stage, "Assets"), { recursive: true })
 }
 
 function createResourceIndex({ root, stage, output }) {
@@ -143,7 +145,8 @@ function createResourceIndex({ root, stage, output }) {
     "IywAssistant.ShareTarget",
     "/o",
   ])
-  copyFileSync(join(stage, "resources.pri"), join(output, "resources.pri"))
+  for (const name of readdirSync(stage).filter((name) => name.endsWith(".pri")))
+    copyFileSync(join(stage, name), join(output, name))
 }
 
 export function packWindowsShare(context) {

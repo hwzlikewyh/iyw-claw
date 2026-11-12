@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod registration;
+#[cfg(target_os = "windows")]
+mod registration_windows;
 #[cfg(target_os = "macos")]
 mod registration_macos;
 pub use registration::{register, status, ShareStatus};
@@ -65,7 +67,7 @@ pub fn setup(app: &AppHandle) {
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = registration::register_if_missing(&handle).await {
-            tracing::warn!(target: "iyw_native_share", error = %error, "share registration unavailable; retry from channel settings");
+            tracing::warn!(target: "iyw_native_share", error = %error, "automatic share registration failed; the next launch will check again");
         }
     });
 }

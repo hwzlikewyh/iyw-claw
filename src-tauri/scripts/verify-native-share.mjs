@@ -83,6 +83,7 @@ export function verifyWindowsShare({ root, version, requireSigned = false }) {
   for (const name of [
     "iyw-share-target.exe",
     "register.ps1",
+    "share-resources.ps1",
     "UPSTREAM-LICENSE",
   ])
     requireFile(join(root, name))
