@@ -1,4 +1,5 @@
 packages:
   - widget
+  - vendor/infinite-canvas-web
 allowBuilds:
   esbuild: true
