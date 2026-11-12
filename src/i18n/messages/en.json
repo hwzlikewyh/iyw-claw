@@ -15,7 +15,7 @@
     "latency": "Request latency",
     "download": "Download rate",
     "upload": "Upload rate",
-    "targetHint": "Target: speed.cloudflare.com. About 1 MB downloaded and 256 KB uploaded; up to 8 seconds per step. This small sample includes request overhead and depends on the target and current proxy. It does not measure maximum line capacity.",
+    "targetHint": "Target: a domestic SpeedTest.cn node. About 1 MB downloaded and 256 KB uploaded; up to 8 seconds per step. This small sample includes request overhead and depends on the target and current proxy. It does not measure maximum line capacity.",
     "start": "Start speed test",
     "test": "Speed test",
     "testing": "Measuring {phase}…",
