@@ -20,8 +20,12 @@ pub use plugin_app_sync::{sync_core, SyncRequest, SyncUpdate};
 
 use crate::app_error::AppCommandError;
 
+#[path = "plugin_app_model_gateway.rs"]
+mod plugin_app_model_gateway;
 #[path = "plugin_app_resource_meta.rs"]
 mod plugin_app_resource_meta;
+#[path = "plugin_app_storage.rs"]
+mod plugin_app_storage;
 #[path = "plugin_app_tools.rs"]
 mod plugin_app_tools;
 pub(crate) use plugin_app_open::open_core;

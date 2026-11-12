@@ -35,9 +35,7 @@ export function PluginDependencyRows({ view }: { view: PluginPreparation }) {
             variant="link"
             size="xs"
             className="h-auto min-w-0 whitespace-normal break-words p-0 text-left text-[13px]"
-            onClick={() =>
-              route.openSkillMarket(dependency.slug, dependency.packageType)
-            }
+            onClick={() => route.openSkillMarket(dependency.slug)}
           >
             {dependency.slug} · {dependency.requiredVersion}
           </Button>

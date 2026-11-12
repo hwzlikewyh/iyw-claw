@@ -35,7 +35,7 @@ pub(super) async fn authorize_app_message(
         ));
     }
     if matches!(method, "ui/open-link" | "ui/message" | "ui/download-file") {
-        authorize_host_action(db, (&instance, plugin, &snapshot.plugins)).await?;
+        authorize_host_action(db, (&instance, plugin, &snapshot.plugins), true).await?;
     }
     authorize_method(plugin, method)
 }
@@ -47,9 +47,12 @@ async fn authorize_host_action(
         &crate::plugin_runtime::registry::PluginDescriptor,
         &std::collections::BTreeMap<String, crate::plugin_runtime::registry::PluginDescriptor>,
     ),
+    require_account: bool,
 ) -> Result<(), crate::plugin_runtime::types::PluginInvokeError> {
     let (instance, plugin, plugins) = context;
-    authorize_account(db, plugin).await?;
+    if require_account {
+        authorize_account(db, plugin).await?;
+    }
     let workspace = super::plugin_app_context::load_workspace(
         db,
         instance.conversation_id,
@@ -139,6 +142,12 @@ pub(super) async fn route_app_tool(
                 "tools/call arguments must be an object",
             )
         })?;
+    if matches!(
+        name.as_str(),
+        "infinite_canvas_model_request" | "infinite_canvas_store_data"
+    ) {
+        return route_local_app_tool(db, &instance, &name, &arguments).await;
+    }
     let workspace = super::plugin_app_context::load_workspace(
         db,
         instance.conversation_id,
@@ -160,6 +169,56 @@ pub(super) async fn route_app_tool(
         })
         .await
         .map(|result| serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({})))
+}
+
+async fn route_local_app_tool(
+    db: &crate::db::AppDatabase,
+    instance: &crate::db::entities::plugin_app_instance::Model,
+    name: &str,
+    arguments: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, crate::plugin_runtime::types::PluginInvokeError> {
+    let snapshot = crate::plugin_runtime::registry::global_snapshot()
+        .ok_or_else(|| plugin_error("plugin_app_unavailable", "Plugin registry is unavailable"))?;
+    let plugin = snapshot
+        .plugins
+        .get(&instance.plugin_slug)
+        .filter(|plugin| plugin.available && plugin.version == instance.plugin_version)
+        .ok_or_else(|| plugin_error("plugin_app_unavailable", "Plugin app is unavailable"))?;
+    let is_gateway = name == "infinite_canvas_model_request";
+    if plugin.slug != "infinite-canvas"
+        || (is_gateway
+            && plugin
+                .manifest
+                .permissions
+                .as_ref()
+                .is_none_or(|permissions| {
+                    !permissions
+                        .host
+                        .iter()
+                        .any(|permission| permission == "model-gateway")
+                }))
+    {
+        return Err(plugin_error(
+            "plugin_app_unauthorized",
+            "The plugin does not have local model gateway access",
+        ));
+    }
+    authorize_host_action(db, (instance, plugin, &snapshot.plugins), is_gateway).await?;
+    let result = if is_gateway {
+        super::plugin_app_model_gateway::request(db, arguments).await?
+    } else {
+        let workspace = super::plugin_app_context::load_workspace(
+            db,
+            instance.conversation_id,
+            &instance.workspace_key,
+        )
+        .await
+        .map_err(|error| plugin_error("plugin_app_unavailable", error.message))?;
+        super::plugin_app_storage::request(&workspace.workspace_dir, arguments).await?
+    };
+    Ok(serde_json::json!({
+        "content": [{ "type": "text", "text": result.to_string() }]
+    }))
 }
 
 pub(super) async fn find_instance(

@@ -1,10 +1,8 @@
 "use client"
 
 import { useEffect } from "react"
-import { Maximize2, Minimize2, PanelRightOpen, RefreshCw } from "lucide-react"
+import { Maximize2, Minimize2, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useAuxPanelContext } from "@/contexts/aux-panel-context"
-import { usePluginPanelRegistry } from "@/stores/plugin-panel-registry"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -27,24 +25,10 @@ export function PluginAppContent({
 }: PluginAppContentProps) {
   void toolCallId
   const t = useTranslations("Folder.chat.contentParts.pluginApp")
-  const panelText = useTranslations("PluginPanels")
-  const { openTab } = useAuxPanelContext()
   const { state, fullscreen, setFullscreen, retry } = usePluginAppState(
     instanceId,
     conversationId,
     t("unavailable")
-  )
-  const matchingPanel = usePluginPanelRegistry((registry) =>
-    state.status === "ready"
-      ? registry.panels.find(
-          (panel) =>
-            panel.conversationId === conversationId &&
-            panel.pluginSlug === state.launch.pluginSlug &&
-            panel.pluginVersion === state.launch.pluginVersion &&
-            (panel.appKey === state.launch.appKey ||
-              panel.resourceUri === state.launch.resourceUri)
-        )
-      : undefined
   )
 
   useEffect(() => {

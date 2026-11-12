@@ -11,7 +11,6 @@ export interface PluginRecoveryReview {
   reviewToken: string | null
   issues: string[]
   dependencies: Array<{
-    packageType: "skill" | "expert" | "plugin"
     id: string
     slug: string
     requiredVersion: string

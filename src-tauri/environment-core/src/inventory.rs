@@ -22,6 +22,34 @@ pub fn load_current(layout: &Layout) -> Result<Option<EnvironmentSnapshot>> {
     read_json_optional(&layout.current_snapshot())
 }
 
+pub fn load_current_for_repair(layout: &Layout) -> Result<Option<EnvironmentSnapshot>> {
+    let path = layout.current_snapshot();
+    match read_json_optional(&path) {
+        Err(error) if error.downcast_ref::<serde_json::Error>().is_some() => {
+            let backup = layout
+                .quarantine
+                .join(format!("environment-current-{}.json", uuid::Uuid::new_v4()));
+            crate::retry::file("quarantine invalid environment inventory", &backup, || {
+                fs::rename(&path, &backup)
+            })
+            .with_context(|| {
+                format!(
+                    "quarantine invalid environment inventory: {}; backup: {}",
+                    path.display(),
+                    backup.display()
+                )
+            })?;
+            eprintln!(
+                "invalid environment inventory quarantined: path={}; backup={}; error={error:#}",
+                path.display(),
+                backup.display()
+            );
+            Ok(None)
+        }
+        result => result,
+    }
+}
+
 pub fn current_pc_version() -> Option<String> {
     let layout = Layout::resolve().ok()?;
     load_current(&layout)

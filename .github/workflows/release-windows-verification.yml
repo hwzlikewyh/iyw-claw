@@ -40,7 +40,7 @@ jobs:
           name: windows-installer-verification-${{ matrix.target }}
           path: src-tauri
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          run-id: ${{ github.run_id }}
 
       - name: Verify installed NSIS sidecars
         env:

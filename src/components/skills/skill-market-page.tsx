@@ -1,7 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react"
-import type { MarketViewAction } from "./market/market-view-action"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { onTransportChange } from "@/lib/transport"
 import {
@@ -43,7 +42,6 @@ export function SkillMarketPage() {
 }
 
 function SkillMarketContent() {
-  const t = useTranslations("CapabilityMarket")
   const {
     skillMarketTarget,
     consumeSkillMarketTarget,
@@ -77,10 +75,7 @@ function SkillMarketContent() {
     if (connectorMarketRequested || pluginMarketRequested || skillMarketTarget)
       queueMicrotask(() => {
         if (active) {
-          if (skillMarketTarget)
-            openSection(
-              skillMarketTarget.packageType === "plugin" ? "plugins" : "skills"
-            )
+          if (skillMarketTarget) openSection("skills")
           else if (pluginMarketRequested) {
             openSection("plugins")
             consumePluginMarket()

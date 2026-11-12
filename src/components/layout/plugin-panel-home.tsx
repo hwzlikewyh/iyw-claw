@@ -2,6 +2,8 @@
 
 import { AppWindow, ChevronRight, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useTabStore } from "@/contexts/tab-context"
+import { usePluginWorkspace } from "@/components/skills/market/use-plugin-workspace"
 import { Button } from "@/components/ui/button"
 import type { PluginPanelChoice } from "@/lib/plugin-panel"
 import type { usePluginPanels } from "./use-plugin-panels"
@@ -12,6 +14,14 @@ type Panels = ReturnType<typeof usePluginPanels>
 
 export function PluginPanelHome({ panels }: { panels: Panels }) {
   const t = useTranslations("PluginPanels")
+  const route = usePluginMarketNavigation()
+  const tabId = useTabStore((store) => store.activeTabId)
+  const workspace = usePluginWorkspace(tabId)
+  const open = (app: PluginPanelChoice) => {
+    if (app.state === "context_required") void workspace.bind()
+    else if (app.state !== "available") route.openSkillMarket(app.pluginSlug)
+    else void panels.open(app)
+  }
   return (
     <section className="px-3 pb-4 pt-2">
       <PluginListHeading refresh={panels.refresh} />
@@ -20,9 +30,11 @@ export function PluginPanelHome({ panels }: { panels: Panels }) {
           {t("loading")}
         </p>
       )}
-      {panels.error && (
+      {(panels.error || workspace.error) && (
         <p role="alert" className="break-words py-2 text-sm text-destructive">
-          {panels.error === "PluginPanels.limit" ? t("limit") : panels.error}
+          {panels.error === "PluginPanels.limit"
+            ? t("limit")
+            : panels.error || workspace.error}
         </p>
       )}
       {!panels.loading && !panels.choices.length && (
@@ -33,8 +45,8 @@ export function PluginPanelHome({ panels }: { panels: Panels }) {
           <InstalledApp
             key={`${app.pluginSlug}:${app.appKey}`}
             app={app}
-            busy={panels.busy}
-            open={() => void panels.open(app)}
+            busy={panels.busy || workspace.busy}
+            open={() => open(app)}
           />
         ))}
       </ul>

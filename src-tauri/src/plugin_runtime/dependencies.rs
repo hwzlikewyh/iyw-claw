@@ -11,7 +11,6 @@ const MAX_DEPENDENCIES: usize = 64;
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DependencyStatus {
-    pub package_type: String,
     pub id: String,
     pub slug: String,
     pub required_version: String,
@@ -157,15 +156,7 @@ fn check_dependency(
     if !is_plugin && crate::commands::office_tools::is_officecli_skill_id(&dependency.slug) {
         let ready=crate::commands::office_tools::managed_office_dependency_available(&dependency.slug);
         if !ready {context.report.issues.push("dependency_unavailable".into());}
-        context.report.dependencies.push(DependencyStatus {
-            package_type: "skill".into(),
-            id: dependency.skill_id.to_string(),
-            slug: dependency.slug.clone(),
-            required_version: dependency.version.clone(),
-            installed_version: None,
-            ready,
-            reason: (!ready).then(|| "managed_office_dependency_unavailable".into()),
-        });
+        context.report.dependencies.push(DependencyStatus{id:dependency.skill_id.to_string(),slug:dependency.slug.clone(),required_version:dependency.version.clone(),installed_version:None,ready,reason:(!ready).then(||"managed_office_dependency_unavailable".into())});
         return ready;
     }
     let plugin = context
@@ -188,7 +179,6 @@ fn check_dependency(
         context.report.issues.push("dependency_unavailable".into());
     }
     context.report.dependencies.push(DependencyStatus {
-        package_type: if is_plugin { "plugin" } else { "skill" }.into(),
         id: dependency.skill_id.to_string(),
         slug: dependency.slug.clone(),
         required_version: dependency.version.clone(),

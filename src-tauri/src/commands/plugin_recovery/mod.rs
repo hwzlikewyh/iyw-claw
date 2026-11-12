@@ -159,7 +159,6 @@ async fn collect_plugin(
     }
     if id != root.installation.market_skill_id {
         view.dependencies.push(DependencyView {
-            package_type: item.package_type.clone(),
             id: item.skill_id.clone(),
             slug: item.slug.clone(),
             required_version: item.version.clone(),

@@ -67,6 +67,49 @@ pub async fn iyw_account_auth_core(
     auth::run(conn, action, data).await
 }
 
+pub(crate) async fn account_session_fingerprint(
+    conn: &DatabaseConnection,
+) -> Result<[u8; 32], AppCommandError> {
+    use sha2::{Digest, Sha256};
+
+    let session = session::load_session(conn).await?;
+    let token = session.token.as_ref().map(|token| {
+        token.access_token.as_str()
+    });
+    let data = serde_json::to_vec(&(
+        session.session_id,
+        session.org_code,
+        session.workspace_pending,
+        token,
+    ))
+    .map_err(|_| AppCommandError::configuration_invalid("Unable to fingerprint account session"))?;
+    Ok(Sha256::digest(data).into())
+}
+
+pub(crate) async fn disconnect_agents_after_session_change(
+    conn: &DatabaseConnection,
+    manager: &crate::acp::manager::ConnectionManager,
+    previous_fingerprint: Result<[u8; 32], AppCommandError>,
+) {
+    let current_fingerprint = account_session_fingerprint(conn).await;
+    let changed = match (&previous_fingerprint, &current_fingerprint) {
+        (Ok(previous), Ok(current)) => previous != current,
+        (Err(_), Ok(_)) | (Ok(_), Err(_)) => true,
+        (Err(_), Err(_)) => {
+            tracing::warn!("[iyw-account] account session could not be compared");
+            return;
+        }
+    };
+    if !changed {
+        return;
+    }
+    let disconnected = manager.disconnect_for_account_change().await;
+    tracing::info!(
+        disconnected,
+        "[iyw-account] disconnected agents after session change"
+    );
+}
+
 pub(crate) async fn iyw_account_access_token_core(
     conn: &DatabaseConnection,
 ) -> Result<Option<crate::acp::account_credentials::AccountAccessToken>, AppCommandError> {
@@ -220,7 +263,10 @@ pub async fn iyw_account_auth(
             "请先完成或停止正在运行的任务，再切换空间",
         ));
     }
-    let result = iyw_account_auth_core(&db.conn, request.action, request.data).await?;
+    let previous_session = account_session_fingerprint(&db.conn).await;
+    let result = iyw_account_auth_core(&db.conn, request.action, request.data).await;
+    disconnect_agents_after_session_change(&db.conn, &manager, previous_session).await;
+    let result = result?;
     if result.profile.is_some() {
         browser.refresh_iyw_browser_login().await;
     }
@@ -238,9 +284,13 @@ pub async fn iyw_account_get_wechat_qrcode() -> Result<IywWechatQrcode, AppComma
 pub async fn iyw_account_poll_wechat_login(
     qr_token: String,
     db: State<'_, AppDatabase>,
+    manager: State<'_, crate::acp::manager::ConnectionManager>,
     browser: State<'_, crate::browser::BrowserSessionManager>,
 ) -> Result<IywWechatPollingResult, AppCommandError> {
-    let result = iyw_account_poll_wechat_login_core(&db.conn, qr_token).await?;
+    let previous_session = account_session_fingerprint(&db.conn).await;
+    let result = iyw_account_poll_wechat_login_core(&db.conn, qr_token).await;
+    disconnect_agents_after_session_change(&db.conn, &manager, previous_session).await;
+    let result = result?;
     if result.profile.is_some() {
         browser.refresh_iyw_browser_login().await;
     }
@@ -253,9 +303,13 @@ pub async fn iyw_account_login_with_password(
     username: String,
     password: String,
     db: State<'_, AppDatabase>,
+    manager: State<'_, crate::acp::manager::ConnectionManager>,
     browser: State<'_, crate::browser::BrowserSessionManager>,
 ) -> Result<IywAccountProfile, AppCommandError> {
-    let profile = iyw_account_login_with_password_core(&db.conn, username, password).await?;
+    let previous_session = account_session_fingerprint(&db.conn).await;
+    let result = iyw_account_login_with_password_core(&db.conn, username, password).await;
+    disconnect_agents_after_session_change(&db.conn, &manager, previous_session).await;
+    let profile = result?;
     browser.refresh_iyw_browser_login().await;
     Ok(profile)
 }
@@ -264,8 +318,12 @@ pub async fn iyw_account_login_with_password(
 #[tauri::command]
 pub async fn iyw_account_get_profile(
     db: State<'_, AppDatabase>,
+    manager: State<'_, crate::acp::manager::ConnectionManager>,
 ) -> Result<IywAccountProfile, AppCommandError> {
-    iyw_account_get_profile_core(&db.conn).await
+    let previous_session = account_session_fingerprint(&db.conn).await;
+    let result = iyw_account_get_profile_core(&db.conn).await;
+    disconnect_agents_after_session_change(&db.conn, &manager, previous_session).await;
+    result
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -284,9 +342,13 @@ pub async fn iyw_account_list_models(
 #[tauri::command]
 pub async fn iyw_account_logout(
     db: State<'_, AppDatabase>,
+    manager: State<'_, crate::acp::manager::ConnectionManager>,
     browser: State<'_, crate::browser::BrowserSessionManager>,
 ) -> Result<(), AppCommandError> {
-    iyw_account_logout_core(&db.conn).await?;
+    let previous_session = account_session_fingerprint(&db.conn).await;
+    let result = iyw_account_logout_core(&db.conn).await;
+    disconnect_agents_after_session_change(&db.conn, &manager, previous_session).await;
+    result?;
     browser.refresh_iyw_browser_login().await;
     Ok(())
 }

@@ -67,6 +67,11 @@ pub(super) async fn commit_plugins(
     if let Err(error) = result {
         return rollback_failure(input.conn, (&mut storage, &mut progress), error).await;
     }
+    if let Some(skills) = progress.skills.as_ref() {
+        if let Err(error) = skills.migrate_plugin_skill_policies(input.conn).await {
+            return rollback_failure(input.conn, (&mut storage, &mut progress), error).await;
+        }
+    }
     if let Some(skills) = progress.skills.take() {
         skills.finish();
     }

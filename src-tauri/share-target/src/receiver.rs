@@ -4,7 +4,7 @@ use windows::{
     core::Interface,
     ApplicationModel::Activation::ShareTargetActivatedEventArgs,
     ApplicationModel::DataTransfer::{ShareTarget::ShareOperation, StandardDataFormats},
-    ApplicationModel::{AppInfo, AppInstance, Package},
+    ApplicationModel::{AppInstance, Package},
     Storage::{NameCollisionOption, StorageFile, StorageFolder},
     Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
 };
@@ -24,9 +24,9 @@ pub fn run() -> Result<()> {
     }
     let _runtime = Runtime;
     if std::env::args().any(|arg| arg == "--registration-check") {
-        return check_identity();
+        Package::Current()?.Id()?.FullName()?;
+        return Ok(());
     }
-    log("share activation: reading arguments");
     let activation = AppInstance::GetActivatedEventArgs()?;
     let arguments: ShareTargetActivatedEventArgs = activation.cast()?;
     let operation = arguments.ShareOperation()?;
@@ -48,21 +48,6 @@ pub fn run() -> Result<()> {
     }
 }
 
-fn check_identity() -> Result<()> {
-    let package = Package::Current()?.Id()?;
-    let expected_app = format!("{}!Share", package.FamilyName()?);
-    if package.Name()?.to_string() != "IywAssistant.ShareTarget" {
-        return Err("分享接收程序取得了其它包的身份".into());
-    }
-    if package.Publisher()?.to_string() != env!("IYW_SHARE_PUBLISHER") {
-        return Err("分享包的发布者与接收程序不一致".into());
-    }
-    if AppInfo::Current()?.AppUserModelId()?.to_string() != expected_app {
-        return Err("分享接收程序的应用标识不匹配".into());
-    }
-    Ok(())
-}
-
 fn receive(operation: &ShareOperation) -> Result<String> {
     let data = operation.Data()?;
     if !data.Contains(&StandardDataFormats::StorageItems()?)? {
@@ -73,20 +58,12 @@ fn receive(operation: &ShareOperation) -> Result<String> {
     if count == 0 || count as usize > iyw_share_core::MAX_FILES {
         return Err("分享文件数量无效".into());
     }
-    log(&format!("share receive: files={count}"));
-    let mut writer = Inbox::new(iyw_share_core::default_root()?)
-        .begin()
-        .map_err(|error| format!("stage=create_batch: {error}"))?;
+    let mut writer = Inbox::new(iyw_share_core::default_root()?).begin()?;
     for index in 0..count {
         let file: StorageFile = items.GetAt(index)?.cast()?;
-        copy_shared_file(&mut writer, &file)
-            .map_err(|error| format!("stage=copy_file index={index}: {error}"))?;
+        copy_shared_file(&mut writer, &file)?;
     }
-    log("share receive: publishing batch");
-    Ok(writer
-        .commit()
-        .map_err(|error| format!("stage=commit_batch: {error}"))?
-        .id)
+    Ok(writer.commit()?.id)
 }
 
 fn copy_shared_file(writer: &mut BatchWriter, source: &StorageFile) -> Result<()> {
@@ -140,14 +117,6 @@ pub fn log(message: &str) {
     let path: PathBuf = root.join("reception.log");
     // 只记录编号和错误，不记录分享正文或文件名。
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
-        let time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_secs())
-            .unwrap_or_default();
-        let _ = writeln!(
-            file,
-            "unix_time={time} pid={} {message}",
-            std::process::id()
-        );
+        let _ = writeln!(file, "{message}");
     }
 }

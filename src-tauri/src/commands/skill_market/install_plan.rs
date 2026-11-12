@@ -39,11 +39,16 @@ pub(super) fn validate_install_plan(
                 "Skill install plan contains duplicate packages",
             ));
         }
-        total_bytes = total_bytes
-            .checked_add(transfer_size(&item.download))
-            .ok_or_else(|| {
-                AppCommandError::invalid_input("Skill install plan is too large to install safely")
-            })?;
+        if item.package_type != SkillPackageType::Plugin {
+            total_bytes = total_bytes
+                .checked_add(transfer_size(&item.download))
+                .filter(|value| *value <= MAX_INSTALL_PLAN_BYTES)
+                .ok_or_else(|| {
+                    AppCommandError::invalid_input(
+                        "Skill install plan is too large to install safely",
+                    )
+                })?;
+        }
     }
     let root = plan.items.last().expect("non-empty install plan");
     if parse_id(&root.skill_id)? != requested_id
@@ -104,6 +109,14 @@ fn validate_install_plan_item(
         ));
     }
     ensure_download_artifact_ready(&item.download)?;
+    if item.package_type != SkillPackageType::Plugin
+        && (item.download.package_size > MAX_PACKAGE_BYTES
+            || item.download.artifact_size > MAX_PACKAGE_BYTES)
+    {
+        return Err(AppCommandError::configuration_invalid(
+            "Skill install plan download metadata is inconsistent",
+        ));
+    }
     validate_package_metadata(item)?;
     if item.display_name.trim().is_empty()
         || !matches!(item.visibility.as_str(), "public" | "private")

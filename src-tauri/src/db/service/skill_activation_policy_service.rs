@@ -1,7 +1,8 @@
 use chrono::Utc;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
+    QueryFilter, Set,
 };
 
 use crate::acp::types::AgentSkillScope;
@@ -75,6 +76,63 @@ pub async fn delete_managed_for_skill_ids(
         .await
         .map(|result| result.rows_affected)
         .map_err(Into::into)
+}
+
+pub async fn migrate_skill_ids(
+    conn: &DatabaseConnection,
+    migrations: &[(String, String)],
+) -> Result<(), DbError> {
+    if migrations.is_empty() {
+        return Ok(());
+    }
+    use sea_orm::TransactionTrait;
+    let transaction = conn.begin().await?;
+    for (previous, current) in migrations {
+        let policies = skill_activation_policy::Entity::find()
+            .filter(skill_activation_policy::Column::SkillId.eq(previous))
+            .all(&transaction)
+            .await?;
+        for policy in policies {
+            migrate_policy(&transaction, (&policy, current)).await?;
+        }
+        skill_activation_policy::Entity::delete_many()
+            .filter(skill_activation_policy::Column::SkillId.eq(previous))
+            .exec(&transaction)
+            .await?;
+    }
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn migrate_policy(
+    transaction: &sea_orm::DatabaseTransaction,
+    policy: (&skill_activation_policy::Model, &str),
+) -> Result<(), DbError> {
+    let (previous, current) = policy;
+    let exists = skill_activation_policy::Entity::find()
+        .filter(skill_activation_policy::Column::SkillId.eq(current))
+        .filter(skill_activation_policy::Column::Scope.eq(&previous.scope))
+        .filter(skill_activation_policy::Column::WorkspaceKey.eq(&previous.workspace_key))
+        .filter(skill_activation_policy::Column::AgentType.eq(&previous.agent_type))
+        .one(transaction)
+        .await?
+        .is_some();
+    if exists {
+        return Ok(());
+    }
+    let active = skill_activation_policy::ActiveModel {
+        id: NotSet,
+        skill_id: Set(current.to_string()),
+        scope: Set(previous.scope.clone()),
+        workspace_key: Set(previous.workspace_key.clone()),
+        agent_type: Set(previous.agent_type.clone()),
+        requested_enabled: Set(previous.requested_enabled),
+        policy_source: Set(previous.policy_source.clone()),
+        created_at: Set(previous.created_at),
+        updated_at: Set(previous.updated_at),
+    };
+    active.insert(transaction).await?;
+    Ok(())
 }
 
 pub async fn upsert(

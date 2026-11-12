@@ -77,16 +77,7 @@ async fn finish(
     prepared.view.related = conflicts
         .related
         .into_iter()
-        .map(|(id, slug)| {
-            let is_plugin = context.records.iter().any(|record| {
-                record.installation.market_skill_id.to_string() == id
-            });
-            super::types::RelatedCapability {
-                package_type: if is_plugin { "plugin" } else { "skill" }.into(),
-                id,
-                slug,
-            }
-        })
+        .map(|(id, slug)| super::types::RelatedCapability { id, slug })
         .collect();
     check_agents(conn, prepared).await;
     review_changes(prepared, context)?;

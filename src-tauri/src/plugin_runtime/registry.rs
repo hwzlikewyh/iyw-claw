@@ -81,6 +81,7 @@ impl Default for PluginRegistry {
 impl PluginRegistry {
     pub async fn load(conn: &DatabaseConnection) -> Result<Self, AppCommandError> {
         super::recovery::log_recovery_artifacts();
+        super::recovery::recover_interrupted_installations(conn).await?;
         let registry = Self::default();
         registry.reconcile(conn).await?;
         Ok(registry)
@@ -188,7 +189,7 @@ pub fn market_skill_state_global(market_skill_id: i64) -> Option<(bool, bool)> {
 }
 
 fn descriptor(
-    mut record: PluginInstallationRecord,
+    record: PluginInstallationRecord,
     scope: Option<&str>,
 ) -> Result<(String, PluginDescriptor), AppCommandError> {
     let manifest: SkillPluginManifest = serde_json::from_str(&record.installation.manifest_json)

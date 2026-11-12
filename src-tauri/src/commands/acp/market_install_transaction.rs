@@ -1,5 +1,7 @@
 use super::*;
 
+mod policy_migration;
+
 /// 插件外层事务确认前保留原技能目录与发布状态；不跨await持有同步锁。
 pub(crate) struct MarketSkillInstallTransaction {
     root_id: i64,
@@ -66,6 +68,24 @@ impl MarketSkillInstallTransaction {
             tracing::warn!(root_skill_id=self.root_id,error=%error,"[skill-market] 已提交，旧依赖引用清理未完成");
         }
         finish_market_skill_directories(&mut self.replaced);
+        for value in &self.replaced {
+            let Some(legacy) = &value.legacy_source else {
+                continue;
+            };
+            let Some(legacy_id) = legacy.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if let Err(error) = remove_shared_skill_publications_locked(legacy_id).and_then(|_| {
+                remove_skill_entry(legacy).map_err(|error| AcpError::protocol(error.to_string()))
+            }) {
+                tracing::warn!(
+                    skill_id = %value.skill_id,
+                    legacy = %legacy.display(),
+                    error = %error,
+                    "[skill-market] 旧插件技能清理失败，保留目录供恢复"
+                );
+            }
+        }
     }
 
     pub(crate) fn rollback(mut self) -> Result<(), AcpError> {

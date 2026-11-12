@@ -5,7 +5,6 @@ import { useTranslations } from "next-intl"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useTabStore } from "@/contexts/tab-context"
 import { onTransportChange } from "@/lib/transport"
-import { notifyPluginPreparation } from "@/lib/plugin-preparation-events"
 import type { PluginPreparation } from "@/lib/plugin-preparation"
 import { usePluginPreparation } from "./use-plugin-preparation"
 import { usePluginWorkspace } from "./use-plugin-workspace"
@@ -16,7 +15,6 @@ import { PluginConnectorPreparationList } from "./plugin-connector-preparation"
 import { PluginRecoveryDialog } from "./plugin-recovery-dialog"
 import { PluginVersionsDialog } from "./plugin-versions-dialog"
 import { Button } from "@/components/ui/button"
-import { PluginApplicationActions } from "./plugin-application-actions"
 
 interface Props {
   marketSkillId: string
@@ -76,10 +74,6 @@ function PreparationContent(props: ContextProps) {
     <section className="space-y-3 border-b pb-4">
       <h3 className="text-sm font-semibold">{t("title")}</h3>
       <PreparationSummary state={state} contextError={context.error} />
-      <PluginApplicationActions
-        pluginId={props.marketSkillId}
-        conversationId={props.conversationId}
-      />
       <PluginConnectorPreparationList
         id={props.marketSkillId}
         conversationId={props.conversationId}
@@ -92,9 +86,7 @@ function PreparationContent(props: ContextProps) {
         contextBusy={context.busy}
         onBind={() => void context.bind()}
         onReview={(enabled) => {
-          if (!state.view) return
-          if (enabled) void state.mutate(state.view, true)
-          else setReview({ view: state.view, enabled })
+          if (state.view) setReview({ view: state.view, enabled })
         }}
       />
       <Button
@@ -130,14 +122,7 @@ function PreparationContent(props: ContextProps) {
           enabled={review.enabled}
           busy={state.busy}
           error={state.error}
-          onClose={() => {
-            setReview(null)
-            notifyPluginPreparation({
-              pluginId: props.marketSkillId,
-              conversationId: props.conversationId,
-              canceled: true,
-            })
-          }}
+          onClose={() => setReview(null)}
           onConfirm={() =>
             void state.mutate(review.view, review.enabled).then((success) => {
               if (success) setReview(null)

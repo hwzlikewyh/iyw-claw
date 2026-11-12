@@ -25,10 +25,11 @@ export function prepareNativeShare(target) {
     join(SHARE_ROOT, "resources/UPSTREAM-LICENSE")
   )
   if (target.endsWith("-windows-msvc"))
-    copyFileSync(
-      join(SHARE_ROOT, "windows/register.ps1"),
-      join(SHARE_ROOT, "resources/register.ps1")
-    )
+    for (const name of ["register.ps1", "share-resources.ps1"])
+      copyFileSync(
+        join(SHARE_ROOT, "windows", name),
+        join(SHARE_ROOT, "resources", name)
+      )
   if (target.includes("win7") || target.includes("linux")) return
   if (target.endsWith("-windows-msvc")) prepareWindowsShare(target, SHARE_ROOT)
   else if (target.endsWith("-apple-darwin")) prepareMacShare(target, SHARE_ROOT)

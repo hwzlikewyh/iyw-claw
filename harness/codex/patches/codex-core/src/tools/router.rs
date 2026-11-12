@@ -7,6 +7,7 @@ use crate::tools::context::ToolCallState;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 use crate::tools::registry::AnyToolResult;
+use crate::tools::registry::NativeReview;
 use crate::tools::registry::RegisteredTool;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::registry::ToolExposure;
@@ -36,12 +37,25 @@ const EXPOSURE_DEFERRED_MODEL_ONLY: &str = "deferred_model_only";
 const EXPOSURE_CODE_MODE_ONLY: &str = "code_mode_only";
 const EXPOSURE_HIDDEN: &str = "hidden";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ToolCall {
     pub tool_name: ToolName,
     pub call_id: String,
     pub payload: ToolPayload,
     pub encrypted_function_args: Option<Vec<String>>,
+    /// Original function call, retained only for tools that opt into native review.
+    pub native_call: Option<Arc<ResponseItem>>,
+}
+
+// The original call can contain credentials, plaintext messages, or replay ciphertext.
+impl std::fmt::Debug for ToolCall {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ToolCall")
+            .field("tool_name", &self.tool_name)
+            .field("call_id", &self.call_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ToolCall {
@@ -222,22 +236,37 @@ impl ToolRouter {
     }
 
     #[instrument(level = "trace", skip_all, err)]
-    pub fn build_tool_call(item: ResponseItem) -> Result<Option<ToolCall>, FunctionCallError> {
+    pub fn build_tool_call(
+        &self,
+        mut item: ResponseItem,
+    ) -> Result<Option<ToolCall>, FunctionCallError> {
         match item {
             ResponseItem::FunctionCall {
-                name,
-                namespace,
-                arguments,
-                encrypted_function_args,
-                call_id,
+                ref name,
+                ref namespace,
+                ref mut arguments,
+                ref call_id,
+                ref mut encrypted_function_args,
                 ..
             } => {
-                let tool_name = ToolName::new(namespace, name).with_default_namespace();
+                let tool_name =
+                    ToolName::new(namespace.clone(), name.clone()).with_default_namespace();
+                let retain_native_call = self
+                    .registry
+                    .registered_tool(&tool_name)
+                    .is_some_and(|tool| tool.native_review == NativeReview::Required);
+                let (arguments, encrypted_function_args) = if retain_native_call {
+                    (arguments.clone(), encrypted_function_args.clone())
+                } else {
+                    (std::mem::take(arguments), encrypted_function_args.take())
+                };
+                let call_id = call_id.clone();
                 Ok(Some(ToolCall {
                     tool_name,
                     call_id,
                     payload: ToolPayload::Function { arguments },
                     encrypted_function_args,
+                    native_call: retain_native_call.then(|| Arc::new(item)),
                 }))
             }
             ResponseItem::ToolSearchCall {
@@ -257,6 +286,7 @@ impl ToolRouter {
                     call_id,
                     payload: ToolPayload::ToolSearch { arguments },
                     encrypted_function_args: None,
+                    native_call: None,
                 }))
             }
             ResponseItem::ToolSearchCall { .. } => Ok(None),
@@ -271,6 +301,7 @@ impl ToolRouter {
                 call_id,
                 payload: ToolPayload::Custom { input },
                 encrypted_function_args: None,
+                native_call: None,
             })),
             _ => Ok(None),
         }
@@ -338,6 +369,7 @@ impl ToolRouter {
             tool_name,
             call_id,
             payload,
+            native_call,
             ..
         } = call;
 
@@ -353,6 +385,7 @@ impl ToolRouter {
             tool_name,
             source,
             payload,
+            native_call,
             environments: Default::default(),
         };
 

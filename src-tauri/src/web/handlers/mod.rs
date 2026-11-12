@@ -41,6 +41,7 @@ pub mod mcp;
 pub mod mcp_install;
 pub mod mcp_auth;
 pub mod model_provider;
+pub mod network_diagnostics;
 pub mod office_tools;
 pub mod office_watch_proxy;
 pub mod performance;

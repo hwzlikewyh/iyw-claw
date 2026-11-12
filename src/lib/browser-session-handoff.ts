@@ -132,8 +132,7 @@ function isConversationWorkspace(label: string): boolean {
 
 export async function getBrowserSessionTarget(): Promise<string> {
   const current = isDesktop() ? await getCurrentWindow() : null
-  if (!current || isConversationWorkspace(current.label))
-    return resolveMainBrowserSession()
+  if (!current || isConversationWorkspace(current.label)) return resolveMainBrowserSession()
   const result = await requestMainSession({ kind: "target" })
   if (!result.target) throw new Error("The conversation input is unavailable")
   return result.target

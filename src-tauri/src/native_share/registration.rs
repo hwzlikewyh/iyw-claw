@@ -3,11 +3,6 @@ use super::resources;
 use iyw_share_core::{invalid, Result};
 use tauri::AppHandle;
 
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-#[cfg(target_os = "windows")]
-const REGISTER_TIMEOUT_SECS: u64 = 60;
-
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareStatus {
@@ -19,16 +14,7 @@ pub struct ShareStatus {
 pub fn status(app: &AppHandle) -> Result<ShareStatus> {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         let root = resources(app)?;
-        let helper = root.join("iyw-share-target.exe");
-        let installed = helper.is_file()
-            && std::process::Command::new(helper)
-                .arg("--registration-check")
-                .creation_flags(CREATE_NO_WINDOW)
-                .status()
-                .map(|status| status.success())
-                .unwrap_or(false);
         let signed = std::fs::read(root.join("config.json"))
             .ok()
             .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
@@ -36,14 +22,23 @@ pub fn status(app: &AppHandle) -> Result<ShareStatus> {
             .unwrap_or(false);
         return Ok(ShareStatus {
             platform: "windows",
-            installed,
+            installed: signed && super::registration_windows::installed(&root),
             can_register: signed && root.join("IywAssistant.ShareTarget.msix").is_file(),
         });
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = app;
-        return super::registration_macos::status();
+        let executable = std::env::current_exe()?;
+        let installed = executable
+            .parent()
+            .and_then(|path| path.parent())
+            .map(|path| path.join("PlugIns/IywAssistantShare.appex").is_dir())
+            .unwrap_or(false);
+        return Ok(ShareStatus {
+            platform: "macos",
+            installed,
+            can_register: false,
+        });
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
@@ -59,45 +54,9 @@ pub fn status(app: &AppHandle) -> Result<ShareStatus> {
 pub async fn register(app: &AppHandle) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        let script = resources(app)?.join("register.ps1");
-        if !script.is_file() {
-            return Err(invalid("当前安装包没有系统分享注册组件"));
-        }
-        let mut command = tokio::process::Command::new("powershell.exe");
-        command
-            .env_remove("PSModulePath")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-            ])
-            .arg(script)
-            .creation_flags(CREATE_NO_WINDOW)
-            .kill_on_drop(true);
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(REGISTER_TIMEOUT_SECS),
-            command.output(),
-        )
-        .await
-        .map_err(|_| invalid("系统分享入口注册超时"))??;
-        if !output.status.success() {
-            tracing::warn!(target: "iyw_native_share", code = ?output.status.code(), "share package registration failed");
-            return Err(invalid(
-                "系统分享入口注册失败，请检查签名信任、系统版本和应用包安装策略",
-            ));
-        }
-        Ok(())
+        super::registration_windows::register(&resources(app)?).await
     }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app;
-        tokio::task::spawn_blocking(super::registration_macos::register)
-            .await
-            .map_err(|_| invalid("分享扩展注册任务未完成"))?
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(not(target_os = "windows"))]
     {
         let _ = app;
         Err(invalid("请在系统设置的共享扩展中启用原助理"))
@@ -108,18 +67,7 @@ pub async fn register_if_missing(app: &AppHandle) -> Result<()> {
     let handle = app.clone();
     let required = tokio::task::spawn_blocking(move || -> Result<bool> {
         let state = status(&handle)?;
-        if !state.can_register || state.installed {
-            return Ok(false);
-        }
-        #[cfg(target_os = "macos")]
-        if matches!(
-            super::registration_macos::election()?,
-            Some('-' | '!' | '?')
-        ) {
-            // 尊重用户禁用和系统策略；仅为新安装、从未选用的扩展初始化入口。
-            return Ok(false);
-        }
-        Ok(true)
+        Ok(state.can_register && !state.installed)
     })
     .await
     .map_err(|_| invalid("分享入口状态检查未完成"))??;

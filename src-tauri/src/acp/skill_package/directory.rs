@@ -70,7 +70,7 @@ fn finish(
     if digest != expected {
         return restore_skill_entry(state, expected);
     }
-    confirmed(state.files, digest)
+    confirmed(state.files, digest, state.skill)
 }
 
 fn restore_skill_entry(
@@ -91,7 +91,7 @@ fn restore_skill_entry(
                 entry.sha256 = hash_bytes(&entry.bytes);
                 let digest = hash_file_tree(&state.files);
                 if digest == expected {
-                    return confirmed(state.files, digest);
+                    return confirmed(state.files, digest, state.skill);
                 }
             }
         }
@@ -104,11 +104,12 @@ fn restore_skill_entry(
 fn confirmed(
     files: Vec<PackageFile>,
     content_sha256: String,
+    skill: bool,
 ) -> Result<ValidatedSkillPackage, AppCommandError> {
     let size = files.iter().try_fold(0u64, |total, file| {
         total.checked_add(file.bytes.len() as u64)
     });
-    if size.is_none() {
+    if size.is_none_or(|size| skill && size > MAX_EXPANDED_BYTES) {
         return Err(invalid_package(
             "Restored Skill exceeds the package size limit",
         ));
@@ -238,8 +239,14 @@ fn checked_size(
             "Installed Skill entry exceeds its compatibility size limit",
         ));
     }
+    let allowance = if state.skill {
+        MAX_COMPAT_ENTRY_GROWTH
+    } else {
+        0
+    };
     state
         .expanded
         .checked_add(length)
-        .ok_or_else(|| invalid_package("Plugin recovery exceeds the size limit"))
+        .filter(|size| !state.skill || *size <= MAX_EXPANDED_BYTES + allowance)
+        .ok_or_else(|| invalid_package("Plugin recovery size is invalid"))
 }

@@ -88,7 +88,33 @@ pub(super) fn decode(
 fn decode_to_file(
     reader: impl Read,
 ) -> Result<(std::fs::File, Sha256, Vec<u8>, u64), GatewayError> {
-    let mut decoded = DecoderReader::new(reader, &STANDARD);
+    copy_image(DecoderReader::new(reader, &STANDARD))
+}
+
+pub(super) fn prepare_file(body: &Spool, declared: &str) -> Result<Prepared, GatewayError> {
+    let (mut file, hash, signature, size) = copy_image(body.reader()?)?;
+    let mime = detect_mime(&signature)
+        .ok_or_else(|| GatewayError::input("Image format is unsupported"))?;
+    if !declared.is_empty() && declared != "application/octet-stream" && declared != mime {
+        return Err(GatewayError::input(
+            "Image MIME type does not match its bytes",
+        ));
+    }
+    file.flush()?;
+    file.seek(SeekFrom::Start(0))?;
+    let digest = hash.finalize();
+    Ok(Prepared {
+        file,
+        digest: format!("{digest:x}"),
+        encoded_digest: digest.into(),
+        mime,
+        size,
+    })
+}
+
+fn copy_image(
+    mut decoded: impl Read,
+) -> Result<(std::fs::File, Sha256, Vec<u8>, u64), GatewayError> {
     let mut file = tempfile::tempfile()?;
     let mut hash = Sha256::new();
     let mut size = 0_u64;
@@ -97,7 +123,7 @@ fn decode_to_file(
     loop {
         let count = decoded
             .read(&mut bytes)
-            .map_err(|_| GatewayError::input("Image Base64 is invalid"))?;
+            .map_err(|_| GatewayError::input("Image data is invalid"))?;
         if count == 0 {
             break;
         }

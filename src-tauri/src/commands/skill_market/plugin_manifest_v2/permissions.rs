@@ -23,6 +23,7 @@ pub(super) fn validate(value: &SkillPluginPermissions) -> Result<(), AppCommandE
                 | "camera"
                 | "microphone"
                 | "geolocation"
+                | "model-gateway"
         )
     }) {
         return Err(invalid_plugin("Plugin v2 host permission is unsupported"));

@@ -36,7 +36,10 @@ pub(super) struct PortableManifestV1 {
     pub(super) name: String,
     pub(super) version: String,
     pub(super) targets: Vec<String>,
-    #[serde(default,deserialize_with="super::plugin_types::deserialize_null_vec")]
+    #[serde(
+        default,
+        deserialize_with = "super::plugin_types::deserialize_null_vec"
+    )]
     pub(super) platforms: Vec<String>,
     pub(super) components: PortableComponentsV1,
 }
@@ -186,9 +189,7 @@ fn parse_mcp_servers(
         return Ok(BTreeMap::new());
     }
     if codex.mcp_servers.as_ref().and_then(|value| value.as_str()) != Some("./.mcp.json") {
-        return Err(invalid_plugin(
-            "星河 mcpServers must reference ./.mcp.json",
-        ));
+        return Err(invalid_plugin("星河 mcpServers must reference ./.mcp.json"));
     }
     let manifest: McpManifest = parse_document(files, MCP_MANIFEST)?;
     if manifest.mcp_servers.keys().any(|key| !valid_key(key)) {

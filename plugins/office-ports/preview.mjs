@@ -60,11 +60,7 @@ const client = new PluginRpc({
 await client.initialize()
 const initialResult = args["--open"]
   ? await client.call("tools/call", {
-      name: manifest.components.capabilities.some(
-        (value) => value.toolName === "open_document"
-      )
-        ? "open_document"
-        : "open_editor",
+      name: "open_document",
       arguments: { path: args["--open"] },
       _meta: { "iyw/conversationId": String(PREVIEW_CONVERSATION_ID) },
     })

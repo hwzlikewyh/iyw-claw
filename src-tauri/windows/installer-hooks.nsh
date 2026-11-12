@@ -68,6 +68,7 @@ Function IywClawRestoreLogicalInstallRoot
     ; 旧版卸载可能已经删除 app，但注册表项尚未完成清理。此时没有
     ; 可替换的旧主程序，按已卸载残留继续；存在主程序时仍严格检查身份。
     IfFileExists "$R8\app\iyw-claw.exe" 0 iyw_relaunch_stopped_app
+    StrCpy $IywClawRoot "$R8"
     Push "$R8\app"
     Call IywClawIsMainProcessRunning
     Pop $R5
@@ -86,10 +87,12 @@ Function IywClawRestoreLogicalInstallRoot
     Goto iyw_relaunch_finished
 
   iyw_relaunch_query_failed:
+    Push "process control failed during main-process check: $IywClawProcessError"
+    Call IywClawAppendInstallerLog
     DetailPrint "无法确认 iyw-claw 主进程状态，已停止更新。"
     IfSilent iyw_relaunch_query_failed_quit 0
     MessageBox MB_OK|MB_ICONSTOP \
-      "无法确认当前用户的 iyw-claw 是否正在运行。为避免不安全替换，本次更新已停止。"
+      "无法确认当前用户的 iyw-claw 是否正在运行。$\r$\n$IywClawProcessError$\r$\n为避免不安全替换，本次更新已停止。$\r$\n日志：$IywClawRoot\logs\installer.log"
   iyw_relaunch_query_failed_quit:
     SetErrorLevel 1
     Quit
@@ -190,6 +193,7 @@ FunctionEnd
   Call IywClawStopKnownProcesses
   Pop $R0
   StrCmp $R0 "0" iyw_begin_app_transaction 0
+  StrCpy $IywClawTransactionError "检查或关闭后台进程失败：$IywClawProcessError"
   Push "process control failed: $IywClawProcessError"
   Call IywClawAppendInstallerLog
   IfSilent iyw_abort_install_for_processes 0

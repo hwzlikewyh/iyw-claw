@@ -8,44 +8,16 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 use tokio::sync::Mutex;
 
 mod appearance;
-mod lifecycle;
-pub use lifecycle::window_destroyed;
-pub mod returning;
 
 #[derive(Default)]
-pub struct ConversationWindowState(
-    Mutex<HashMap<String, Transfer>>,
-    Mutex<HashMap<String, String>>,
-    Mutex<HashMap<String, Vec<returning::DropBounds>>>,
-);
+pub struct ConversationWindowState(Mutex<HashMap<String, Transfer>>);
 
 struct Transfer {
     source: String,
-    target: String,
-    new_window: bool,
     payload: Value,
     phase: &'static str,
     remote: bool,
     connection_id: Option<String>,
-}
-
-impl Transfer {
-    fn new(windows: (&str, &str), payload: Value, flags: (bool, bool)) -> Self {
-        let (source, target) = windows;
-        let (remote, new_window) = flags;
-        let connection_id = payload["connection"]["connectionId"]
-            .as_str()
-            .map(str::to_owned);
-        Self {
-            source: source.to_owned(),
-            target: target.to_owned(),
-            new_window,
-            payload,
-            phase: "preparing",
-            remote,
-            connection_id,
-        }
-    }
 }
 
 #[derive(Serialize)]
@@ -65,18 +37,18 @@ pub async fn open_conversation_window(
         return Err(AppCommandError::invalid_input("Missing conversation tab"));
     }
     let label = format!("conversation-{}", uuid::Uuid::new_v4());
-    let route = format!("workspace?conversationOnly=1&conversationWindow={label}");
+    let route = format!("workspace?conversationWindow={label}");
     let (route, remote_id) = route_with_new_remote_window(route, remote_connection_id);
-    let transfer = Transfer::new(
-        (window.label(), &label),
+    let connection_id = payload["connection"]["connectionId"]
+        .as_str()
+        .map(str::to_owned);
+    let transfer = Transfer {
+        source: window.label().to_owned(),
         payload,
-        (remote_connection_id.is_some(), true),
-    );
-    app.state::<ConversationWindowState>()
-        .1
-        .lock()
-        .await
-        .insert(label.clone(), window.label().to_owned());
+        phase: "preparing",
+        remote: remote_connection_id.is_some(),
+        connection_id,
+    };
     app.state::<ConversationWindowState>()
         .0
         .lock()
@@ -85,11 +57,6 @@ pub async fn open_conversation_window(
     if let Err(error) = build_window(&app, &label, (route, remote_id.as_deref())) {
         app.state::<ConversationWindowState>()
             .0
-            .lock()
-            .await
-            .remove(&label);
-        app.state::<ConversationWindowState>()
-            .1
             .lock()
             .await
             .remove(&label);
@@ -114,7 +81,7 @@ pub async fn get_conversation_window_transfer(
     let transfer = authorized(&transfers, &window, &label)?;
     Ok(TransferState {
         phase: transfer.phase,
-        payload: (window.label() == transfer.target && transfer.phase != "ready")
+        payload: (window.label() == label && transfer.phase != "ready")
             .then(|| transfer.payload.clone()),
     })
 }
@@ -126,7 +93,7 @@ fn authorized<'a>(
 ) -> Result<&'a Transfer, AppCommandError> {
     transfers
         .get(label)
-        .filter(|transfer| window.label() == transfer.target || window.label() == transfer.source)
+        .filter(|transfer| window.label() == label || window.label() == transfer.source)
         .ok_or_else(|| {
             AppCommandError::invalid_input("Conversation window transfer is unavailable")
         })
@@ -136,13 +103,11 @@ fn authorized<'a>(
 pub async fn ready_conversation_window(
     app: AppHandle,
     window: WebviewWindow,
-    label: String,
 ) -> Result<(), AppCommandError> {
     let state = app.state::<ConversationWindowState>();
     let mut transfers = state.0.lock().await;
     let transfer = transfers
-        .get_mut(&label)
-        .filter(|item| item.target == window.label())
+        .get_mut(window.label())
         .ok_or_else(|| AppCommandError::invalid_input("Conversation window transfer expired"))?;
     if transfer.phase == "preparing" {
         transfer.phase = "ready";
@@ -172,15 +137,12 @@ pub async fn commit_conversation_window(
         ));
     }
     let target = app
-        .get_webview_window(&transfer.target)
+        .get_webview_window(&label)
         .ok_or_else(|| AppCommandError::invalid_input("Conversation window was closed"))?;
-    target
-        .unminimize()
-        .and_then(|_| target.show())
-        .map_err(|e| {
-            AppCommandError::window("Could not show conversation window", e.to_string())
-        })?;
-    transfer_connection_owner(&app, transfer, &transfer.target).await?;
+    target.show().map_err(|e| {
+        AppCommandError::window("Could not show conversation window", e.to_string())
+    })?;
+    transfer_connection_owner(&app, transfer, &label).await?;
     let transfer = transfers
         .get_mut(&label)
         .expect("authorized transfer exists");
@@ -238,15 +200,12 @@ pub async fn finish_conversation_window(
     let mut transfers = state.0.lock().await;
     let transfer = authorized(&transfers, &window, &label)?;
     if transfer.phase == "committed" {
-        if window.label() == transfer.target {
+        if window.label() == label {
             transfers.remove(&label);
         }
         return Ok(());
     }
-    if let Some(target) = app
-        .get_webview_window(&transfer.target)
-        .filter(|_| transfer.new_window)
-    {
+    if let Some(target) = app.get_webview_window(&label) {
         target.destroy().map_err(|e| {
             AppCommandError::window(
                 "Could not close unfinished conversation window",
@@ -257,4 +216,62 @@ pub async fn finish_conversation_window(
     transfers.remove(&label);
     tracing::info!(target = label, "[conversation-window] rolled back");
     Ok(())
+}
+
+pub fn window_destroyed(app: &AppHandle, label: &str) {
+    let app = app.clone();
+    let label = label.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<ConversationWindowState>();
+        let mut transfers = state.0.lock().await;
+        let targets: Vec<_> = transfers
+            .iter()
+            .filter_map(|(target, transfer)| {
+                (target == &label || (transfer.source == label && transfer.phase != "committed"))
+                    .then(|| target.clone())
+            })
+            .collect();
+        for target in targets {
+            transfers.remove(&target);
+            if target != label {
+                close_abandoned_window(&app, &target);
+            }
+        }
+        drop(transfers);
+        if label.starts_with("conversation-") {
+            release_idle_connections(&app, &label).await;
+        }
+    });
+}
+
+fn close_abandoned_window(app: &AppHandle, label: &str) {
+    let Some(window) = app.get_webview_window(label) else { return };
+    if let Err(error) = window.destroy() {
+        tracing::warn!(window_label = label, %error, "[conversation-window] abandoned window cleanup failed");
+    }
+}
+
+async fn release_idle_connections(app: &AppHandle, label: &str) {
+    let manager = app.state::<ConnectionManager>();
+    let ids: Vec<_> = manager
+        .connections
+        .lock()
+        .await
+        .iter()
+        .filter(|(_, connection)| connection.owner_window_label == label)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in ids {
+        if let Err(error) = manager
+            .disconnect_if_reclaimable(
+                &id,
+                std::time::Duration::ZERO,
+                true,
+                "conversation_window_close",
+            )
+            .await
+        {
+            tracing::warn!(connection_id = id, %error, "[conversation-window] idle cleanup failed");
+        }
+    }
 }

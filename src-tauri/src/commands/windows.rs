@@ -19,7 +19,6 @@ use crate::models::{FolderDetail, FolderHistoryEntry};
 mod tray_menu_icons;
 
 mod settings_window;
-
 pub mod conversation_window;
 
 #[cfg(feature = "tauri-runtime")]

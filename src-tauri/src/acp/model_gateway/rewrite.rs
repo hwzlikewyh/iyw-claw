@@ -36,14 +36,24 @@ pub(super) async fn prepare(
         Ok::<_, GatewayError>((body, scan))
     })
     .await?;
+    if scan.images.is_empty() && path.ends_with("/images/edits") {
+        return Err(GatewayError::input(
+            "Image edits require at least one source image",
+        ));
+    }
     if scan.images.is_empty() {
         return Ok(Output::Request(body));
     }
     let ids = missing_references(runtime, token, &scan);
-    let urls = scan.operation != "upload"
-        && runtime
-            .local_url_transport(token, (&scan.model, &path), &ids)
-            .await;
+    let urls = if path.ends_with("/images/edits") {
+        runtime.edit_url_transport(token, &scan.model, &ids).await?;
+        true
+    } else {
+        scan.operation != "upload"
+            && runtime
+                .local_url_transport(token, (&scan.model, &path), &ids)
+                .await
+    };
     let inline = scan.images.iter().any(|image| image.managed_id.is_none());
     if !urls && !inline {
         return Ok(Output::Request(body));
@@ -77,6 +87,10 @@ async fn prepare_images(
                 if let Some(asset) = runtime.cache.get_reference(token, id) {
                     push_replacement(&mut replacements, &slot, (&asset, true))?;
                     prepared_images += 1;
+                } else if matches!(slot.format, ImageFormat::Edit) {
+                    return Err(GatewayError::unavailable(
+                        "Edit image URL could not be resolved",
+                    ));
                 }
             }
             continue;

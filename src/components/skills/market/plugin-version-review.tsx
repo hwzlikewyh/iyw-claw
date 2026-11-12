@@ -70,7 +70,7 @@ function RelatedCapabilities({
               className="h-auto whitespace-normal p-0 text-left"
               onClick={() => {
                 onNavigate()
-                route.openSkillMarket(capability.slug, capability.packageType)
+                route.openSkillMarket(capability.slug)
               }}
             >
               {capability.slug}
@@ -107,7 +107,7 @@ function VersionDependencies({
             className="h-auto whitespace-normal p-0 text-left"
             onClick={() => {
               onNavigate()
-              route.openSkillMarket(dependency.slug, dependency.packageType)
+              route.openSkillMarket(dependency.slug)
             }}
           >
             {dependency.slug} · {dependency.version}

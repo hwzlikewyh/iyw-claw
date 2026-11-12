@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
@@ -61,7 +63,78 @@ pub(super) async fn install_market_plan_locked(
     if input.plugins.is_empty() {
         return commit_standalone(input).await;
     }
-    super::plugin_install_commit::commit_plugins(input).await
+    pause_affected_plugins(input.conn, &input.plugins).await?;
+    let conn = input.conn;
+    let result = super::plugin_install_commit::commit_plugins(input).await;
+    if result.is_err() {
+        if let Err(error) = crate::plugin_runtime::registry::reconcile_global(conn).await {
+            tracing::error!(error=%error, "[plugin-install] 提交失败后插件注册表恢复未完成");
+        }
+        crate::plugin_runtime::registry::reconcile_global(input.conn).await?;
+        Ok::<(), AppCommandError>(())
+    }
+    .await;
+    if let Err(error) = result {
+        if let Some(skills) = skills {
+            skills.rollback().map_err(map_skill_error)?;
+        }
+        return Err(error);
+    }
+    if let Some(skills) = skills {
+        if let Err(error) = skills.migrate_plugin_skill_policies(input.conn).await {
+            skills.rollback().map_err(map_skill_error)?;
+            return Err(error);
+        }
+        skills.finish();
+    }
+    result
+}
+
+async fn pause_affected_plugins(
+    conn: &DatabaseConnection,
+    planned: &[PreparedPluginInstall],
+) -> Result<(), AppCommandError> {
+    crate::plugin_runtime::registry::reconcile_global(conn).await?;
+    let Some(snapshot) = crate::plugin_runtime::registry::global_snapshot() else {
+        return Ok(());
+    };
+    let planned_ids = planned
+        .iter()
+        .map(|plugin| plugin.market_skill_id)
+        .collect::<BTreeSet<_>>();
+    let affected = snapshot
+        .plugins
+        .values()
+        .filter(|plugin| {
+            planned_ids.contains(&plugin.market_skill_id)
+                || crate::plugin_runtime::dependencies::inspect(plugin, &snapshot.plugins)
+                    .dependencies
+                    .iter()
+                    .any(|dependency| {
+                        dependency
+                            .id
+                            .parse::<i64>()
+                            .map(|id| planned_ids.contains(&id))
+                            .unwrap_or(false)
+                    })
+        })
+        .map(|plugin| plugin.slug.clone())
+        .collect::<Vec<_>>();
+    for slug in &affected {
+        if crate::plugin_runtime::global::plugin_version_has_active_leases(slug, None).await {
+            return Err(AppCommandError::task_execution_failed(format!(
+                "插件 {slug} 仍在使用，请等待当前操作完成后再更新",
+            )));
+        }
+    }
+    for slug in &affected {
+        crate::plugin_runtime::registry::suspend_global(slug);
+        crate::plugin_runtime::global::stop_plugin(slug).await;
+    }
+    if !affected.is_empty() {
+        tracing::info!(plugins=?affected, "[plugin-install] 已暂停受更新影响的插件");
+    }
+    Ok(())
 }
 
 async fn commit_standalone(input: MarketInstallPlanExecution<'_>) -> Result<(), AppCommandError> {
@@ -88,6 +161,10 @@ async fn commit_standalone(input: MarketInstallPlanExecution<'_>) -> Result<(), 
         return Err(error);
     }
     if let Some(skills) = skills {
+        if let Err(error) = skills.migrate_plugin_skill_policies(input.conn).await {
+            skills.rollback().map_err(map_skill_error)?;
+            return Err(error);
+        }
         skills.finish();
     }
     Ok(())
@@ -126,13 +203,20 @@ fn plugin_skill_installs(
     plugin: &PreparedPluginInstall,
 ) -> Result<Vec<MarketSkillInstall>, AppCommandError> {
     let mut installs = Vec::new();
+    let names = plugin.plugin.manifest.components.iter()
+        .filter(|component| component.kind == "skill")
+        .map(|component| (
+            component.path.rsplit('/').next().unwrap_or(&component.key).to_string(),
+            crate::acp::skill_package::plugin_skill_id(&plugin.slug, &component.key),
+        ))
+        .collect();
     for component in &plugin.plugin.manifest.components {
         if component.kind != "skill" {
             continue;
         }
-        let package = plugin.package.skill_component(&component.path)?;
+        let package = plugin.package.plugin_skill_component(&component.path, &names)?;
         let mut marker = plugin.marker.clone();
-        marker.slug = component.key.clone();
+        marker.slug = crate::acp::skill_package::plugin_skill_id(&plugin.slug, &component.key);
         marker.content_sha256 = package.content_sha256.clone();
         marker.plugin_slug = Some(plugin.slug.clone());
         marker.plugin_component_key = Some(component.key.clone());

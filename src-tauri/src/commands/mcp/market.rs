@@ -50,6 +50,11 @@ pub(super) async fn request(
         .post(url)
         .header("token", token.expose())
         .json(&body)
+        .timeout(if path == "artifact-ticket" {
+            std::time::Duration::from_secs(3 * 60)
+        } else {
+            std::time::Duration::from_secs(60)
+        })
         .send()
         .await
         .map_err(|_| AppCommandError::network("连接器市场暂时无法访问"))?;

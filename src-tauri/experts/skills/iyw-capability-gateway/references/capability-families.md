@@ -104,6 +104,13 @@ before updates or deletes and never send both project selectors.
 
 ## Dynamic Plugin Capabilities
 
+For Skill/Expert/Plugin uploads, public/organization/private distribution,
+download tickets and installation, read [capability-market.md](capability-market.md).
+Use the direct manage_iyw_connectors operations for connector management; see
+[connector-management.md](connector-management.md). Document knowledge uses
+search_iyw_knowledge with the current conversation scope; import and maintenance
+are documented in [knowledge-workflows.md](knowledge-workflows.md).
+
 Plugin capabilities may appear in the live catalog alongside built-in entries.
 Use only an available result returned by the current search and read its full
 description, plugin status, required inputs, and schema. Host authorization,

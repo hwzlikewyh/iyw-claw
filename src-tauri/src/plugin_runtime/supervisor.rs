@@ -14,7 +14,7 @@ const MAX_GLOBAL_CALLS: usize = 32;
 const MAX_INSTANCE_CALLS: usize = 4;
 const MAX_RUNTIME_INSTANCES: usize = 16;
 const RESOURCE_TIMEOUT: Duration = Duration::from_secs(120);
-const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const QUARANTINE_THRESHOLD: u32 = 3;
 
 #[derive(Clone)]

@@ -20,6 +20,49 @@ export interface SkillMarketToolbarProps {
   onUpload: () => void
   pagination?: MarketPaginationProps
 }
+
+function ViewTabs({
+  view,
+  onChange,
+}: {
+  view: SkillMarketViewV2
+  onChange: (view: SkillMarketViewV2) => void
+}) {
+  const t = useTranslations("SkillMarketV2")
+  return (
+    <>
+      <select
+        className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm sm:hidden"
+        aria-label={t("viewLabel")}
+        value={view}
+        onChange={(event) => onChange(event.target.value as SkillMarketViewV2)}
+      >
+        {VIEW_ORDER.map((item) => (
+          <option key={item} value={item}>
+            {t(item === "market" ? "audience.globalMarket" : `views.${item}`)}
+          </option>
+        ))}
+      </select>
+      <Tabs
+        value={view}
+        onValueChange={(value) => onChange(value as SkillMarketViewV2)}
+        className="hidden min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] sm:flex [&::-webkit-scrollbar]:hidden"
+      >
+        <TabsList
+          variant="line"
+          className="h-8 w-max justify-start overflow-visible bg-transparent p-0"
+        >
+          {VIEW_ORDER.map((item) => (
+            <TabsTrigger key={item} value={item} className="h-8 flex-none">
+              {t(item === "market" ? "audience.globalMarket" : `views.${item}`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+    </>
+  )
+}
+
 export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
   const t = useTranslations("SkillMarketV2")
   const c = useTranslations("CapabilityMarket.catalog")
@@ -49,7 +92,19 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
           aria-label={t("search.placeholder")}
           className="h-9 rounded-md border-input bg-background pl-9 pr-8 shadow-none max-sm:min-h-11"
         />
-        {query.q && (
+        <ViewTabs
+          view={query.view}
+          onChange={(view) => onQueryChange({ view })}
+        />
+        <div className="ml-auto flex shrink-0 items-center justify-end gap-1">
+          {props.offline ? (
+            <Badge
+              variant="outline"
+              className="hidden h-7 px-2 text-[11px] sm:inline-flex"
+            >
+              {t("refresh.offline")}
+            </Badge>
+          ) : null}
           <Button
             variant="ghost"
             size="icon-xs"

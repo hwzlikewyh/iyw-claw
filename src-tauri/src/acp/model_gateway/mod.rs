@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 mod assets;
 mod auth;
+mod edit;
 mod error;
 mod forward;
 mod headers;
@@ -102,7 +103,7 @@ impl ModelGateway {
         *active_base()
             .write()
             .map_err(|_| io::Error::other("Local gateway state unavailable"))? = Some(base.clone());
-        tracing::info!(target: "model_gateway", "process local model gateway ready");
+        tracing::info!(target: "model_gateway", proxy_mode = "direct", "process local model gateway ready");
         let task = tokio::spawn(serve(tcp, runtime));
         Ok(Self {
             shutdown,
@@ -150,6 +151,8 @@ impl Drop for ModelGateway {
 impl Runtime {
     fn new(authority: String, prefix: String, shutdown: CancellationToken) -> io::Result<Self> {
         let client = reqwest::Client::builder()
+            // 模型出口固定直连，避免继承系统或环境变量中的失效代理。
+            .no_proxy()
             .connect_timeout(limits::CONNECT_TIMEOUT)
             .read_timeout(limits::HEADER_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())

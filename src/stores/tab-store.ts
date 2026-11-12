@@ -1257,7 +1257,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   hydrate: () => {
     if (get().tabsHydrated) return
     if (get().rawTabs.length === 0 && !isConversationWindowPending()) {
-      get().openChatModeTab({ intent: "initialize" })
+      get().openChatModeTab()
     }
     set({ tabsHydrated: true })
     applyGroupInvariants()

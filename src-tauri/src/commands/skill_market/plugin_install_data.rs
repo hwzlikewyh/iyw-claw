@@ -48,7 +48,7 @@ pub(super) fn connector_registrations(
                 version: plugin.version.clone(),
                 component_key: component.key.clone(),
                 required_skill_keys: required_skill_keys(plugin, &component.key),
-                platforms:plugin.plugin.manifest.platforms.clone(),
+                platforms: plugin.plugin.manifest.platforms.clone(),
                 template_spec: spec,
             },
         });

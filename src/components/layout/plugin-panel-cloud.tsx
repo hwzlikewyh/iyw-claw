@@ -11,7 +11,6 @@ import { usePluginMarketNavigation } from "./use-plugin-market-navigation"
 const PAGE_SIZE = 20
 const readPage = (cursor: string | null) =>
   getSkillMarketSource().list({
-    packageType: "plugin",
     view: "market",
     publisher: "all",
     distribution: "all",
@@ -137,7 +136,7 @@ function CloudPlugin({ item }: { item: SkillMarketV2Item }) {
       <Button
         size="xs"
         variant="outline"
-        onClick={() => route.openPlugin(item.slug)}
+        onClick={() => route.openSkillMarket(item.slug)}
       >
         {t("install")}
       </Button>

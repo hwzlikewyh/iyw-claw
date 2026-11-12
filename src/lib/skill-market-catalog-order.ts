@@ -18,10 +18,6 @@ export function orderSkillCatalog(
 ): SkillMarketV2Item[] {
   const result = items.filter(
     (item) =>
-      (!query.packageType ||
-        (query.packageType === "plugin"
-          ? item.packageType === "plugin"
-          : item.packageType !== "plugin")) &&
       (query.compatibility === "all" ||
         item.compatibility === query.compatibility) &&
       (query.distribution === "all" ||
