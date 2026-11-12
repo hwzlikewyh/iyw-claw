@@ -19,19 +19,12 @@ pub fn prepare(app_version: &str) -> Result<String> {
 }
 
 pub fn prepare_repair(app_version: &str, components: Option<&[String]>) -> Result<String> {
-    let layout = Layout::resolve()?;
-    let current = inventory::load_current(&layout)?;
-    let (target, arch, _) = platform();
-    // 清单不适用时恢复完整环境，同时保留本次显式选装请求。
-    let reusable = current.as_ref().is_some_and(|value| {
-        value.pc_version == app_version && value.target == target && value.arch == arch
-    });
     prepare_selected(
         app_version,
         PrepareOptions {
             full_check: true,
+            repair: true,
             repair_components: components,
-            restore_all: !reusable,
             ..Default::default()
         },
     )
@@ -52,8 +45,8 @@ pub fn prepare_computer_driver(app_version: &str) -> Result<String> {
 struct PrepareOptions<'a> {
     full_check: bool,
     computer_driver: bool,
+    repair: bool,
     repair_components: Option<&'a [String]>,
-    restore_all: bool,
 }
 
 impl PrepareOptions<'_> {
@@ -61,8 +54,9 @@ impl PrepareOptions<'_> {
         &self,
         layout: &Layout,
         current: Option<&EnvironmentSnapshot>,
+        restore_all: bool,
     ) -> Vec<crate::model::InventoryEntry> {
-        match self.repair_components.filter(|_| !self.restore_all) {
+        match self.repair_components.filter(|_| !restore_all) {
             Some(components) => {
                 inventory::selected_installation_inventory(layout, current, components)
             }
@@ -88,8 +82,16 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
     layout.ensure()?;
     let _lock = environment_lock(&layout)?;
     crate::progress::phase("checking");
-    let current = inventory::load_current(&layout)?;
+    let current = if options.repair {
+        inventory::load_current_for_repair(&layout)?
+    } else {
+        inventory::load_current(&layout)?
+    };
     let (target, arch, platform) = platform();
+    let restore_all = options.repair
+        && current.as_ref().is_none_or(|value| {
+            value.pc_version != app_version || value.target != target || value.arch != arch
+        });
     let request = ResolveRequest {
         schema_version: 1,
         installation_id: installation_id(&layout)?,
@@ -99,7 +101,7 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
         runtime: "desktop",
         target: target.clone(),
         arch: arch.clone(),
-        inventory: options.inventory(&layout, current.as_ref()),
+        inventory: options.inventory(&layout, current.as_ref(), restore_all),
     };
     let client = FusionClient::new()?;
     let mut plan = client.resolve(&request)?;
@@ -123,7 +125,7 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
         platform: &platform,
         current: current.as_ref(),
         inventory: &request.inventory,
-        repair_components: options.repair_components.filter(|_| !options.restore_all),
+        repair_components: options.repair_components.filter(|_| !restore_all),
     };
     context.prepare_and_publish(plan)
 }
