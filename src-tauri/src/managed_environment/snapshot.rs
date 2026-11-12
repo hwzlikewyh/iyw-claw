@@ -82,7 +82,7 @@ fn parse(raw: &[u8]) -> Result<Snapshot, String> {
         serde_json::from_slice(raw).map_err(|_| "环境清单格式错误，请运行环境修复".to_string())?;
     let target = crate::distribution_platform::TARGET;
     if snapshot.schema_version != 1
-        || snapshot.pc_version != env!("CARGO_PKG_VERSION")
+        || snapshot.pc_version != super::location::version()?
         || snapshot.target != target
         || snapshot.arch
             != if cfg!(all(windows, target_vendor = "win7", target_arch = "x86")) {

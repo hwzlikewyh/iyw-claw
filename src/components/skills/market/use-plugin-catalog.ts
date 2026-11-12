@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react"
 import { toErrorMessage } from "@/lib/app-error"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import { getSkillMarketSource } from "@/lib/skill-market-source"
+import type { PluginCatalogView } from "./plugin-market-toolbar"
 
-async function loadPluginItems(view: "market" | "organization") {
+async function loadPluginItems(view: PluginCatalogView) {
   const result = await getSkillMarketSource().list({
+    packageType: "plugin",
     view,
     publisher: "all",
     distribution: "all",
@@ -23,7 +25,7 @@ async function loadPluginItems(view: "market" | "organization") {
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
-export function usePluginCatalog(view: "market" | "organization") {
+export function usePluginCatalog(view: PluginCatalogView) {
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState({
     view,

@@ -8,7 +8,6 @@ use crate::app_error::AppCommandError;
 
 const MAX_FILES: usize = 512;
 const MAX_ARCHIVE_ENTRIES: usize = 1024;
-const MAX_EXPANDED_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_SKILL_MD_BYTES: u64 = 1024 * 1024;
 const MAX_PATH_BYTES: usize = 512;
 const MARKET_MARKER: &str = ".iyw-claw-market-skill.json";

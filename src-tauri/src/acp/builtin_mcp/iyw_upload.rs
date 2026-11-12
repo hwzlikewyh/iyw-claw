@@ -23,7 +23,7 @@ pub(super) fn tool() -> Value {
                 "path": {"type": "string", "minLength": 1, "description": "Exact path to a readable regular file on the MCP host. Prefer an absolute path; files outside the workspace are allowed. Relative paths resolve from the session working directory, including ../ paths. Chinese and spaces are supported. Do not URL-encode or include shell quotes. Windows JSON: use D:/Downloads/中文.pdf or escaped backslashes."},
                 "description": super::iyw_progress::schema(),
                 "name": {"type": "string", "minLength": 1, "maxLength": 255, "description": "Usually omit. Overrides the returned filename, not the file to read; defaults to the local basename. Chinese and spaces are supported. Include an extension; no slash, backslash, colon or control characters."},
-                "mime_type": {"type": "string", "minLength": 1, "description": "Optional valid MIME type. Defaults to application/octet-stream; no file-type filtering is applied."}
+                "mime_type": {"type": "string", "minLength": 1, "description": "Optional valid MIME type. Local .html/.htm files default to text/html; charset=utf-8 for browser previews; other files default to application/octet-stream. Explicit values take precedence; no file-type filtering is applied."}
             },
             "additionalProperties": false
         },

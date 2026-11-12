@@ -11,6 +11,7 @@ pub(super) struct NativePage {
     pub url: String,
     pub title: String,
     pub loading: bool,
+    pub navigation_download: bool,
     pub epoch: u64,
     pub errors: u32,
     pub visible: bool,
@@ -31,6 +32,7 @@ impl NativePage {
             url,
             title: String::new(),
             loading: true,
+            navigation_download: false,
             epoch: 1,
             errors: 0,
             visible: false,
@@ -62,7 +64,7 @@ pub(super) fn snapshot(id: &str) -> Result<Value, String> {
     with_page(id, |page| {
         let url = current_url(page).unwrap_or_else(|| page.url.clone());
         Ok(
-            json!({"url": url, "title": page.title, "loading": page.loading, "epoch": page.epoch, "errors": page.errors}),
+            json!({"url": url, "title": page.title, "loading": page.loading, "downloadNavigation": page.navigation_download, "epoch": page.epoch, "errors": page.errors}),
         )
     })
 }

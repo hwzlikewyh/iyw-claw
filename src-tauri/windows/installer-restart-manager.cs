@@ -78,3 +78,47 @@ public static class IywRestartManager
         return values;
     }
 }
+
+public static class IywProcessPath
+{
+    const uint ShareReadWriteDelete = 7;
+    const uint OpenExisting = 3;
+    const uint BackupSemantics = 0x02000000;
+    const int InitialPathCapacity = 512;
+    const string UncPrefix = @"\\?\UNC\";
+    const string DevicePrefix = @"\\?\";
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+        string path, uint access, uint share, IntPtr security, uint disposition,
+        uint flags, IntPtr template);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern uint GetFinalPathNameByHandleW(
+        Microsoft.Win32.SafeHandles.SafeFileHandle file, StringBuilder path,
+        uint capacity, uint flags);
+
+    public static string Resolve(string path)
+    {
+        using (var file = CreateFileW(path, 0, ShareReadWriteDelete, IntPtr.Zero,
+            OpenExisting, BackupSemantics, IntPtr.Zero))
+        {
+            if (file.IsInvalid) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
+            var buffer = new StringBuilder(InitialPathCapacity);
+            uint length = GetFinalPathNameByHandleW(file, buffer, (uint)buffer.Capacity, 0);
+            if (length >= buffer.Capacity)
+            {
+                buffer = new StringBuilder(checked((int)length + 1));
+                length = GetFinalPathNameByHandleW(file, buffer, (uint)buffer.Capacity, 0);
+            }
+            if (length == 0) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
+            if (length >= buffer.Capacity) { throw new InvalidOperationException("Final path changed during resolution"); }
+            var value = buffer.ToString();
+            if (value.StartsWith(UncPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return @"\\" + value.Substring(UncPrefix.Length);
+            }
+            return value.StartsWith(DevicePrefix, StringComparison.Ordinal) ? value.Substring(DevicePrefix.Length) : value;
+        }
+    }
+}

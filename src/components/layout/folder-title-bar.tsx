@@ -18,7 +18,7 @@ import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { Button } from "@/components/ui/button"
 import { AppIcon } from "@/components/app-icon"
 import { useSidebarContext } from "@/contexts/sidebar-context"
-import { useAuxPanelContext } from "@/contexts/aux-panel-context"
+import { useRightPanelToggle } from "@/hooks/use-right-panel-toggle"
 import { useTerminalContext } from "@/contexts/terminal-context"
 import { useTabActions } from "@/contexts/tab-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
@@ -56,7 +56,7 @@ export function FolderTitleBar() {
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
   const { activeFolder } = useActiveFolder()
   const { toggle } = useSidebarContext()
-  const { isOpen: auxPanelOpen, toggle: toggleAuxPanel } = useAuxPanelContext()
+  const { isOpen: auxPanelOpen, toggle: toggleAuxPanel } = useRightPanelToggle()
   const { toggle: toggleTerminal } = useTerminalContext()
   const { openChatModeTab } = useTabActions()
   const { openConversations } = useWorkbenchRoute()

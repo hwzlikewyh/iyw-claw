@@ -1,26 +1,30 @@
 "use client"
-
 import type { ReactNode } from "react"
-import { Blocks, PackageOpen, PlugZap, Sparkles } from "lucide-react"
+import { ChevronRight, Plus } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-
-export type CapabilityMarketSection = "skills" | "connectors" | "plugins"
-
-const SECTIONS = [
-  { id: "skills" as const, icon: Sparkles },
-  { id: "connectors" as const, icon: PlugZap },
-  { id: "plugins" as const, icon: Blocks },
+import type { MarketViewAction } from "./market-view-action"
+export type CapabilityMarketSection =
+  | "all"
+  | "skills"
+  | "connectors"
+  | "plugins"
+const SECTIONS: CapabilityMarketSection[] = [
+  "all",
+  "skills",
+  "connectors",
+  "plugins",
 ]
-
-interface CapabilityMarketShellProps {
+interface Props {
   activeSection: CapabilityMarketSection
   onSectionChange: (section: CapabilityMarketSection) => void
+  onAction: (kind: MarketViewAction["kind"]) => void
   children: ReactNode
 }
-
-function MarketIdentity() {
+export function CapabilityMarketShell(props: Props) {
   const t = useTranslations("CapabilityMarket")
+  const c = useTranslations("CapabilityMarket.catalog")
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
@@ -64,29 +68,9 @@ function MarketNavigation({
             <Icon className="size-3.5 sm:size-4" aria-hidden="true" />
             <span>{t(`sections.${id}`)}</span>
           </button>
-        )
-      })}
-    </nav>
-  )
-}
-
-export function CapabilityMarketShell({
-  activeSection,
-  onSectionChange,
-  children,
-}: CapabilityMarketShellProps) {
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <header className="shrink-0 border-b bg-background/95 px-4 backdrop-blur-sm sm:px-6">
-        <div className="flex min-h-14 min-w-0 items-center gap-3">
-          <MarketIdentity />
-          <MarketNavigation
-            activeSection={activeSection}
-            onSectionChange={onSectionChange}
-          />
         </div>
-      </header>
-      <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
+        {props.children}
+      </main>
     </div>
   )
 }

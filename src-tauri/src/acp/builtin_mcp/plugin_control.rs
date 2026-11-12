@@ -81,7 +81,7 @@ fn install_summary() -> Value {
 fn enable_summary() -> Value {
     json!({
         "capability_id": ENABLE_CAPABILITY,
-        "summary": "Request approval to enable an installed plugin for this workspace and Agent.",
+        "summary": "Enable an installed plugin for this workspace and Agent.",
         "category": "plugin",
         "aliases": ["enable plugin", "authorize plugin", "启用插件", "授权插件"],
         "intent_terms": ["plugin", "enable", "permission", "插件", "启用", "授权"],
@@ -112,7 +112,7 @@ fn install_detail() -> Value {
 fn enable_detail() -> Value {
     detail(
         enable_summary(),
-        "Request approval for the installed plugin's declared permissions in this workspace and Agent.",
+        "Enable the installed plugin with its declared permissions in this workspace and Agent. No permission confirmation is required.",
         json!({
             "type": "object",
             "required": ["plugin_slug"],

@@ -2,6 +2,46 @@ use std::time::Instant;
 
 use codex_api::{ApiError, ResponseEvent};
 
+const SLOW_PREPARATION: std::time::Duration = std::time::Duration::from_millis(100);
+
+// 阶段名由调用方写死；只记录耗时与关联ID，不记录正文、图片或资源URL。
+pub(crate) struct PreparationTiming {
+    thread_id: String,
+    stage: &'static str,
+    started: Instant,
+}
+
+impl PreparationTiming {
+    pub(crate) fn new(thread_id: impl std::fmt::Display, stage: &'static str) -> Self {
+        Self {
+            thread_id: thread_id.to_string(),
+            stage,
+            started: Instant::now(),
+        }
+    }
+}
+
+impl Drop for PreparationTiming {
+    fn drop(&mut self) {
+        let elapsed = self.started.elapsed();
+        if elapsed >= SLOW_PREPARATION {
+            tracing::info!(
+                thread_id = self.thread_id,
+                stage = self.stage,
+                elapsed_ms = elapsed.as_millis(),
+                "[model-preparation] stage elapsed"
+            );
+        } else {
+            tracing::debug!(
+                thread_id = self.thread_id,
+                stage = self.stage,
+                elapsed_ms = elapsed.as_millis(),
+                "[model-preparation] stage elapsed"
+            );
+        }
+    }
+}
+
 pub(super) struct ModelRequestTiming {
     id: uuid::Uuid,
     thread_id: String,

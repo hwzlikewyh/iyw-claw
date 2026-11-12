@@ -9,6 +9,11 @@ import type { ComposerPluginChoice } from "@/lib/composer-plugins"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
 import { useNativeShareComposer } from "@/components/native-share/use-native-share-composer"
 import { ComposerActivityBorder } from "./composer-activity-border"
+import { PluginComposerChip } from "./plugin-composer-chip"
+import {
+  clearComposerPlugin,
+  pluginPrompt,
+} from "@/lib/plugin-composer-context"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {
@@ -3585,8 +3590,8 @@ export function MessageInput({
             hiddenFromDisplay: packageMeta.hiddenFromDisplay === true,
           }
         : undefined
-    return { blocks, displayText, skillPackage }
-  }, [skillPrefix, t, tAttach])
+    return pluginPrompt(attachmentTabId, { blocks, displayText, skillPackage })
+  }, [attachmentTabId, skillPrefix, t, tAttach])
 
   // Clear the accepted draft immediately. Invalidate the pre-send debounce so
   // it cannot write the old document back after the visible composer is empty.
@@ -4450,6 +4455,7 @@ export function MessageInput({
               )}
             >
               <ComposerActivityBorder active={isPrompting} />
+              <PluginComposerChip tabId={attachmentTabId} />
               {visibleTask && (
                 <TaskModeRail
                   task={visibleTask}

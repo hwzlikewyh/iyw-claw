@@ -489,7 +489,50 @@
     "connectionOption": "接入方式",
     "cancel": "取消",
     "install": "添加到我的连接器",
-    "installing": "正在配置或下载…"
+    "installing": "正在配置或下载…",
+    "parameterRequired": "请填写{field}。",
+    "parameterInvalid": "请检查{field}的值及参数类型。",
+    "installationTasks": "安装任务",
+    "manageInstalled": "管理已安装连接器",
+    "authNone": "无需账号",
+    "authParameters": "由你填写访问凭据",
+    "authBrowser": "通过浏览器登录",
+    "oauth_expired": "授权已过期，请重新开始登录。",
+    "retryAuthorization": "重新发起授权",
+    "retry": "重试",
+    "continueInBackground": "后台继续",
+    "cancelInstallation": "取消安装",
+    "taskBackground": "可以关闭此面板，稍后回来查看进度。替换配置提交前会保留现有连接器。",
+    "viewInstallation": "查看安装",
+    "task_preparing": "正在准备安装",
+    "task_checking_cache": "正在检查已下载文件",
+    "task_downloading": "正在下载组件",
+    "task_verifying": "正在校验组件",
+    "task_extracting": "正在准备组件文件",
+    "task_committing": "正在保存连接配置",
+    "task_cancelling": "正在取消安装",
+    "task_completed": "安装任务已完成 · 可在已安装项继续配置或连接账号",
+    "task_cancelled": "安装已取消",
+    "task_failed": "安装失败 · 可以重试",
+    "task_interrupted": "安装曾中断 · 请核对已安装项后重试",
+    "checkConnection": "检查连接",
+    "checkingConnection": "正在检查连接…",
+    "connection_ready": "连接检查通过",
+    "connection_authentication_required": "需要登录",
+    "connection_failed": "连接失败",
+    "connection_unverified": "待会话验证",
+    "connectionHint_ready": "已完成 MCP 初始化和工具发现，使用时仍会重新验证。运行中的对话请重连。",
+    "connectionHint_authentication_required": "认证未通过或已失效，请完成登录后重新检查。",
+    "connectionHint_failed": "MCP 初始化或工具发现失败，请检查服务、参数和账号权限。",
+    "connectionHint_unverified": "当前环境无法独立验证 MCP 连接，实际可用性由会话运行时检查。",
+    "toolCount": "{count} 个工具",
+    "cliLogin": "CLI 登录",
+    "cliHint": "点击开始，在终端完成发布者的登录步骤。登录进程结束后会检查认证和连接；关闭窗口会结束本次登录。最长等待五分钟。",
+    "cliNotVerified": "尚未完成认证与连接检查",
+    "cliStart": "开始登录",
+    "cliVerify": "我已登录，检查连接",
+    "cliRestart": "结束本次并重新登录",
+    "disconnectAccount": "断开账号"
   },
   "ComposerPlugins": {
     "menuLabel": "插件",
@@ -522,6 +565,21 @@
     "empty": "尚未添加可选连接器。",
     "reconnect": "已保存。正在运行的会话需重连后使用新选择。",
     "market": "管理连接器"
+  },
+  "ComposerPlugins": {
+    "menuLabel": "插件",
+    "search": "搜索已安装插件",
+    "hint": "选用插件的技能或工具，用于本条消息",
+    "loading": "正在读取插件…",
+    "empty": "暂无已安装插件",
+    "noResults": "没有匹配的插件",
+    "retry": "重试",
+    "manage": "管理插件…",
+    "manageRequired": "需要启用或修复，点击管理",
+    "prepareRequired": "请先完成此插件的配置与授权，再返回对话选用",
+    "skills": "{count} 个技能",
+    "tools": "使用插件工具",
+    "usePrompt": "使用插件「{name}」完成此任务。"
   },
   "ConversationPresentation": {
     "toolActivity": {
@@ -1567,7 +1625,7 @@
           "metadata": "2. 填写市场元数据",
           "review": "3. 复核并发布"
         },
-        "folderHint": "根目录必须包含非空 UTF-8 SKILL.md，最多 512 个文件、25 MB。",
+        "folderHint": "根目录必须包含非空 UTF-8 SKILL.md，最多 512 个文件，包总大小不限。",
         "selectFolder": "选择 Skill 目录",
         "replaceFolder": "重新选择目录",
         "clearFolder": "清除所选目录",
@@ -1584,7 +1642,7 @@
           "emptyFolder": "所选目录为空。",
           "tooManyFiles": "一个 Skill 最多包含 512 个文件。",
           "invalidFolder": "无法读取一个完整的目录。",
-          "folderTooLarge": "目录总大小不能超过 25 MB。",
+          "folderTooLarge": "文件总大小无效，请重新选择文件。",
           "missingSkillFile": "根目录必须包含 SKILL.md。",
           "skillFileTooLarge": "SKILL.md 不能超过 1 MB。",
           "emptySkillFile": "SKILL.md 不能为空。",
@@ -1673,7 +1731,7 @@
         "folderErrors": {
           "tooManyFiles": "文件夹最多包含 512 个文件。",
           "invalidFolder": "无法读取有效的文件夹结构。",
-          "folderTooLarge": "文件夹不能超过 25 MB。",
+          "folderTooLarge": "文件总大小无效，请重新选择文件。",
           "missingSkillFile": "文件夹根目录必须包含 SKILL.md。",
           "readFailed": "读取所选文件夹失败。"
         },
@@ -3127,6 +3185,10 @@
       "noFolderHint": "打开一个文件夹后在这里查看"
     },
     "taskArtifacts": {
+      "deleteConfirmation": "删除选中的 {count} 项成果？",
+      "deleteSameConversation": "只能批量删除同一会话中的成果",
+      "deleted": "成果已删除",
+      "deleteFailed": "删除成果失败，请重试。",
       "open": "成果",
       "title": "任务成果",
       "description": "浏览和预览当前会话或工作区中的任务成果",
@@ -4126,7 +4188,7 @@
         "mentionGroupAgent": "智能体",
         "mentionGroupSession": "会话",
         "mentionGroupSkill": "技能",
-        "mentionGroupArtifact": "\u6210\u679c",
+        "mentionGroupArtifact": "成果",
         "mentionGroupKnowledge": "知识库",
         "sessionConfig": {
           "options": {
@@ -4700,7 +4762,8 @@
           "unavailable": "插件界面已停用或当前项目授权已变化。请完成插件准备后重新加载。",
           "retry": "重新加载插件界面",
           "fullscreen": "全屏打开",
-          "inline": "恢复嵌入显示"
+          "inline": "恢复嵌入显示",
+          "unavailable": "插件界面已停用或当前项目授权已变化。请完成插件准备后重新加载。"
         },
         "showingTailOutput": "为保证性能，流式输出时仅显示尾部内容。",
         "result": "结果",
@@ -7285,18 +7348,19 @@
   "CapabilityMarket": {
     "shortTitle": "能力市场",
     "title": "能力市场",
-    "subtitle": "为工作流扩展可复用能力",
+    "subtitle": "为当前任务添加技能、连接器和插件。",
     "navLabel": "能力类型",
     "preview": "预留",
     "sections": {
       "skills": "技能",
       "connectors": "连接器",
-      "plugins": "插件"
+      "plugins": "插件",
+      "all": "全部"
     },
     "sectionHints": {
       "skills": "发现并安装可复用的任务方法",
       "connectors": "连接外部服务，并管理全局启用状态",
-      "plugins": "组合技能、连接器与绑定关系"
+      "plugins": "安装独立插件，使用交互应用与扩展能力"
     },
     "featured": {
       "title": "精选工作流",
@@ -7362,7 +7426,7 @@
     "plugins": {
       "eyebrow": "插件市场",
       "title": "以能力包交付一整套工作方式",
-      "description": "插件是可版本化、可升级和可卸载的分发单元。它把多个技能、连接器及其绑定关系打包在一起，但不会复制技能实现。",
+      "description": "插件是独立、可版本化的扩展，可提供完整交互应用、运行时、工具、连接器或技能。用户按需下载安装与授权。",
       "parts": {
         "skills": "技能",
         "connectors": "连接器",
@@ -7414,6 +7478,42 @@
           "title": "质量保障套件",
           "description": "覆盖问题定位、自动化检查与质量平台连接。"
         }
+      }
+    },
+    "shortTitle": "能力市场",
+    "catalog": {
+      "skill": "技能",
+      "connector": "连接器",
+      "plugin": "插件",
+      "myUploads": "我的上传",
+      "createUpload": "创建 / 上传",
+      "installed": "已安装",
+      "details": "查看详情",
+      "manage": "管理",
+      "version": "版本 {version}",
+      "installedVersion": "已安装 · {version}",
+      "noDescription": "暂未提供说明",
+      "uncategorized": "未分类",
+      "official": "平台提供",
+      "community": "开发者发布",
+      "organization": "组织内部",
+      "allSources": "所有来源",
+      "empty": "没有匹配的能力",
+      "unavailable": "暂时不可用",
+      "source": "发布来源",
+      "browse": "浏览市场",
+      "quickPages": "{total} 项 · {page} / {pages} 页",
+      "unknownPage": "第 {page} 页 · 本页 {count} 项",
+      "connectorManagement": "连接器上传与发布由后台管理。用户在此选择安装、配置与用于当前对话。",
+      "chooseType": "选择能力类型",
+      "chooseTypeHint": "技能、连接器和插件分别管理，选择要操作的类型。",
+      "status": {
+        "building": "正在准备安装包",
+        "buildFailed": "安装包构建失败",
+        "incompatible": "当前客户端或平台不兼容",
+        "update": "有可用更新",
+        "blocked": "当前版本已阻止使用",
+        "preparing": "正在准备"
       }
     }
   },
@@ -7588,6 +7688,15 @@
       "error": "无法加载详情",
       "retry": "重试",
       "about": "Skill 简介",
+      "aboutPlugin": "插件简介",
+      "useCase": "用途与适用任务",
+      "publisher": "发布者",
+      "category": "分类",
+      "publicationScope": "发布范围",
+      "permissions": "所需权限",
+      "noPermissions": "此版本未声明额外权限。",
+      "permissionsUndeclared": "此版本未提供权限声明。",
+      "noPluginManifest": "此版本未提供插件清单。",
       "currentVersion": "当前版本",
       "fileCountLabel": "文件",
       "noReleaseNotes": "此版本没有发布说明。",
@@ -7602,12 +7711,12 @@
         "unavailable": "状态不可用",
         "inactive": "已停用",
         "partial": "部分启用",
-        "active": "正在使用",
+        "active": "配置已启用",
         "not_installedHint": "安装后将在所选 Agent 中默认启用。",
         "loadingHint": "正在扫描本机 Skill。",
         "connector_onlyHint": "此插件不包含 Skill，连接器安装后默认关闭，需单独配置。",
         "unavailableHint": "未找到可管理的本地 Skill 组件。",
-        "count": "{enabled}/{total} 个 Agent 已完全启用",
+        "count": "{enabled}/{total} 个智能体已启用组件；连接与界面需单独检查",
         "componentCount": "{enabled}/{total} 个组件",
         "toggle": "启用或停用这个 Skill",
         "targets": "启用目标",
@@ -7671,7 +7780,10 @@
       "managed": "受管",
       "managedYes": "是",
       "managedNo": "否",
-      "pathHidden": "由安装器管理，不暴露绝对路径"
+      "pathHidden": "由安装器管理，不暴露绝对路径",
+      "platforms": "适用平台",
+      "minimumClientVersion": "最低宿主版本：{version}",
+      "platformsUnspecified": "清单未限定平台"
     },
     "manage": {
       "more": "更多管理操作",
@@ -7753,7 +7865,10 @@
         "checksum_mismatch": "校验和验证失败。",
         "signature_invalid": "签名验证失败。",
         "canceled": "已取消。"
-      }
+      },
+      "platformUnsupported": "此插件或其依赖不支持当前平台 {platform}。请关闭此面板并选择适用版本。",
+      "clientIncompatible": "此插件或其依赖需要更高版本的宿主。请先更新插件运行所在的客户端或服务端，再安装此版本。",
+      "actionChooseVersion": "请选择支持当前平台的版本"
     },
     "upload": {
       "title": "上传技能或插件",
@@ -7782,13 +7897,19 @@
         "slug": "请输入有效的 slug（仅支持小写字母、数字和连字符）。",
         "version": "请输入有效的 SemVer，例如 1.2.3。",
         "dependencies": "依赖格式无效；不需要依赖时可以留空。",
-        "dependenciesLine": "第 {line} 行依赖格式无效；不需要依赖时可以留空。"
+        "dependenciesLine": "第 {line} 行依赖格式无效；不需要依赖时可以留空。",
+        "wrongPackageType": "请使用与文件夹类型对应的 Skill 或插件上传入口。"
       },
       "reviewLine": "版本 {version} · {files} 个文件",
       "buildHint": "上传完成不等于可安装：制品构建完成后才会出现在可安装列表。",
       "publish": "发布",
-      "addVersionSubmit": "提交新版本"
-    }
+      "addVersionSubmit": "提交新版本",
+      "pluginTitle": "上传插件",
+      "pluginSelectFolder": "选择插件目录",
+      "pluginSubtitle": "发布独立插件包，保留交互应用、工具、运行时与组成声明。",
+      "pluginFolderHint": "选择包含 .iyw-plugin.json 的插件目录；插件不要求根目录存在 SKILL.md。"
+    },
+    "viewLabel": "浏览范围"
   },
   "ComputerUse": {
     "title": "电脑操作",

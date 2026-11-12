@@ -229,7 +229,6 @@ export function getInstalledMarketInfo(skill: AgentSkillItem): {
 }
 
 const MAX_FILES = 512
-const MAX_BYTES = 25 * 1024 * 1024
 const MAX_SKILL_MD_BYTES = 1024 * 1024
 const INTERNAL_MARKERS = new Set([
   ".iyw-claw-market-skill.json",
@@ -297,7 +296,6 @@ export async function readSkillMarketFolder(
   paths.forEach(validatePath)
   validatePathConflicts(paths)
   const totalBytes = entries.reduce((total, { file }) => total + file.size, 0)
-  if (totalBytes > MAX_BYTES) throw new Error("folderTooLarge")
   const pluginIndex = paths.indexOf(".iyw-plugin.json")
   const packageType = pluginIndex >= 0 ? "plugin" : "skill"
   const entryIndex =
@@ -468,6 +466,7 @@ export type SkillMarketInstallState =
 export type SkillMarketSort = "recommended" | "updated" | "name" | "installed"
 
 export type SkillMarketViewV2 =
+  | "all"
   | "market"
   | "organization"
   | "mine"
@@ -566,6 +565,7 @@ export interface SkillMarketV2CatalogPage {
 }
 
 export interface SkillMarketListQueryV2 {
+  packageType?: "skill" | "plugin"
   view: SkillMarketViewV2
   publisher: SkillMarketPublisher | "all"
   distribution: SkillMarketDistributionPolicy | "all"

@@ -95,6 +95,8 @@ export interface TabItemInternal {
    * composer hides the branch picker and shows the "no-folder" chip.
    */
   isChat?: boolean
+  /** 外部导入的独立草稿不参与普通新会话的单例复用。 */
+  isIndependentDraft?: boolean
   /** One-shot text injected into a draft composer, then cleared by its panel. */
   pendingComposerText?: string
 }
@@ -197,6 +199,8 @@ export interface TabStoreState {
   openChatModeTab: (options?: {
     initialComposerText?: string
     targetGroup?: string
+    independentDraft?: { id: string; agentType: AgentType }
+    intent?: "new" | "initialize"
   }) => void
   consumePendingComposerText: (tabId: string) => void
   setChatDraftWorkingDir: (tabId: string, workingDir: string) => void
@@ -277,6 +281,19 @@ const childSeedBuffer = new Map<
 >()
 let seedEpoch = 0
 const previewReplacedCallbacks = new Set<(tabId: string) => void>()
+const newConversationCallbacks = new Set<(tabId: string) => void>()
+
+export function onNewConversationOpened(callback: (tabId: string) => void) {
+  newConversationCallbacks.add(callback)
+  return () => {
+    newConversationCallbacks.delete(callback)
+  }
+}
+
+function notifyNewConversationOpened(tabId: string) {
+  if (useTabStore.getState().activeTabId !== tabId) return
+  for (const callback of newConversationCallbacks) callback(tabId)
+}
 let correctionRan = false
 let recoveryRan = false
 // Tracks the last `conversations` reference recomputeTabs derived against, so
@@ -330,7 +347,8 @@ function sameDerivedTab(a: TabItemInternal, b: TabItemInternal): boolean {
     a.workingDir === b.workingDir &&
     a.status === b.status &&
     a.agentTypeProvisional === b.agentTypeProvisional &&
-    a.isChat === b.isChat
+    a.isChat === b.isChat &&
+    a.isIndependentDraft === b.isIndependentDraft
   )
 }
 
@@ -861,6 +879,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     const existingTab = prevState.rawTabs.find(
       (tab) =>
         tab.conversationId == null &&
+        !tab.isIndependentDraft &&
         groupOfTab(prevState.groupOf, prevState.groupLayout, tab.id) ===
           targetGroup
     )
@@ -886,6 +905,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       })
       recomputeTabs()
       runtime.activateConversationPane()
+      notifyNewConversationOpened(tabId)
       return
     }
 
@@ -946,10 +966,21 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     }
     focusTab(existingTab.id)
     runtime.activateConversationPane()
+    if (!folderChanged && !agentChanged)
+      notifyNewConversationOpened(existingTab.id)
   },
 
   openChatModeTab: (options) => {
     const st = get()
+    const independentDraft = options?.independentDraft
+    if (
+      independentDraft &&
+      st.rawTabs.some((tab) => tab.id === independentDraft.id)
+    ) {
+      focusTab(independentDraft.id)
+      runtime.activateConversationPane()
+      return
+    }
     const targetGroup = resolveTargetGroup(st, options?.targetGroup)
     // Inherit the agent like openNewConversationTab's inherit path.
     const selectedTabId = st.groupSelection[targetGroup] ?? st.activeTabId
@@ -961,17 +992,20 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         : null
     const { agentType: targetAgent, provisional } = resolveAgentForFolder(
       0,
-      inherit,
+      independentDraft?.agentType ?? inherit,
       null
     )
 
     // Capture the existing singleton draft (if any) up front so its stale ACP
     // session can be torn down after we flip it to chat mode.
-    const existingDraft = st.rawTabs.find(
-      (tab) =>
-        tab.conversationId == null &&
-        groupOfTab(st.groupOf, st.groupLayout, tab.id) === targetGroup
-    )
+    const existingDraft = independentDraft
+      ? undefined
+      : st.rawTabs.find(
+          (tab) =>
+            tab.conversationId == null &&
+            !tab.isIndependentDraft &&
+            groupOfTab(st.groupOf, st.groupLayout, tab.id) === targetGroup
+        )
     const needsDisconnect =
       existingDraft != null &&
       !authorizedDraftReplacements.delete(existingDraft.id) &&
@@ -995,14 +1029,17 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       return
     }
 
-    const tabId = makeNewConversationTabId()
+    const tabId = independentDraft?.id ?? makeNewConversationTabId()
     const prevState = get()
-    const existingTab = prevState.rawTabs.find(
-      (tab) =>
-        tab.conversationId == null &&
-        groupOfTab(prevState.groupOf, prevState.groupLayout, tab.id) ===
-          targetGroup
-    )
+    const existingTab = independentDraft
+      ? undefined
+      : prevState.rawTabs.find(
+          (tab) =>
+            tab.conversationId == null &&
+            !tab.isIndependentDraft &&
+            groupOfTab(prevState.groupOf, prevState.groupLayout, tab.id) ===
+              targetGroup
+        )
 
     if (!existingTab) {
       if (!canOpenConversationTab(prevState.rawTabs.length)) return
@@ -1017,6 +1054,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         workingDir: undefined,
         agentTypeProvisional: provisional,
         isChat: true,
+        ...(independentDraft ? { isIndependentDraft: true } : {}),
         pendingComposerText: options?.initialComposerText,
       }
       set({
@@ -1080,6 +1118,8 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     focusTab(existingTab?.id ?? tabId)
 
     runtime.activateConversationPane()
+    if (options?.intent !== "initialize")
+      notifyNewConversationOpened(existingTab?.id ?? tabId)
   },
 
   consumePendingComposerText: (tabId) => {
@@ -1409,7 +1449,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   },
 
   recoverActiveContext: () => {
-    get().openChatModeTab()
+    get().openChatModeTab({ intent: "initialize" })
   },
 
   consumePreviewReplaced: () => {
@@ -1451,6 +1491,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
           if (!replaced) return
         } catch (err) {
           console.error("[TabStore] disconnect draft tab:", err)
+          return
         }
 
         const rawTabs = get().rawTabs
@@ -1478,6 +1519,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
           ),
         })
         recomputeTabs()
+        notifyNewConversationOpened(request.tabId)
       })()
     }
   },

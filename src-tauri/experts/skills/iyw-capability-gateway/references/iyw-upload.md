@@ -23,7 +23,7 @@
 | `path` | 是 | MCP 主机上可读的普通文件，不限工作区；优先填绝对路径，相对路径基于会话工作目录 |
 | `description` | 是 | 1-120 字符当前动作，例“上传设计方案文档” |
 | `name` | 否 | 通常不填。覆盖返回结果中的文件名，默认本地 basename；支持中文，不能有 `/`、`\`、`:` 或控制字符。不会改变读取哪个文件 |
-| `mime_type` | 否 | 通常不填。不确定时省略，默认 `application/octet-stream`；填入时使用 `application/pdf` 等标准 MIME，不是扩展名或中文文件类型 |
+| `mime_type` | 否 | 通常不填。本地 `.html` / `.htm` 默认 `text/html; charset=utf-8`，便于浏览器预览；其余默认 `application/octet-stream`。显式填写的标准 MIME 优先，不是扩展名或中文文件类型 |
 
 ```json
 {"description":"上传设计方案文档","path":"deliverables/design.pdf","mime_type":"application/pdf"}

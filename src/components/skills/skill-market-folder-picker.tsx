@@ -117,10 +117,12 @@ function FolderSummary({ folder, onClear }: FolderSummaryProps) {
 export function SkillMarketFolderPicker({
   folder,
   disabled,
+  selectLabel,
   onChange,
 }: {
   folder: SelectedSkillMarketFolder | null
   disabled?: boolean
+  selectLabel?: string
   onChange: (folder: SelectedSkillMarketFolder | null) => void
 }) {
   const t = useTranslations(
@@ -151,7 +153,7 @@ export function SkillMarketFolderPicker({
         ) : (
           <FolderOpen className="size-3.5" />
         )}
-        {folder ? t("replaceFolder") : t("selectFolder")}
+        {folder ? t("replaceFolder") : selectLabel || t("selectFolder")}
       </Button>
       {reader.error ? (
         <p className="text-xs text-destructive">

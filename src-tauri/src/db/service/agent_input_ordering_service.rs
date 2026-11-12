@@ -4,7 +4,6 @@ use chrono::Utc;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder,
-    TransactionTrait,
 };
 
 use crate::acp::{AgentInputItem, AgentInputStatus};
@@ -49,7 +48,7 @@ async fn reorder_locked(
     ordered_ids: &[String],
 ) -> Result<Vec<AgentInputItem>, DbError> {
     validate_unique(ordered_ids)?;
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let rows = ordered_rows(&txn, conversation_id).await?;
     let movable = movable_rows(&rows);
     validate_membership(&movable, ordered_ids)?;
@@ -114,7 +113,7 @@ async fn freeze_prefix_locked(
     request: FreezePrefixRequest<'_>,
 ) -> Result<Vec<AgentInputItem>, DbError> {
     validate_unique(request.expected_prefix_ids)?;
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let rows = ordered_rows(&txn, request.conversation_id).await?;
     let target = validate_force_target(&rows, request.target_id)?;
     let expected_rows = load_expected_rows(&txn, &request).await?;

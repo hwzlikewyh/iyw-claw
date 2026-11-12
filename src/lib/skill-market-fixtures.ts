@@ -640,6 +640,10 @@ function matchesQuery(
   item: SkillMarketV2Item,
   query: SkillMarketListQueryV2
 ): boolean {
+  if (query.packageType === "plugin" && item.packageType !== "plugin")
+    return false
+  if (query.packageType === "skill" && item.packageType === "plugin")
+    return false
   if (query.publisher !== "all" && item.publisher !== query.publisher)
     return false
   if (
@@ -670,6 +674,8 @@ function matchesView(
   view: SkillMarketListQueryV2["view"]
 ): boolean {
   switch (view) {
+    case "all":
+      return true
     case "market":
       return item.audience === "global_market"
     case "organization":

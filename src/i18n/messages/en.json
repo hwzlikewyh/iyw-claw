@@ -489,7 +489,50 @@
     "connectionOption": "Connection option",
     "cancel": "Cancel",
     "install": "Add to my connectors",
-    "installing": "Configuring or downloading…"
+    "installing": "Configuring or downloading…",
+    "parameterRequired": "Please fill in {field}.",
+    "parameterInvalid": "Check the value and expected type of {field}.",
+    "installationTasks": "Installation tasks",
+    "manageInstalled": "Manage installed connector",
+    "authNone": "No account required",
+    "authParameters": "User-supplied credentials",
+    "authBrowser": "Sign in using your browser",
+    "oauth_expired": "Authorization expired. Start again to open a new login page.",
+    "retryAuthorization": "Restart authorization",
+    "retry": "Retry",
+    "continueInBackground": "Continue in background",
+    "cancelInstallation": "Cancel installation",
+    "taskBackground": "You can close this panel and return to view progress. Existing configuration stays available until the replacement is committed.",
+    "viewInstallation": "View installation",
+    "task_preparing": "Preparing installation",
+    "task_checking_cache": "Checking downloaded files",
+    "task_downloading": "Downloading component",
+    "task_verifying": "Verifying component",
+    "task_extracting": "Preparing component files",
+    "task_committing": "Saving connection configuration",
+    "task_cancelling": "Cancelling installation",
+    "task_completed": "Installation task completed · continue setup from installed connectors",
+    "task_cancelled": "Installation cancelled",
+    "task_failed": "Installation failed · retry available",
+    "task_interrupted": "Installation was interrupted · check installed items before retrying",
+    "checkConnection": "Check connection",
+    "checkingConnection": "Checking connection…",
+    "connection_ready": "Connection verified",
+    "connection_authentication_required": "Login required",
+    "connection_failed": "Connection failed",
+    "connection_unverified": "Verify in conversation",
+    "connectionHint_ready": "MCP initialization and tool discovery passed. Usage verifies again. Reconnect running conversations.",
+    "connectionHint_authentication_required": "Authentication failed or expired. Sign in and check again.",
+    "connectionHint_failed": "MCP initialization or tool discovery failed. Check the service, parameters and account permissions.",
+    "connectionHint_unverified": "This environment cannot verify MCP independently. The conversation runtime verifies availability during use.",
+    "toolCount": "{count} tools",
+    "cliLogin": "CLI login",
+    "cliHint": "Start and follow the publisher's login steps in the terminal. After the process exits, authentication and connection are checked. Closing ends this login attempt. The deadline is five minutes.",
+    "cliNotVerified": "Authentication and connection have not been verified",
+    "cliStart": "Start login",
+    "cliVerify": "I signed in, check connection",
+    "cliRestart": "End attempt and sign in again",
+    "disconnectAccount": "Disconnect account"
   },
   "ComposerPlugins": {
     "menuLabel": "Plugins",
@@ -522,6 +565,21 @@
     "empty": "No optional connectors have been installed.",
     "reconnect": "Saved. Reconnect a running session to apply the selection.",
     "market": "Manage connectors"
+  },
+  "ComposerPlugins": {
+    "menuLabel": "Plugins",
+    "search": "Search installed plugins",
+    "hint": "Use a plugin's skills or tools in this message",
+    "loading": "Loading plugins…",
+    "empty": "No installed plugins",
+    "noResults": "No matching plugins",
+    "retry": "Retry",
+    "manage": "Manage plugins…",
+    "manageRequired": "Enable or repair this plugin",
+    "prepareRequired": "Finish configuring and authorizing this plugin, then return to the conversation",
+    "skills": "{count, plural, one {# skill} other {# skills}}",
+    "tools": "Use plugin tools",
+    "usePrompt": "Use the {name} plugin for this task."
   },
   "ConversationPresentation": {
     "toolActivity": {
@@ -1567,7 +1625,7 @@
           "metadata": "2. Add marketplace metadata",
           "review": "3. Review and publish"
         },
-        "folderHint": "The root must contain a non-empty UTF-8 SKILL.md. Up to 512 files and 25 MB are accepted.",
+        "folderHint": "The root must contain a non-empty UTF-8 SKILL.md. Up to 512 files are accepted, with no fixed package size limit.",
         "selectFolder": "Select Skill folder",
         "replaceFolder": "Choose another folder",
         "clearFolder": "Clear selected folder",
@@ -1584,7 +1642,7 @@
           "emptyFolder": "The selected folder is empty.",
           "tooManyFiles": "A Skill can contain at most 512 files.",
           "invalidFolder": "Could not read one complete folder.",
-          "folderTooLarge": "The folder cannot exceed 25 MB.",
+          "folderTooLarge": "The folder size is invalid. Select the files again.",
           "missingSkillFile": "The folder root must contain SKILL.md.",
           "skillFileTooLarge": "SKILL.md cannot exceed 1 MB.",
           "emptySkillFile": "SKILL.md cannot be empty.",
@@ -1673,7 +1731,7 @@
         "folderErrors": {
           "tooManyFiles": "The folder can contain at most 512 files.",
           "invalidFolder": "Could not read a valid folder structure.",
-          "folderTooLarge": "The folder cannot exceed 25 MB.",
+          "folderTooLarge": "The folder size is invalid. Select the files again.",
           "missingSkillFile": "The folder root must contain SKILL.md.",
           "readFailed": "Failed to read the selected folder."
         },
@@ -3127,6 +3185,10 @@
       "noFolderHint": "Open a folder to see its contents here"
     },
     "taskArtifacts": {
+      "deleteConfirmation": "Remove the selected {count} artifacts?",
+      "deleteSameConversation": "Select artifacts from the same conversation to delete together.",
+      "deleted": "Artifacts removed",
+      "deleteFailed": "Could not remove the artifacts.",
       "open": "Artifacts",
       "title": "Task artifacts",
       "description": "Browse and preview task artifacts from the current session or workspace",
@@ -4700,7 +4762,8 @@
           "unavailable": "This plugin app is inactive or its project authorization changed. Complete plugin preparation before reloading.",
           "retry": "Retry plugin app",
           "fullscreen": "Open fullscreen",
-          "inline": "Restore inline"
+          "inline": "Restore inline",
+          "unavailable": "This plugin app is inactive or its project authorization changed. Complete plugin preparation before reloading."
         },
         "showingTailOutput": "Showing tail output while streaming for performance.",
         "result": "Result",
@@ -7285,18 +7348,19 @@
   "CapabilityMarket": {
     "shortTitle": "Market",
     "title": "Capability Market",
-    "subtitle": "Extend workflows with reusable capabilities",
+    "subtitle": "Add skills, connectors, and plugins for the current task.",
     "navLabel": "Capability types",
     "preview": "Preview",
     "sections": {
       "skills": "Skills",
       "connectors": "Connectors",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "all": "All"
     },
     "sectionHints": {
       "skills": "Discover and install reusable task methods",
       "connectors": "Connect services and manage global availability",
-      "plugins": "Bundle skills, connectors, and bindings"
+      "plugins": "Install independent plugins with interactive apps and capabilities"
     },
     "featured": {
       "title": "Featured workflows",
@@ -7362,7 +7426,7 @@
     "plugins": {
       "eyebrow": "Plugin market",
       "title": "Deliver a complete way of working as one bundle",
-      "description": "A plugin is a versioned distribution unit that can be upgraded or uninstalled. It packages skills, connectors, and their bindings without copying skill implementations.",
+      "description": "Plugins are versioned extensions that can provide interactive apps, runtimes, tools, connectors, or skills. Download and authorize only what you choose.",
       "parts": {
         "skills": "Skills",
         "connectors": "Connectors",
@@ -7414,6 +7478,42 @@
           "title": "Quality assurance kit",
           "description": "Cover diagnosis, automated checks, and quality platform connectivity."
         }
+      }
+    },
+    "shortTitle": "Market",
+    "catalog": {
+      "skill": "Skill",
+      "connector": "Connector",
+      "plugin": "Plugin",
+      "myUploads": "My uploads",
+      "createUpload": "Create / upload",
+      "installed": "Installed",
+      "details": "View details",
+      "manage": "Manage",
+      "version": "Version {version}",
+      "installedVersion": "Installed · {version}",
+      "noDescription": "No description provided",
+      "uncategorized": "Uncategorized",
+      "official": "Platform provided",
+      "community": "Developer published",
+      "organization": "Organization",
+      "allSources": "All sources",
+      "empty": "No matching capabilities",
+      "unavailable": "Temporarily unavailable",
+      "source": "Publisher source",
+      "browse": "Browse market",
+      "quickPages": "{total} items · {page} / {pages}",
+      "unknownPage": "Page {page} · {count} items",
+      "connectorManagement": "Connector uploads and publishing are managed in the admin console. Choose installation, configuration, and conversation use here.",
+      "chooseType": "Choose capability type",
+      "chooseTypeHint": "Skills, connectors, and plugins are managed separately. Choose a type.",
+      "status": {
+        "building": "Preparing package",
+        "buildFailed": "Package build failed",
+        "incompatible": "Incompatible client or platform",
+        "update": "Update available",
+        "blocked": "Current version is blocked",
+        "preparing": "Preparing"
       }
     }
   },
@@ -7588,6 +7688,15 @@
       "error": "Failed to load details",
       "retry": "Retry",
       "about": "About this Skill",
+      "aboutPlugin": "About this plugin",
+      "useCase": "Purpose and suitable tasks",
+      "publisher": "Publisher",
+      "category": "Category",
+      "publicationScope": "Publication scope",
+      "permissions": "Required permissions",
+      "noPermissions": "No additional permissions are declared for this version.",
+      "permissionsUndeclared": "This version does not provide a permission declaration.",
+      "noPluginManifest": "The plugin manifest is unavailable for this version.",
       "currentVersion": "Current version",
       "fileCountLabel": "Files",
       "noReleaseNotes": "No release notes are available for this version.",
@@ -7602,12 +7711,12 @@
         "unavailable": "State unavailable",
         "inactive": "Disabled",
         "partial": "Partially enabled",
-        "active": "In use",
+        "active": "Configuration enabled",
         "not_installedHint": "Installation enables the Skill for selected Agents by default.",
         "loadingHint": "Scanning local Skills.",
         "connector_onlyHint": "This plugin has no Skill components. Connectors remain off until configured separately.",
         "unavailableHint": "No manageable local Skill component was found.",
-        "count": "{enabled}/{total} Agents fully enabled",
+        "count": "Components enabled for {enabled}/{total} agents; connection and app readiness are checked separately",
         "componentCount": "{enabled}/{total} components",
         "toggle": "Enable or disable this Skill",
         "targets": "Enabled for",
@@ -7671,7 +7780,10 @@
       "managed": "Managed",
       "managedYes": "Yes",
       "managedNo": "No",
-      "pathHidden": "Managed by the installer; paths are not exposed"
+      "pathHidden": "Managed by the installer; paths are not exposed",
+      "platforms": "Supported platforms",
+      "minimumClientVersion": "Minimum host version: {version}",
+      "platformsUnspecified": "Not restricted by the manifest"
     },
     "manage": {
       "more": "More management actions",
@@ -7753,7 +7865,10 @@
         "checksum_mismatch": "Checksum verification failed.",
         "signature_invalid": "Signature verification failed.",
         "canceled": "Canceled."
-      }
+      },
+      "platformUnsupported": "This plugin or one of its dependencies does not support {platform}. Close this panel and choose a compatible release.",
+      "clientIncompatible": "This plugin or one of its dependencies needs a newer host. Update the client or server where the plugin runs before installing it.",
+      "actionChooseVersion": "Choose a compatible release"
     },
     "upload": {
       "title": "Upload skill or plugin",
@@ -7782,13 +7897,19 @@
         "slug": "Enter a valid slug using lowercase letters, numbers, and hyphens.",
         "version": "Enter a valid SemVer, for example 1.2.3.",
         "dependencies": "The dependency format is invalid; leave it empty when no dependency is needed.",
-        "dependenciesLine": "Dependency format is invalid on line {line}; leave it empty when no dependency is needed."
+        "dependenciesLine": "Dependency format is invalid on line {line}; leave it empty when no dependency is needed.",
+        "wrongPackageType": "Use the matching Skill or plugin upload entry for this folder."
       },
       "reviewLine": "Version {version} · {files} files",
       "buildHint": "Uploaded does not mean installable: the artifact must finish building first.",
       "publish": "Publish",
-      "addVersionSubmit": "Submit version"
-    }
+      "addVersionSubmit": "Submit version",
+      "pluginTitle": "Upload plugin",
+      "pluginSelectFolder": "Select plugin folder",
+      "pluginSubtitle": "Publish an independent plugin package with its apps, tools, runtime, and component declarations.",
+      "pluginFolderHint": "Choose a plugin folder containing .iyw-plugin.json. A root SKILL.md is not required for plugins."
+    },
+    "viewLabel": "Catalog view"
   },
   "ComputerUse": {
     "title": "Computer use",

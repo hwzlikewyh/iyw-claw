@@ -27,6 +27,7 @@ export type WorkbenchRouteId =
   | "library"
 
 export interface SkillMarketNavigationTarget {
+  packageType?: "skill" | "plugin"
   requestId: number
   skillId: string
 }
@@ -39,7 +40,10 @@ interface WorkbenchRouteContextValue {
   /** Sugar for returning to the conversation workspace. */
   openConversations: () => void
   skillMarketTarget: SkillMarketNavigationTarget | null
-  openSkillMarket: (skillId: string) => void
+  openSkillMarket: (
+    skillId: string,
+    packageType?: "skill" | "expert" | "plugin"
+  ) => void
   consumeSkillMarketTarget: (requestId: number) => void
   connectorMarketRequested: boolean
   openConnectorMarket: () => void

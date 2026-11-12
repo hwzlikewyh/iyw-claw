@@ -74,6 +74,10 @@ import { useSessionFork } from "@/hooks/use-session-fork"
 import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
 import { WelcomeHero } from "@/components/chat/welcome-hero"
+import {
+  pluginDraftVisible,
+  usePluginComposerContext,
+} from "@/lib/plugin-composer-context"
 import { WelcomeLayout } from "@/components/chat/welcome-layout"
 import { QuickActions } from "@/components/chat/quick-actions"
 import welcomeComposerStyles from "@/components/chat/welcome-composer.module.css"
@@ -626,6 +630,9 @@ const ConversationTabView = memo(function ConversationTabView({
   const [contextPrimerLoading, setContextPrimerLoading] = useState(false)
 
   const hasPersistedConversation = dbConversationId != null
+  const preparedPluginConversationId = usePluginComposerContext(
+    (state) => state.entries[tabId]?.preparedConversationId
+  )
 
   // A folderless chat draft before its first send (chat tab, not yet persisted).
   // Used to trigger the eager scratch-dir prepare below, which gives the draft a
@@ -773,6 +780,14 @@ const ConversationTabView = memo(function ConversationTabView({
   } = useConversationDetail(effectiveConversationId, {
     enabled: isVisible && isDocumentVisible,
   })
+  const pluginPreparedDraft =
+    preparedPluginConversationId != null &&
+    pluginDraftVisible({
+      tabId,
+      conversationId: dbConversationId,
+      sent: hasSentMessage,
+      hasTurns: Boolean(detail?.turns.length),
+    })
 
   // Subscribe to only the fields this panel actually reads from its runtime
   // session — NOT the whole session object. The live-message sink rewrites the
@@ -840,11 +855,11 @@ const ConversationTabView = memo(function ConversationTabView({
     !(hasPersistedConversation && detailError) &&
     !(hasPersistedConversation && acpLoadError)
   const draftStorageKey = useMemo(() => {
-    if (dbConversationId != null) {
+    if (dbConversationId != null && !pluginPreparedDraft) {
       return buildConversationDraftStorageKey(dbConversationId)
     }
     return buildNewConversationDraftStorageKey(tabId)
-  }, [dbConversationId, tabId])
+  }, [dbConversationId, pluginPreparedDraft, tabId])
   useEffect(() => {
     if (dbConversationId == null) {
       adoptLegacyNewConversationDraft(draftStorageKey)
@@ -3140,7 +3155,12 @@ const ConversationTabView = memo(function ConversationTabView({
     [mqEditingItemId, mqUpdateItem]
   )
 
-  const showDraftHeader = !hasPersistedConversation && !hasSentMessage
+  const showDraftHeader =
+    (!hasPersistedConversation ||
+      (pluginPreparedDraft &&
+        !detail?.turns.length &&
+        !hasLiveResponseContent)) &&
+    !hasSentMessage
   const isWelcomeMode = showDraftHeader
 
   const handleQuickAction = useCallback(
@@ -4061,7 +4081,7 @@ export function ConversationDetailPanel() {
     if (!folder) return
 
     if (hasNoTabs) {
-      openChatModeTab()
+      openChatModeTab({ intent: "initialize" })
     }
   }, [folder, hasNoTabs, openChatModeTab])
 

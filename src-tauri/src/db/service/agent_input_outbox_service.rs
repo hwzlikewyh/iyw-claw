@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Set, TransactionTrait,
+    QueryOrder, Set,
 };
 
 pub use super::agent_input_force_service::{
@@ -113,7 +113,7 @@ pub async fn create(
         return parse_existing_or_reject(existing, &serialized);
     }
     let _guard = super::agent_input_ordering_service::lock().await;
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     if let Some(existing) = agent_input_outbox::Entity::find_by_id(&serialized.id)
         .one(&txn)
         .await?

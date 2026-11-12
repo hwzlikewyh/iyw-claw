@@ -23,6 +23,9 @@ pub(crate) const IMAGE_ID_PREFIX: &str = "iyw-image-v1-";
 const IMAGE_REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const IMAGE_URL_LIFETIME: Duration = Duration::from_secs(3600);
 
+#[path = "managed_image_upload.rs"]
+mod upload;
+
 #[derive(Deserialize)]
 struct ImageResponse {
     #[serde(default)]
@@ -42,6 +45,7 @@ struct ManagedImageStore {
     url: String,
     headers: HeaderMap,
     model: String,
+    thread_id: String,
     fallback: Arc<dyn AttachmentStore>,
 }
 
@@ -68,6 +72,10 @@ impl ModelClient {
         if !self.uses_managed_image_provider() {
             return None;
         }
+        let _timing = super::timing::PreparationTiming::new(
+            &self.state.thread_id,
+            "image_client_setup",
+        );
         let setup = match self.current_client_setup(ClientRouting::Workspace).await {
             Ok(setup) => setup,
             Err(_) => return None,
@@ -87,6 +95,7 @@ impl ModelClient {
             url,
             headers,
             model: model.to_owned(),
+            thread_id: self.state.thread_id.to_string(),
             fallback,
         })
     }
@@ -146,6 +155,7 @@ impl ManagedImageStore {
         &self,
         payload: &serde_json::Value,
     ) -> Result<Option<ImageResponse>, AttachmentStoreError> {
+        let _timing = super::timing::PreparationTiming::new(&self.thread_id, image_operation_stage(payload));
         let response = self
             .client
             .post(&self.url)
@@ -176,19 +186,10 @@ impl ManagedImageStore {
             return self.fallback.upload(request).await;
         };
         let digest = format!("{:x}", Sha256::digest(&request.data));
-        let mut payload = serde_json::json!({"operation":"lookup", "model":self.model,
-            "sha256":digest, "mime_type":mime_type});
-        let Some(mut response) = self.request(&payload).await? else {
+        let started = std::time::Instant::now();
+        let Some(response) = self.prepare_upload(&request, (&digest, mime_type)).await? else {
             return self.fallback.upload(request).await;
         };
-        if !response.found {
-            payload["operation"] = "upload".into();
-            payload["data"] = STANDARD.encode(&request.data).into();
-            let Some(uploaded) = self.request(&payload).await? else {
-                return self.fallback.upload(request).await;
-            };
-            response = uploaded;
-        }
         let id = response
             .image_id
             .filter(|id| id.starts_with(IMAGE_ID_PREFIX));
@@ -203,6 +204,8 @@ impl ManagedImageStore {
             ));
         }
         tracing::info!(thread_id = %request.thread_id, bytes = request.data.len(),
+            elapsed_ms = started.elapsed().as_millis(),
+            local_gateway = upload::is_local_image_gateway(&self.url),
             "managed image resource prepared for durable history");
         Ok(UploadResult::File {
             file_id: id.unwrap_or_default(),
@@ -259,5 +262,15 @@ fn image_mime(bytes: &[u8]) -> Option<&'static str> {
         image::ImageFormat::WebP => Some("image/webp"),
         image::ImageFormat::Gif => Some("image/gif"),
         _ => None,
+    }
+}
+
+fn image_operation_stage(payload: &serde_json::Value) -> &'static str {
+    match payload["operation"].as_str() {
+        Some("lookup") => "image_lookup",
+        Some("upload") => "image_upload",
+        Some("resolve") => "image_resolve",
+        Some("read") => "image_read",
+        _ => "image_prepare",
     }
 }

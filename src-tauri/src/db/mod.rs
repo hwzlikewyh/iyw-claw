@@ -3,6 +3,9 @@ pub mod error;
 pub mod migration;
 pub mod restore_memory;
 pub mod service;
+mod write;
+
+pub(crate) use write::begin_sqlite_write;
 
 use std::future::Future;
 use std::path::Path;

@@ -70,6 +70,22 @@ pub(super) async fn install_market_plan_locked(
         if let Err(error) = crate::plugin_runtime::registry::reconcile_global(conn).await {
             tracing::error!(error=%error, "[plugin-install] 提交失败后插件注册表恢复未完成");
         }
+        crate::plugin_runtime::registry::reconcile_global(input.conn).await?;
+        Ok::<(), AppCommandError>(())
+    }
+    .await;
+    if let Err(error) = result {
+        if let Some(skills) = skills {
+            skills.rollback().map_err(map_skill_error)?;
+        }
+        return Err(error);
+    }
+    if let Some(skills) = skills {
+        if let Err(error) = skills.migrate_plugin_skill_policies(input.conn).await {
+            skills.rollback().map_err(map_skill_error)?;
+            return Err(error);
+        }
+        skills.finish();
     }
     result
 }

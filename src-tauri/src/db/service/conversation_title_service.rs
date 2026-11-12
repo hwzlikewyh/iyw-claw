@@ -78,15 +78,16 @@ pub async fn refresh(
         }
         ConversationTitleSource::Manual => return Ok(false),
     };
-    let changed = query
-        .filter(
-            sea_orm::Condition::any()
-                .add(conversation::Column::Title.is_null())
-                .add(conversation::Column::Title.ne(title))
-                .add(conversation::Column::TitleSource.ne(source)),
-        )
-        .exec(conn)
-        .await?;
+    let query = query.filter(
+        sea_orm::Condition::any()
+            .add(conversation::Column::Title.is_null())
+            .add(conversation::Column::Title.ne(title))
+            .add(conversation::Column::TitleSource.ne(source)),
+    );
+    let changed = crate::db::retry_sqlite_maintenance("conversation_auto_title", || async {
+        query.clone().exec(conn).await.map_err(DbError::from)
+    })
+    .await?;
     Ok(changed.rows_affected > 0)
 }
 

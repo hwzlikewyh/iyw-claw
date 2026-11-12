@@ -80,7 +80,8 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    if ($$owner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($$owner.Sid)) { throw 'Unable to resolve process owner SID' }$\r$\n`
   FileWriteUTF16LE $R0 `    if ([string]::IsNullOrWhiteSpace($$CimProcess.ExecutablePath)) { throw 'Process executable path is unavailable' }$\r$\n`
   FileWriteUTF16LE $R0 `    $$processId = [int]$$CimProcess.ProcessId$\r$\n`
-  FileWriteUTF16LE $R0 `    $$cimPath = Get-SafeCanonicalPath $$CimProcess.ExecutablePath$\r$\n`
+  ; uv 的解释器别名是 Junction；进程身份按句柄解析，之后仍校验真实路径归属。
+  FileWriteUTF16LE $R0 `    $$cimPath = [IywProcessPath]::Resolve($$CimProcess.ExecutablePath)$\r$\n`
   FileWriteUTF16LE $R0 `    $$runtime = Get-Process -Id $$processId -ErrorAction Stop$\r$\n`
   FileWriteUTF16LE $R0 `    try { $$startTicks = $$runtime.StartTime.ToUniversalTime().Ticks } catch {$\r$\n`
   FileWriteUTF16LE $R0 `      try {$\r$\n`
@@ -90,7 +91,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `      } catch { throw 'Process start time is unavailable' }$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not [string]::IsNullOrWhiteSpace($$runtime.Path)) {$\r$\n`
-  FileWriteUTF16LE $R0 `      $$runtimePath = Get-SafeCanonicalPath $$runtime.Path$\r$\n`
+  FileWriteUTF16LE $R0 `      $$runtimePath = [IywProcessPath]::Resolve($$runtime.Path)$\r$\n`
   FileWriteUTF16LE $R0 `      if (-not [string]::Equals($$cimPath, $$runtimePath, [StringComparison]::OrdinalIgnoreCase)) { throw 'CIM and runtime executable identities differ' }$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    $$parentPath = [IO.Path]::GetDirectoryName($$cimPath)$\r$\n`

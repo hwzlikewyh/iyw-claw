@@ -15,6 +15,10 @@ import {
 } from "@/components/skills/market/upload-dialog"
 import { PluginRemoveDialog } from "@/components/skills/market/plugin-remove-dialog"
 import { ManagementDialogs } from "@/components/skills/market/management-dialogs"
+import {
+  useMarketViewAction,
+  type MarketViewAction,
+} from "./market-view-action"
 import type { SkillMarketNavigationTarget } from "@/contexts/workbench-route-context"
 import type { SkillMarketV2Detail, SkillMarketV2Item } from "@/lib/skill-market"
 import type {
@@ -27,12 +31,16 @@ export function SkillMarketView({
   navigationTarget,
   onNavigationTargetConsumed,
   onOpenConnectors,
+  packageType = "skill",
+  action,
 }: {
+  action?: MarketViewAction
+  packageType?: "skill" | "plugin"
   navigationTarget: SkillMarketNavigationTarget | null
   onNavigationTargetConsumed: (requestId: number) => void
   onOpenConnectors: () => void
 }) {
-  const market = useSkillMarket(navigationTarget?.skillId)
+  const market = useSkillMarket(navigationTarget?.skillId, packageType)
   const install = useSkillMarketInstall()
   const { list, selectItem, updateQuery } = market
   const targetQueryRequestRef = useRef<number | null>(null)
@@ -64,7 +72,14 @@ export function SkillMarketView({
   })
   const inventory = detailActivation.inventory
   const inventoryView =
-    market.query.view === "installed" || market.query.view === "enabled"
+    packageType !== "plugin" &&
+    (market.query.view === "installed" || market.query.view === "enabled")
+  useMarketViewAction(action, (kind) => {
+    if (kind === "upload") {
+      setUploadMode("publish")
+      setUploadOpen(true)
+    } else market.updateQuery({ view: kind })
+  })
 
   useEffect(() => {
     if (!navigationTarget) return
@@ -303,6 +318,7 @@ export function SkillMarketView({
         onClose={() => setPendingTarget(null)}
       />
       <SkillMarketUploadDialog
+        packageType={packageType}
         open={uploadOpen}
         mode={uploadMode}
         categories={market.categories}

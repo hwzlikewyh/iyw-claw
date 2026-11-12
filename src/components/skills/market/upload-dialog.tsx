@@ -81,6 +81,7 @@ function normalizeSlug(value: string): string {
 }
 
 export interface SkillMarketUploadDialogProps {
+  packageType?: "skill" | "plugin"
   open: boolean
   mode: SkillMarketUploadMode
   categories: SkillMarketCategory[]
@@ -119,6 +120,10 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
   const [folder, setFolder] = useState<SelectedSkillMarketFolder | null>(null)
   const [form, setForm] = useState<PublishForm>(EMPTY_PUBLISH)
   const [errors, setErrors] = useState<SkillMarketUploadErrors>({})
+  const folderMismatch = Boolean(
+    folder &&
+    (folder.packageType === "plugin") !== (props.packageType === "plugin")
+  )
 
   const reset = () => {
     setStep(1)
@@ -146,7 +151,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
       : validateSkillMarketVersionForm(form)
 
   const next = () => {
-    if (step === 1 && !folder) return
+    if (step === 1 && (!folder || folderMismatch)) return
     if (step === 2) {
       const validationErrors = validate()
       if (hasSkillMarketUploadErrors(validationErrors)) {
@@ -158,7 +163,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
   }
 
   const submit = async () => {
-    if (!folder) return
+    if (!folder || folderMismatch) return
     const validationErrors = validate()
     if (hasSkillMarketUploadErrors(validationErrors)) {
       setErrors(validationErrors)
@@ -199,10 +204,22 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
       <DialogContent className="max-w-3xl rounded-lg">
         <DialogHeader>
           <DialogTitle>
-            {isPublish ? t("upload.title") : t("upload.addVersionTitle")}
+            {isPublish
+              ? t(
+                  props.packageType === "plugin"
+                    ? "upload.pluginTitle"
+                    : "upload.title"
+                )
+              : t("upload.addVersionTitle")}
           </DialogTitle>
           <DialogDescription>
-            {isPublish ? t("upload.subtitle") : t("upload.addVersionSubtitle")}
+            {isPublish
+              ? t(
+                  props.packageType === "plugin"
+                    ? "upload.pluginSubtitle"
+                    : "upload.subtitle"
+                )
+              : t("upload.addVersionSubtitle")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex gap-1" aria-label={t("upload.progressLabel")}>
@@ -221,13 +238,27 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
           <section className="space-y-3">
             <h3 className="text-sm font-semibold">{t("upload.folderStep")}</h3>
             <p className="text-xs leading-5 text-muted-foreground">
-              {t("upload.folderHint")}
+              {t(
+                props.packageType === "plugin"
+                  ? "upload.pluginFolderHint"
+                  : "upload.folderHint"
+              )}
             </p>
             <SkillMarketFolderPicker
               folder={folder}
               disabled={props.busy}
+              selectLabel={
+                props.packageType === "plugin"
+                  ? t("upload.pluginSelectFolder")
+                  : undefined
+              }
               onChange={setFolder}
             />
+            {folderMismatch ? (
+              <p role="alert" className="text-xs text-destructive">
+                {t("upload.errors.wrongPackageType")}
+              </p>
+            ) : null}
           </section>
         ) : null}
 
@@ -243,7 +274,9 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
                     className={cn(errors.slug && "border-destructive")}
                     value={form.slug}
                     onChange={(event) => update("slug", event.target.value)}
-                    placeholder="my-skill"
+                    placeholder={
+                      props.packageType === "plugin" ? "my-plugin" : "my-skill"
+                    }
                   />
                   <FieldError t={t} error={errors.slug} />
                 </div>

@@ -2,7 +2,7 @@ use chrono::Utc;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
-    QueryFilter, Set, TransactionTrait,
+    QueryFilter, Set,
 };
 use sha2::{Digest, Sha256};
 
@@ -201,7 +201,7 @@ pub async fn bind(
     route: &ConversationRoute,
     conversation_id: i32,
 ) -> Result<chat_channel_conversation_binding::Model, DbError> {
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     upsert_route(&txn, channel_id, route, conversation_id).await?;
     let saved = find_by_route(&txn, channel_id, &route.route_key)
         .await?
@@ -220,7 +220,7 @@ pub async fn persist_session_start(
     external_id: &str,
     route: Option<(i32, &ConversationRoute)>,
 ) -> Result<bool, DbError> {
-    let txn = conn.begin().await?;
+    let txn = crate::db::begin_sqlite_write(conn).await?;
     let outcome: Result<bool, DbError> = async {
         if !super::conversation_session_segment_transition::persist(
             &txn,

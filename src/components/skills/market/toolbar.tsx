@@ -1,36 +1,13 @@
 "use client"
-
-import { RefreshCw, Search, Upload, X } from "lucide-react"
+import { RefreshCw, Search, X } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { FilterPopover } from "@/components/skills/market/filter-popover"
+import { FilterPopover } from "./filter-popover"
+import { MarketQuickPages } from "./market-quick-pages"
+import type { MarketPaginationProps } from "./market-pagination"
 import type { SkillMarketQueryState } from "@/hooks/use-skill-market"
-import type { SkillMarketCategory, SkillMarketViewV2 } from "@/lib/skill-market"
-import { cn } from "@/lib/utils"
-
-const VIEW_ORDER: SkillMarketViewV2[] = [
-  "market",
-  "organization",
-  "mine",
-  "installed",
-  "enabled",
-  "needs_update",
-]
+import type { SkillMarketCategory } from "@/lib/skill-market"
 
 export interface SkillMarketToolbarProps {
   query: SkillMarketQueryState
@@ -41,6 +18,7 @@ export interface SkillMarketToolbarProps {
   onQueryChange: (patch: Partial<SkillMarketQueryState>) => void
   onRefresh: () => void
   onUpload: () => void
+  pagination?: MarketPaginationProps
 }
 
 function ViewTabs({
@@ -87,16 +65,32 @@ function ViewTabs({
 
 export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
   const t = useTranslations("SkillMarketV2")
+  const c = useTranslations("CapabilityMarket.catalog")
   const { query, onQueryChange } = props
+  const special = ["mine", "installed", "enabled", "needs_update"].includes(
+    query.view
+  )
+  const source =
+    query.view === "organization" ? "organization" : query.publisher
   return (
-    <header className="shrink-0 border-b bg-background px-4 py-2.5 sm:px-5">
-      <div className="flex min-w-0 items-center gap-3">
-        <h2 className="hidden shrink-0 text-sm font-semibold lg:block">
-          {t("catalogTitle")}
-        </h2>
-        <span
-          className="hidden h-5 w-px shrink-0 bg-border lg:block"
-          aria-hidden="true"
+    <div className="my-[18px] flex min-w-0 flex-wrap items-center gap-3">
+      {special && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onQueryChange({ view: "all", publisher: "all" })}
+        >
+          {c("browse")}
+        </Button>
+      )}
+      <div className="relative min-w-[170px] max-w-[330px] flex-1 max-sm:min-w-full max-sm:max-w-none">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query.q}
+          onChange={(e) => onQueryChange({ q: e.target.value })}
+          placeholder={t("search.placeholder")}
+          aria-label={t("search.placeholder")}
+          className="h-9 rounded-md border-input bg-background pl-9 pr-8 shadow-none max-sm:min-h-11"
         />
         <ViewTabs
           view={query.view}
@@ -112,87 +106,66 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
             </Badge>
           ) : null}
           <Button
-            size="icon-sm"
             variant="ghost"
-            className="h-8 w-8"
-            aria-label={t("uploadShort")}
-            title={t("uploadShort")}
-            onClick={props.onUpload}
+            size="icon-xs"
+            className="absolute right-1 top-1/2 -translate-y-1/2"
+            aria-label={t("search.clear")}
+            onClick={() => onQueryChange({ q: "" })}
           >
-            <Upload className="size-3.5" aria-hidden="true" />
+            <X className="size-3.5" />
           </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                className="h-8 w-8"
-                aria-label={t("refresh.label")}
-                title={t("refresh.label")}
-                onClick={props.onRefresh}
-              >
-                <RefreshCw
-                  className={cn("size-3.5", props.loading && "animate-spin")}
-                  aria-hidden="true"
-                />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("refresh.label")}</TooltipContent>
-          </Tooltip>
-        </div>
+        )}
       </div>
-      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            value={query.q}
-            onChange={(event) => onQueryChange({ q: event.target.value })}
-            placeholder={t("search.placeholder")}
-            aria-label={t("search.placeholder")}
-            className="h-9 border-border/70 bg-muted/20 pl-8 pr-8 shadow-none focus-visible:bg-background"
-          />
-          {query.q ? (
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2"
-              aria-label={t("search.clear")}
-              title={t("search.clear")}
-              onClick={() => onQueryChange({ q: "" })}
-            >
-              <X className="size-3.5" aria-hidden="true" />
-            </Button>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center justify-end gap-2">
-          <FilterPopover
-            query={query}
-            categories={props.categories}
-            onQueryChange={onQueryChange}
-          />
-          <Select
-            value={query.sort}
-            onValueChange={(value) =>
-              onQueryChange({ sort: value as SkillMarketQueryState["sort"] })
-            }
-          >
-            <SelectTrigger size="sm" className="h-9 w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="recommended">
-                {t("sort.recommended")}
-              </SelectItem>
-              <SelectItem value="updated">{t("sort.updated")}</SelectItem>
-              <SelectItem value="name">{t("sort.name")}</SelectItem>
-              <SelectItem value="installed">{t("sort.installed")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-    </header>
+      <select
+        aria-label={c("source")}
+        value={special ? query.view : source}
+        className="h-9 max-w-full rounded-md border bg-background px-3 text-sm max-sm:min-h-11"
+        onChange={(e) => {
+          const value = e.target.value
+          if (["mine", "installed", "enabled", "needs_update"].includes(value))
+            onQueryChange({ view: value as SkillMarketQueryState["view"] })
+          else
+            onQueryChange({
+              view: value === "organization" ? "organization" : "all",
+              publisher:
+                value === "organization"
+                  ? "all"
+                  : (value as SkillMarketQueryState["publisher"]),
+            })
+        }}
+      >
+        <option value="all">{c("allSources")}</option>
+        <option value="official">{c("official")}</option>
+        <option value="user">{c("community")}</option>
+        <option value="organization">{c("organization")}</option>
+        {(["mine", "installed", "enabled", "needs_update"] as const).map(
+          (view) => (
+            <option key={view} value={view}>
+              {t(`views.${view}`)}
+            </option>
+          )
+        )}
+      </select>
+      <FilterPopover
+        query={query}
+        categories={props.categories}
+        onQueryChange={onQueryChange}
+      />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        disabled={props.loading}
+        aria-label={t("refresh.label")}
+        onClick={props.onRefresh}
+      >
+        <RefreshCw className="size-4" />
+      </Button>
+      {props.offline && (
+        <span role="status" className="text-xs text-muted-foreground">
+          {t("refresh.offline")}
+        </span>
+      )}
+      {props.pagination && <MarketQuickPages {...props.pagination} />}
+    </div>
   )
 }

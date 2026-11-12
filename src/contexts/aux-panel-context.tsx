@@ -96,11 +96,9 @@ export function AuxPanelProvider({ children }: AuxPanelProviderProps) {
 
   useEffect(() => {
     const stored = loadPersistedPanelState(storageKey)
-    const isMobileViewport = window.innerWidth < 768
-    const defaultOpen = isMobileViewport ? false : DEFAULT_IS_OPEN
-    // Hydrate from localStorage after mount to keep SSR/CSR markup consistent.
+    // 启动进入新草稿，只恢复宽度；右侧由本次会话的显式操作打开。
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsOpen(isMobileViewport ? false : (stored?.isOpen ?? defaultOpen))
+    setIsOpen(DEFAULT_IS_OPEN)
     setWidthState(clampWidth(stored?.width ?? DEFAULT_WIDTH))
     setRestored(true)
   }, [storageKey])

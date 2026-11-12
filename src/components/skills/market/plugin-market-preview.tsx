@@ -3,7 +3,7 @@
 import { CircleAlert, SearchX } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { useMarketPageFocus } from "./use-market-page-focus"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PluginMarketCard } from "./plugin-market-card"
 import { PluginMarketToolbar } from "./plugin-market-toolbar"
@@ -16,8 +16,10 @@ const CATALOG_GRID =
 
 export function PluginMarketPreview({
   onOpenPlugin,
+  onViewChange: onParentViewChange,
 }: {
-  onOpenPlugin: (slug: string) => void
+  onOpenPlugin: (item: SkillMarketV2Item) => void
+  onViewChange?: (view: PluginCatalogView) => void
 }) {
   const t = useTranslations("CapabilityMarket.plugins")
   const {
@@ -33,11 +35,14 @@ export function PluginMarketPreview({
     <div className="@container flex h-full min-h-0 flex-col bg-background">
       <PluginMarketToolbar
         view={view}
+        publisher={publisher}
+        onPublisherChange={onPublisherChange}
         query={query}
         loading={catalog.loading}
         onViewChange={onViewChange}
         onQueryChange={onQueryChange}
         onRefresh={catalog.refresh}
+        pagination={pagination}
       />
       <div
         className="flex h-8 shrink-0 items-end px-4 pb-1 text-[11px] text-muted-foreground sm:px-5"
@@ -65,7 +70,7 @@ function PluginCatalogBody({
 }: {
   catalog: ReturnType<typeof usePluginCatalog>
   items: ReturnType<typeof usePluginCatalog>["items"]
-  onOpenPlugin: (slug: string) => void
+  onOpenPlugin: (item: SkillMarketV2Item) => void
 }) {
   if (!catalog.loading && (catalog.error || !items.length)) {
     return (
@@ -73,21 +78,27 @@ function PluginCatalogBody({
     )
   }
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className={CATALOG_GRID} aria-busy={catalog.loading}>
-        {catalog.loading
-          ? Array.from({ length: 6 }, (_, index) => (
-              <Skeleton key={index} className="h-52 rounded-lg" />
-            ))
-          : items.map((item) => (
-              <PluginMarketCard
-                key={item.id}
-                item={item}
-                onOpen={() => onOpenPlugin(item.slug)}
-              />
-            ))}
-      </div>
-    </ScrollArea>
+    <div
+      data-market-grid
+      className={CAPABILITY_GRID_CLASS}
+      aria-busy={catalog.loading}
+    >
+      {catalog.loading
+        ? Array.from({ length: 6 }, (_, index) => (
+            <Skeleton
+              data-market-skeleton
+              key={index}
+              className="h-44 rounded-lg"
+            />
+          ))
+        : items.map((item) => (
+            <PluginMarketCard
+              key={item.id}
+              item={item}
+              onOpen={() => onOpenPlugin(item)}
+            />
+          ))}
+    </div>
   )
 }
 
@@ -102,6 +113,7 @@ function PluginCatalogState({
   const Icon = error ? CircleAlert : SearchX
   return (
     <div
+      data-market-result-state
       className="flex min-h-48 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
       role={error ? "alert" : "status"}
     >

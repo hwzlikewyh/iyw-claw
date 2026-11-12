@@ -1,6 +1,8 @@
 "use client"
 
 import { useTranslations } from "next-intl"
+import { useTabStore } from "@/contexts/tab-context"
+import { notifyPluginPreparation } from "@/lib/plugin-preparation-events"
 import {
   Dialog,
   DialogContent,
@@ -24,15 +26,31 @@ export function SkillMarketDetailDialog({
 }: SkillMarketDetailDialogProps) {
   const t = useTranslations("SkillMarketV2")
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(52rem,calc(100dvh-2rem))] w-[min(76rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden rounded-lg p-0">
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (!value && detailProps.detail?.packageType === "plugin") {
+          const store = useTabStore.getState()
+          const conversationId =
+            store.tabs.find((tab) => tab.id === store.activeTabId)
+              ?.conversationId ?? null
+          notifyPluginPreparation({
+            pluginId: detailProps.detail.id,
+            conversationId,
+            canceled: true,
+          })
+        }
+        onOpenChange(value)
+      }}
+    >
+      <DialogContent className="flex h-[min(52rem,calc(100dvh-2rem))] w-[min(37.5rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden rounded-lg p-0">
         <DialogTitle className="sr-only">
           {detailProps.detail?.displayName ?? t("catalogTitle")}
         </DialogTitle>
         <DialogDescription className="sr-only">
           {detailProps.detail?.summary ?? t("detail.selectHint")}
         </DialogDescription>
-        <SkillMarketDetail {...detailProps} />
+        <SkillMarketDetail {...detailProps} compact />
       </DialogContent>
     </Dialog>
   )

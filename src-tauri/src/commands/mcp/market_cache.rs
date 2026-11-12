@@ -56,8 +56,8 @@ fn inventory(root: &Path, digest: &str) -> Result<Inventory, AppCommandError> {
                 pending.push(path);
                 continue;
             }
-            expanded = expanded.saturating_add(metadata.len());
-            if !metadata.is_file() || expanded > super::market_artifact::MAX_EXPANDED {
+            expanded = expanded.checked_add(metadata.len()).ok_or_else(invalid)?;
+            if !metadata.is_file() {
                 return Err(invalid());
             }
             let relative = path
@@ -84,10 +84,7 @@ fn hash(path: &Path) -> Result<String, AppCommandError> {
         if count == 0 {
             break;
         }
-        total += count as u64;
-        if total > super::market_artifact::MAX_EXPANDED {
-            return Err(invalid());
-        }
+        total = total.checked_add(count as u64).ok_or_else(invalid)?;
         hasher.update(&buffer[..count]);
     }
     Ok(format!("{:x}", hasher.finalize()))

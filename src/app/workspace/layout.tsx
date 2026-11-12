@@ -59,7 +59,7 @@ import {
   useInteractivePage,
 } from "@/contexts/interactive-page-context"
 import { InteractivePagePanel } from "@/components/chat/interactive-page-panel"
-import { BrowserShell } from "@/components/browser/browser-shell"
+import { WorkspaceBrowserShell as BrowserShell } from "@/components/browser/workspace-browser-shell"
 import { RemoteConnectionGate } from "@/contexts/remote-connection-context"
 import { UpdateProvider } from "@/components/providers/update-provider"
 import { TabBar } from "@/components/tabs/tab-bar"

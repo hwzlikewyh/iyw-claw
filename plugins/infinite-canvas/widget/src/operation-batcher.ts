@@ -34,11 +34,11 @@ export class OperationBatcher {
 
   async flush(send: (operations: CanvasOperation[]) => Promise<unknown>): Promise<void> {
     if (this.stopped) return
-    if (this.running) { await this.running; return this.flush(send) }
+    if (this.running) { await this.running.catch(() => undefined); return this.flush(send) }
     if (!this.pending.length) return
     const batch = this.pending
     this.pending = []
-    this.running = send(batch).catch((error) => { if (!this.stopped) this.pending = mergeOperations([...batch, ...this.pending]); throw error }).finally(() => { this.running = undefined })
+    this.running = send(batch).finally(() => { this.running = undefined })
     await this.running
   }
 

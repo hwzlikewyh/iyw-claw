@@ -1,61 +1,8 @@
 "use client"
-
-import {
-  AppWindow,
-  ArrowUpRight,
-  Boxes,
-  PlugZap,
-  Sparkles,
-  Wrench,
-} from "lucide-react"
 import { useTranslations } from "next-intl"
-import { MarketBadgeGroup } from "./badges"
-import { MarketItemIcon } from "./market-item-icon"
-import { marketCardClass } from "./skill-card"
-import {
-  artifactStatusBadgeInfo,
-  audienceBadgeInfo,
-  installStateBadgeInfo,
-  type SkillMarketV2Item,
-} from "@/lib/skill-market"
-import { cn } from "@/lib/utils"
-
-const COMPONENT_ICONS = {
-  skill: Sparkles,
-  connector: PlugZap,
-  runtime: Boxes,
-  capability: Wrench,
-  app: AppWindow,
-} as const
-
-function ComponentCounts({ item }: { item: SkillMarketV2Item }) {
-  const t = useTranslations("CapabilityMarket.plugins")
-  const components = item.currentVersion.plugin?.components ?? []
-  return (
-    <span className="mt-2 flex h-5 items-center gap-3 text-xs text-muted-foreground">
-      {(Object.keys(COMPONENT_ICONS) as (keyof typeof COMPONENT_ICONS)[]).map(
-        (type) => {
-          const count = components.filter(
-            (component) => component.type === type
-          ).length
-          if (!count) return null
-          const Icon = COMPONENT_ICONS[type]
-          return (
-            <span
-              key={type}
-              className="inline-flex items-center gap-1"
-              title={`${t(`componentType.${type}`)}: ${count}`}
-            >
-              <Icon className="size-3.5" aria-hidden="true" />
-              <span className="sr-only">{t(`componentType.${type}`)}</span>
-              {count}
-            </span>
-          )
-        }
-      )}
-    </span>
-  )
-}
+import type { SkillMarketV2Item } from "@/lib/skill-market"
+import { CapabilityCard } from "./capability-card"
+import { capabilityStatus } from "./capability-status"
 
 export function PluginMarketCard({
   item,
@@ -64,14 +11,12 @@ export function PluginMarketCard({
   item: SkillMarketV2Item
   onOpen: () => void
 }) {
-  const t = useTranslations("CapabilityMarket.plugins")
-  const market = useTranslations("SkillMarketV2")
-  const badges = [
-    audienceBadgeInfo(item.audience),
-    installStateBadgeInfo(item.installState),
-  ]
-  if (item.currentVersion.status !== "ready")
-    badges.push(artifactStatusBadgeInfo(item.currentVersion.status))
+  const t = useTranslations("CapabilityMarket.catalog")
+  const status = capabilityStatus(item)
+  const source =
+    item.audience === "organization"
+      ? t("organization")
+      : t(item.publisher === "official" ? "official" : "community")
   return (
     <button
       type="button"

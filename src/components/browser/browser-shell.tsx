@@ -28,8 +28,10 @@ import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
 
 export function BrowserShell({
   kind = "docked",
+  onOpenOverview,
 }: {
   kind?: "docked" | "detached"
+  onOpenOverview?: () => void
 }) {
   const { state, isOpen, closeBrowser, run } = useBrowser()
   const t = useTranslations("Browser")
@@ -190,6 +192,7 @@ export function BrowserShell({
         tabs={tabs}
         activeTabId={activeTabId}
         claim={claim}
+        onOpenOverview={onOpenOverview}
       />
       <BrowserToolbar
         key={activeTab?.browserTabId ?? "empty"}

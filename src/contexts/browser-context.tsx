@@ -299,7 +299,7 @@ export function useBrowser() {
   return value
 }
 
-async function waitForHost(
+export async function waitForHost(
   windowLabel: string,
   refresh: () => Promise<BrowserStateSnapshot | null>
 ) {

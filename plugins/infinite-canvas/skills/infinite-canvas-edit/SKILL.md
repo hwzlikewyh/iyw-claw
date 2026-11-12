@@ -11,6 +11,14 @@ been read and presented to the user. Persist a changed selection through the sel
 Do not write arbitrary workspace paths, bypass HostGateway, start a web service, or silently replay
 a failed operation. Preserve existing nodes and report stable error codes.
 
+After a revision conflict on a node edit or deletion, reread the affected node and show the conflict
+before applying the change again. The server rejects stale revisions; this is not permission to
+replay an old overwrite against a newer scene. Saving selection does not change scene content.
+
+Exporting an existing image asset copies that image only. For a PNG/SVG of the entire canvas, use
+the widget's rendered export, which includes nodes and connections; do not claim an unchanged
+source image is a rendered canvas export.
+
 Creative requests use the shared actions `image.generate`, `image.annotation-edit`,
 `html.generate`, `html.edit`, `slides.generate`, and `slides.annotation-edit`. A pending request is a normal scene node;
 successful Agent output adds a new node and failed output updates only its status.

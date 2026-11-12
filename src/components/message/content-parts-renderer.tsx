@@ -64,6 +64,7 @@ import { GoalToolCallPart } from "./goal-tool-call"
 import { PlanCard, PlanEntriesList } from "./plan-card"
 import { PlanModeCard } from "./plan-mode-card"
 import { PluginAppContent } from "./plugin-app-content"
+import { PluginContextBadge } from "@/components/chat/plugin-context-badge"
 import { PlainTextWithBadges } from "./plain-text-with-badges"
 import {
   FileTextIcon,
@@ -2611,6 +2612,13 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
 }: ContentPartsRendererProps) {
   const renderPart = (part: AdaptedContentPart, keyId: string): ReactNode => {
     if (part.type === "text") {
+      if (part.pluginContext) {
+        return (
+          <div key={`plugin-context-${keyId}`} className="mb-1">
+            <PluginContextBadge label={part.pluginContext.label} />
+          </div>
+        )
+      }
       return (
         <TextPart
           key={`text-${keyId}`}

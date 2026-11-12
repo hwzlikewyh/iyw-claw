@@ -37,6 +37,7 @@ import {
 import { normalizeToolResultError } from "@/lib/memory-policy-error"
 import { extractDeliveredImage } from "@/lib/image-delivery"
 import { resolveRemoteToolDisplayNames } from "@/lib/remote-tool-display"
+import { parsePluginPromptInstruction } from "@/lib/plugin-prompt"
 
 const AGENT_LESSON_START = "<!-- IYW_CLAW_AGENT_LESSON_V1 "
 const AGENT_LESSON_END = " -->"
@@ -152,7 +153,11 @@ export type AdaptedPluginAppPart = {
 }
 
 export type AdaptedContentPart =
-  | { type: "text"; text: string }
+  | {
+      type: "text"
+      text: string
+      pluginContext?: { label: string; pluginSlug: string }
+    }
   | AdaptedToolCallPart
   | {
       type: "tool-result"
@@ -922,6 +927,10 @@ function splitUserTextAndResources(
 
   for (const part of parts) {
     if (part.type !== "text") {
+      nextParts.push(part)
+      continue
+    }
+    if (part.pluginContext) {
       nextParts.push(part)
       continue
     }
@@ -1825,6 +1834,23 @@ export function adaptMessageTurn(
         })
       }
       continue
+    }
+
+    if (turn.role === "user" && block.type === "text") {
+      const pluginContext = parsePluginPromptInstruction(block.text)
+      if (pluginContext) {
+        adaptedContent.push({
+          type: "text",
+          text: "",
+          pluginContext: {
+            label: pluginContext.label,
+            pluginSlug: pluginContext.pluginSlug,
+          },
+        })
+        if (pluginContext.remainder)
+          adaptedContent.push({ type: "text", text: pluginContext.remainder })
+        continue
+      }
     }
 
     if (turn.role === "assistant" && block.type === "text") {

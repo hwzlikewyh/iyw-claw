@@ -1996,6 +1996,7 @@ mod tauri_app {
                 crate::commands::mcp_conversation::mcp_conversation_set,
                 mcp_commands::mcp_list_marketplaces,
                 mcp_commands::mcp_search_marketplace,
+                crate::commands::mcp::market_user::connector_market_user_request,
                 mcp_commands::mcp_get_marketplace_server_detail,
                 mcp_commands::mcp_install_from_marketplace,
                 mcp_commands::mcp_upsert_local_server,
@@ -2123,6 +2124,10 @@ mod tauri_app {
         drop(startup_gate);
         crate::logging::emergency::write_event("event_loop", "begin", "runtime", None);
         app.run(|app, event| match event {
+            tauri::RunEvent::Exit => {
+                // 系统结束会话时 Tao 会直接退出，同步记录避免异步日志来不及落盘。
+                crate::logging::emergency::write_event("event_loop_exit", "ok", "shutdown", None);
+            }
             tauri::RunEvent::ExitRequested { api, code, .. } => {
                 if code == Some(tauri::RESTART_EXIT_CODE) {
                     crate::desktop_shutdown::shutdown_blocking(

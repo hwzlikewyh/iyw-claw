@@ -16,6 +16,15 @@ pub(super) fn publish(app: &AppHandle, id: &str) {
 
 pub(super) fn message(app: &AppHandle, id: &str, value: Value) {
     match value["type"].as_str() {
+        Some("ready") => {
+            let _ = super::state::with_page(id, |page| {
+                if value["url"].as_str() == Some(page.url.as_str()) {
+                    page.loading = false;
+                }
+                Ok(())
+            });
+            publish(app, id);
+        }
         Some("error") => {
             let _ = super::state::with_page(id, |page| {
                 page.errors = page.errors.saturating_add(1).min(99);

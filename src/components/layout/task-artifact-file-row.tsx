@@ -59,7 +59,7 @@ export function TaskArtifactFileRow({
     artifact: item,
     onPreview: onSelect,
     onOpenWorkspace,
-    onDelete: async (artifact) => onDelete?.([artifact]),
+    onDelete: onDelete ? async (artifact) => onDelete([artifact]) : undefined,
   })
   const meta = useMemo(
     () =>

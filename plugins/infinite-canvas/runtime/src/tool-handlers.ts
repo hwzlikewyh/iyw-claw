@@ -5,6 +5,7 @@ import { CanvasRuntimeError, invalid } from "./errors.js"
 import { rejectSymlinkPath, storageRoot } from "./paths.js"
 import { SceneStore } from "./scene-store.js"
 import { AssetStore } from "./asset-store.js"
+import { readAssetFully, sceneToHtml } from "./html-export.js"
 import { MAX_OPERATIONS, type CanvasOperation, type CanvasScene } from "./types.js"
 import { listCowartPages, readCowartPage } from "./migration/cowart-reader.js"
 import { mapCowartPage } from "./migration/cowart-mapper.js"
@@ -119,8 +120,10 @@ async function writeAsset(store: AssetStore, args: JsonObject): Promise<ToolResu
   if (!uploadId) {
     const started = await store.begin(stringArg(args, "name"), stringArg(args, "mimeType"), integerArg(args, "expectedBytes"), stringArg(args, "expectedSha256"))
     if (typeof args.dataBase64 !== "string") return { data: started }
-    await store.writeChunk(started.uploadId, integerArg(args, "chunkIndex", 0), args.dataBase64)
-    return args.finalize === true ? { data: await store.finalize(started.uploadId) } : { data: started }
+    try {
+      await store.writeChunk(started.uploadId, integerArg(args, "chunkIndex", 0), args.dataBase64)
+      return args.finalize === true ? { data: await store.finalize(started.uploadId) } : { data: started }
+    } catch (error) { await store.cancel(started.uploadId); throw error }
   }
   if (args.cancel === true) { await store.cancel(uploadId); return { data: { uploadId, cancelled: true } } }
   if (typeof args.dataBase64 === "string") await store.writeChunk(uploadId, integerArg(args, "chunkIndex"), args.dataBase64)
@@ -140,22 +143,13 @@ async function exportCanvas(sceneStore: SceneStore, assets: AssetStore, args: Js
   await rejectSymlinkPath(target)
   await mkdir(exportRoot, { recursive: true })
   if (format === "json") await atomicWrite(target, JSON.stringify(await sceneStore.read(canvasId), null, 2) + "\n")
-  else if (format === "html" && typeof args.sourceAssetSha256 !== "string") await atomicWrite(target, sceneToHtml(await sceneStore.read(canvasId)))
+  else if (format === "html" && typeof args.sourceAssetSha256 !== "string") await atomicWrite(target, await sceneToHtml(await sceneStore.read(canvasId), assets))
   else {
     const hash = stringArg(args, "sourceAssetSha256")
-    const chunk = await assets.readChunk(hash, 0, 128 * 1024)
-    if (!chunk.dataBase64) throw invalid("export_source_empty")
-    const source = await readAssetFully(assets, hash, chunk)
+    const source = await readAssetFully(assets, hash)
     await atomicWrite(target, source)
   }
   return { data: { canvasId, format, relativePath: target.slice(storageRoot().length + 1).replaceAll("\\", "/") } }
-}
-
-async function readAssetFully(assets: AssetStore, hash: string, first: { dataBase64: string; bytes: number; eof: boolean }): Promise<Buffer> {
-  const parts = [Buffer.from(first.dataBase64, "base64")]
-  let offset = parts[0]!.length
-  while (offset < first.bytes) { const next = await assets.readChunk(hash, offset, 128 * 1024); parts.push(Buffer.from(next.dataBase64, "base64")); offset += parts.at(-1)?.length ?? 0 }
-  return Buffer.concat(parts)
 }
 
 function sceneSummary(scene: CanvasScene) { return { ...scene, nodes: scene.nodes.map((node) => ({ ...node, ...(node.metadata ? { metadata: safeMetadata(node.metadata) } : {}) })), connections: scene.connections } }
@@ -165,30 +159,3 @@ function optionalString(args: JsonObject, key: string): string | undefined { ret
 function integerArg(args: JsonObject, key: string, fallback?: number): number { const value = args[key] ?? fallback; if (!Number.isSafeInteger(value)) throw invalid(`${key}_invalid`); return value as number }
 function safeFileName(value: string): string { const name = basename(value); if (name !== value || !/^[A-Za-z0-9._-]{1,180}$/.test(name)) throw invalid("file_name_invalid"); return name }
 async function atomicWrite(path: string, data: string | Buffer): Promise<void> { const temp = `${path}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`; try { await writeFile(temp, data); await rename(temp, path) } finally { await unlink(temp).catch(() => undefined) } }
-
-function sceneToHtml(scene: CanvasScene): string {
-  const nodes = scene.nodes.map((node) => {
-    const metadata = node.metadata ?? {}
-    const body = node.type === "iyw:html" ? `<iframe sandbox srcdoc="${escapeAttribute(sanitizeEmbeddedHtml(String(metadata.content ?? metadata.source ?? "")))}"></iframe>` : node.type === "iyw:slides" && metadata.deck && typeof metadata.deck === "object" ? slideDeckHtml(metadata.deck) : `<pre>${escapeHtml(String(metadata.text ?? metadata.content ?? node.type))}</pre>`
-    return `<article class="node" style="left:${node.x}px;top:${node.y}px;width:${node.width}px;height:${node.height}px">${body}</article>`
-  }).join("")
-  return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(scene.canvasId)}</title><style>body{margin:0;background:#101318;color:#f4f7fb;position:relative;min-width:1600px;min-height:1000px}.node{position:absolute;overflow:hidden;border:1px solid #5c6b80;background:#222a36;padding:10px;box-sizing:border-box}.node iframe{width:100%;height:100%;border:0;background:#fff}.node pre{white-space:pre-wrap}.slides-page{min-height:100%;background:#fff;color:#111;padding:12px}</style>${nodes}\n`
-}
-
-function slideDeckHtml(value: object): string {
-  const pages = (value as { pages?: unknown }).pages
-  if (!Array.isArray(pages)) return "<pre>Invalid slides</pre>"
-  return `<div class="slides">${pages.map((page) => { const item = page && typeof page === "object" ? page as { title?: unknown; html?: unknown } : {}; return `<section class="slides-page"><h2>${escapeHtml(String(item.title ?? "Slide"))}</h2>${sanitizeEmbeddedHtml(String(item.html ?? ""))}</section>` }).join("")}</div>`
-}
-
-function sanitizeEmbeddedHtml(value: string): string {
-  return value
-    .replace(/<\/?(script|iframe|form|object|embed|base|link)\b[^>]*>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/\s+on[a-z-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+(src|href|action)\s*=\s*(?:"(?!#|data:|blob:)[^"]*"|'(?!#|data:|blob:)[^']*'|(?!#|data:|blob:)[^\s>]+)/gi, "")
-    .replace(/\s+style\s*=\s*(?:"[^"]*(?:url\s*\(|expression\s*\()[^"]*"|'[^']*(?:url\s*\(|expression\s*\()[^']*'|[^\s>]*(?:url\s*\(|expression\s*\()[^\s>]*)/gi, "")
-}
-
-function escapeHtml(value: string): string { return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character] ?? character) }
-function escapeAttribute(value: string): string { return escapeHtml(value).replace(/\r?\n/g, "&#10;") }

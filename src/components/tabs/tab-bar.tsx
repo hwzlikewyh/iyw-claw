@@ -227,7 +227,10 @@ interface TabBarStripProps {
 
 function TabBarStrip({ scrollRef, content }: TabBarStripProps) {
   return (
-    <div className="@container/tab-strip flex h-10 min-w-0 shrink-0 items-center border-b border-border">
+    <div
+      data-conversation-drop-zone
+      className="@container/tab-strip flex h-10 min-w-0 shrink-0 items-center border-b border-border"
+    >
       <Reorder.Group
         as="div"
         ref={scrollRef}

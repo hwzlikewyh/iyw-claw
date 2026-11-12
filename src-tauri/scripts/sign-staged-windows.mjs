@@ -56,6 +56,9 @@ function invoke(signtool, args, env) {
     ? signWithToken({
         file: args.at(-1),
         digest: args[args.indexOf("/fd") + 1],
+        timestampUrl: args.includes("/tr")
+          ? args[args.indexOf("/tr") + 1]
+          : undefined,
         env,
         timeout: SIGN_TIMEOUT_MS,
       })
@@ -103,6 +106,15 @@ async function sign(file, env = process.env) {
       "CI signing requires IYW_CLAW_SAFENET_PIN; interactive signing is disabled"
     )
   const context = { signtool: discoverSigntool(env), file, env }
+  const isPackage = /\.(msix|appx)$/i.test(file)
+  if (isPackage) {
+    if (verifyStagedSignature(context)) return
+    const args = buildSigntoolArgs(mode, file, env)
+    const result = invoke(context.signtool, args, env)
+    if (result.error || result.status !== 0 || !verifyStagedSignature(context))
+      throw new Error(`MSIX signing or timestamp verification failed: ${file}`)
+    return
+  }
   const commands = splitCommands(buildSigntoolArgs(mode, file, env), file)
   if (mode === "signtool" && verifyStagedSignature(context)) {
     console.log(`[sign-staged-windows] already signed and timestamped: ${file}`)

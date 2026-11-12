@@ -233,6 +233,7 @@ insta = { version = "1", features = ["json", "redactions"] }
 axum-test = { version = "17", features = ["ws"] }
 
 [patch.crates-io]
+tao = { path = "vendor/tao" }
 windows-link = { path = "vendor/windows-link" }
 windows-link-01 = { package = "windows-link", path = "vendor/windows-link-01" }
 windows-targets = { path = "vendor/windows-targets-048" }

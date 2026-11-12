@@ -50,7 +50,8 @@ pub(super) fn runtime_state_input(
             scope: "global".to_string(),
             workspace_key: String::new(),
             permissions_digest,
-            granted_permissions_json: "{}".to_string(),
+            granted_permissions_json: serde_json::to_string(&plugin.plugin.manifest.permissions)
+                .map_err(|error| AppCommandError::configuration_invalid(error.to_string()))?,
             permission_ceiling_json: serde_json::to_string(&plugin.plugin.manifest.permissions)
                 .map_err(|error| {
                     AppCommandError::configuration_invalid(
@@ -58,23 +59,19 @@ pub(super) fn runtime_state_input(
                     )
                     .with_detail(error.to_string())
                 })?,
-            grant_state: "pending".to_string(),
-            granted_at: None,
+            grant_state: "granted".to_string(),
+            granted_at: Some(chrono::Utc::now()),
         }],
     })
 }
 
 fn activation_input(component_key: &str, config: &serde_json::Value) -> PluginActivationInput {
-    let scope = match config["activation"]["scope"].as_str() {
-        Some("installation") => "global",
-        _ => "workspace",
-    };
     PluginActivationInput {
         component_key: component_key.to_string(),
-        scope: scope.to_string(),
+        scope: "global".to_string(),
         workspace_key: String::new(),
         agent_type: String::new(),
-        requested_enabled: false,
+        requested_enabled: true,
         routing_mode: config["routing"]["mode"]
             .as_str()
             .unwrap_or("host_gateway")

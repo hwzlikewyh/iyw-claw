@@ -3,9 +3,10 @@
 import { RotateCcw, SearchX } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { useMarketPageFocus } from "./use-market-page-focus"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SkillCard } from "@/components/skills/market/skill-card"
+import { CAPABILITY_GRID_CLASS } from "./capability-card"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import {
   MarketPagination,
@@ -26,13 +27,21 @@ function ListState({
     return (
       <div className="grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5">
         {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-52 rounded-lg" />
+          <Skeleton
+            data-market-skeleton
+            key={index}
+            className="h-44 rounded-lg"
+          />
         ))}
       </div>
     )
   }
   return (
-    <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 p-6 text-center">
+    <div
+      data-market-result-state
+      role={kind === "error" ? "alert" : "status"}
+      className="flex h-full min-h-64 flex-col items-center justify-center gap-2 p-6 text-center"
+    >
       {kind === "empty" ? (
         <SearchX className="size-6 text-muted-foreground" aria-hidden="true" />
       ) : null}

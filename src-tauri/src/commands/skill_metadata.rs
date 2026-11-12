@@ -9,6 +9,35 @@ const MAX_OPENAI_METADATA_BYTES: u64 = 64 * 1024;
 const MAX_SKILL_FRONTMATTER_BYTES: u64 = 64 * 1024;
 const MAX_LEGACY_SKILL_BYTES: u64 = 1024 * 1024;
 
+pub(super) fn repair_legacy_skill_header_on_read(path: &Path, head: &str) -> Option<String> {
+    if path.file_name()? != "SKILL.md"
+        || path.components().any(|part| part.as_os_str() == ".system")
+    {
+        return None;
+    }
+    if head
+        .lines()
+        .skip(1)
+        .take_while(|line| !matches!(line.trim(), "---" | "..."))
+        .any(|line| line.starts_with("description:"))
+    {
+        return None;
+    }
+    repair_legacy_skill_description_content(head)?;
+    // 复用本次已读的头部判断；只对当前缺少元数据的入口进行一次原子补齐。
+    match repair_legacy_skill_description(path) {
+        Ok(true) => {
+            tracing::info!(path = %path.display(), "[skills] repaired legacy metadata while reading Skill");
+            read_text_head(path, MAX_SKILL_FRONTMATTER_BYTES)
+        }
+        Ok(false) => None,
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "[skills] legacy metadata repair on read failed");
+            None
+        }
+    }
+}
+
 pub(super) fn repair_market_skill_description(skill_id: &str, source: &Path) {
     match repair_legacy_skill_description(&source.join("SKILL.md")) {
         Ok(true) => tracing::info!(

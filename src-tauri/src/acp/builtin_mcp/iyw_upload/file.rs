@@ -48,7 +48,7 @@ pub(super) async fn prepare(cwd: &Path, arguments: Value) -> Result<UploadFile, 
     validate_name(&name)?;
     let mime_type = request
         .mime_type
-        .unwrap_or_else(|| "application/octet-stream".into());
+        .unwrap_or_else(|| default_mime_type(&path).into());
     validate_mime(&mime_type)?;
     let (body, size_bytes) = open_file(&path).await?;
     Ok(UploadFile {
@@ -58,6 +58,18 @@ pub(super) async fn prepare(cwd: &Path, arguments: Value) -> Result<UploadFile, 
         mime_type,
         category: "files",
     })
+}
+
+fn default_mime_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("html" | "htm") => "text/html; charset=utf-8",
+        _ => "application/octet-stream",
+    }
 }
 
 async fn open_file(path: &Path) -> Result<(reqwest::Body, u64), ErrorData> {

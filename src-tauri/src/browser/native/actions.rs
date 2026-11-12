@@ -46,6 +46,7 @@ fn navigate(id: &str, action: &str, values: &Value) -> Result<(), String> {
     };
     super::state::with_page(id, |page| {
         page.loading = action != "stop";
+        page.navigation_download = false;
         if let Some(url) = &url {
             page.url = url.clone();
         }

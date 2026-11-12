@@ -932,6 +932,7 @@ pub fn build_router(
             "/mcp_search_marketplace",
             post(handlers::mcp::mcp_search_marketplace),
         )
+        .route("/connector_market_user_request",post(handlers::mcp::connector_market_user_request))
         .route(
             "/mcp_get_marketplace_server_detail",
             post(handlers::mcp::mcp_get_marketplace_server_detail),
@@ -1399,15 +1400,11 @@ pub fn build_router(
         )
         .route(
             "/skill_market_publish",
-            post(handlers::skill_market::publish).layer(DefaultBodyLimit::max(
-                crate::commands::skill_market::MAX_SKILL_MARKET_REQUEST_BYTES,
-            )),
+            post(handlers::skill_market::publish).layer(DefaultBodyLimit::disable()),
         )
         .route(
             "/skill_market_add_version",
-            post(handlers::skill_market::add_version).layer(DefaultBodyLimit::max(
-                crate::commands::skill_market::MAX_SKILL_MARKET_REQUEST_BYTES,
-            )),
+            post(handlers::skill_market::add_version).layer(DefaultBodyLimit::disable()),
         )
         .route(
             "/skill_market_update_metadata",

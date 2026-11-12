@@ -4,6 +4,7 @@ mod availability_snapshot;
 pub(crate) mod client;
 mod download_ticket;
 mod install;
+mod download_ticket;
 mod install_plan;
 mod office_skills;
 pub(crate) mod plugin_client_version;
@@ -13,6 +14,9 @@ pub(crate) mod plugin_history;
 mod plugin_install;
 mod plugin_install_commit;
 mod plugin_install_context;
+mod plugin_install_commit;
+mod plugin_uninstall;
+pub(crate) mod plugin_remove;
 mod plugin_install_data;
 mod plugin_install_rollback;
 mod plugin_install_runtime_state;
@@ -34,7 +38,6 @@ pub use auto_update::task as auto_update_task;
 use availability::reconcile_market_skill_availability_batch;
 pub use install::{install_core, revalidate_artifact_core};
 
-pub const MAX_SKILL_MARKET_REQUEST_BYTES: usize = 36 * 1024 * 1024;
 
 use reqwest::Method;
 use sea_orm::DatabaseConnection;
@@ -45,6 +48,7 @@ pub use plugin_types::{
     SkillPluginBinding, SkillPluginComponent, SkillPluginManifest, SkillPluginPermissions,
 };
 pub(crate) use types::parse_value;
+pub(crate) use plugin_manifest::validate_plugin_package as validate_installed_plugin_package;
 use types::{parse_id, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,

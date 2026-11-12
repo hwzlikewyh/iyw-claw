@@ -1,72 +1,31 @@
 "use client"
-
-import { ArrowUpRight } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { Button } from "@/components/ui/button"
-import { MarketBadgeGroup } from "@/components/skills/market/badges"
-import { MarketItemIcon } from "@/components/skills/market/market-item-icon"
-import {
-  audienceBadgeInfo,
-  compatibilityBadgeInfo,
-  installStateBadgeInfo,
-  primaryInstallAction,
-  type MarketBadgeInfo,
-  type SkillMarketTranslator,
-  type SkillMarketV2Item,
-} from "@/lib/skill-market"
-import { cn } from "@/lib/utils"
-
-const MARKET_CARD_BASE_CLASS =
-  "group flex h-52 min-w-0 flex-col overflow-hidden rounded-lg border bg-background p-4 transition-colors"
+import type { SkillMarketV2Item } from "@/lib/skill-market"
+import { CapabilityCard } from "./capability-card"
+import { capabilityStatus } from "./capability-status"
 
 export function marketCardClass(selected: boolean): string {
-  return cn(
-    MARKET_CARD_BASE_CLASS,
-    selected
-      ? "border-primary/40 bg-primary/[0.03]"
-      : "hover:border-foreground/25 hover:bg-muted/20"
+  return (
+    "group flex min-h-[208px] min-w-0 flex-col overflow-hidden rounded-[10px] border bg-background p-[17px] hover:border-foreground/25" +
+    (selected ? " ring-1 ring-border" : "")
   )
-}
-
-function itemBadges(item: SkillMarketV2Item): MarketBadgeInfo[] {
-  return [
-    audienceBadgeInfo(item.audience),
-    ...(item.packageType === "plugin"
-      ? [
-          {
-            key: "package.plugin",
-            tone: "primary" as const,
-            icon: "package" as const,
-          },
-        ]
-      : []),
-    ...(item.compatibility === "incompatible"
-      ? [compatibilityBadgeInfo(item.compatibility)]
-      : []),
-    ...(item.installState !== "not_installed"
-      ? [installStateBadgeInfo(item.installState)]
-      : []),
-  ]
 }
 
 export function SkillCard({
   item,
-  selected,
   onSelect,
-  onPrimaryAction,
 }: {
   item: SkillMarketV2Item
   selected: boolean
   onSelect: (item: SkillMarketV2Item) => void
   onPrimaryAction: (item: SkillMarketV2Item) => void
 }) {
-  const action = primaryInstallAction(item.installState, item.compatibility)
-  const artifactReady = item.currentVersion.status === "ready"
-  const primaryKey = !artifactReady
-    ? item.currentVersion.status === "artifact_pending"
-      ? "waitingArtifact"
-      : "buildFailed"
-    : action
+  const t = useTranslations("CapabilityMarket.catalog")
+  const status = capabilityStatus(item)
+  const source =
+    item.audience === "organization"
+      ? t("organization")
+      : t(item.publisher === "official" ? "official" : "community")
   return (
     <article className={marketCardClass(selected)}>
       <SkillCardSummary item={item} selected={selected} onSelect={onSelect} />

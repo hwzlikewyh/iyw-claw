@@ -63,6 +63,25 @@ export function PluginAppContent({
     )
   }
 
+  if (matchingPanel) {
+    return (
+      <div className="flex min-h-14 items-center justify-between gap-3 rounded-md border px-3 py-2">
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          {matchingPanel.label}
+        </span>
+        <Button
+          size="xs"
+          variant="outline"
+          className="shrink-0"
+          onClick={() => openTab(`app:${matchingPanel.id}`)}
+        >
+          <PanelRightOpen className="size-3.5" />
+          {panelText("openNamed", { name: matchingPanel.label })}
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div
       data-plugin-app-instance={instanceId}
