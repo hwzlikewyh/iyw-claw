@@ -28,7 +28,7 @@ jobs:
     permissions:
       contents: write
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
