@@ -196,6 +196,8 @@
     "openNamed": "打开 {name}",
     "removeSelection": "移除 {name}",
     "install": "安装",
+    "manage": "管理",
+    "installedVersion": "已安装 · v{version}",
     "prepare": "准备使用",
     "prepareContext": "使用当前对话",
     "limit": "最多保留8个插件页面，请先关闭不用的页面。",

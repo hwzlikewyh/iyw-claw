@@ -19,7 +19,8 @@ export function PluginPanelHome({ panels }: { panels: Panels }) {
   const workspace = usePluginWorkspace(tabId)
   const open = (app: PluginPanelChoice) => {
     if (app.state === "context_required") void workspace.bind()
-    else if (app.state !== "available") route.openSkillMarket(app.pluginSlug)
+    else if (app.state !== "available")
+      route.openSkillMarket(app.pluginSlug, "plugin")
     else void panels.open(app)
   }
   return (
@@ -50,7 +51,12 @@ export function PluginPanelHome({ panels }: { panels: Panels }) {
           />
         ))}
       </ul>
-      <CloudPlugins installed={panels.choices.map((app) => app.pluginSlug)} />
+      <CloudPlugins
+        installed={panels.choices.flatMap((app) => [
+          app.pluginId,
+          app.pluginSlug,
+        ])}
+      />
     </section>
   )
 }
