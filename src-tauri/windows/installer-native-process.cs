@@ -8,6 +8,17 @@ using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
+// 不依赖 .NET 4.6 才提供的 SafeProcessHandle，兼容旧版 PowerShell 5.1 环境。
+public sealed class IywNativeProcessHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public IywNativeProcessHandle() : base(true) { }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr handle);
+
+    protected override bool ReleaseHandle() { return CloseHandle(handle); }
+}
+
 public sealed class IywNativeProcessRecord
 {
     public int ProcessId;
@@ -27,18 +38,18 @@ public static class IywNativeProcess
     const int MaximumPathCharacters = 32768;
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int id);
+    static extern IywNativeProcessHandle OpenProcess(uint access, bool inherit, int id);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern bool QueryFullProcessImageNameW(SafeProcessHandle process,
+    static extern bool QueryFullProcessImageNameW(IywNativeProcessHandle process,
         uint flags, StringBuilder path, ref int length);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool GetProcessTimes(SafeProcessHandle process, out long created,
+    static extern bool GetProcessTimes(IywNativeProcessHandle process, out long created,
         out long exited, out long kernel, out long user);
 
     [DllImport("advapi32.dll", SetLastError = true)]
-    static extern bool OpenProcessToken(SafeProcessHandle process, uint access,
+    static extern bool OpenProcessToken(IywNativeProcessHandle process, uint access,
         out IntPtr token);
 
     [DllImport("kernel32.dll")]
@@ -107,7 +118,7 @@ public static class IywNativeProcess
         }
     }
 
-    static DateTime ReadCreationTime(SafeProcessHandle process)
+    static DateTime ReadCreationTime(IywNativeProcessHandle process)
     {
         long created, exited, kernel, user;
         if (!GetProcessTimes(process, out created, out exited, out kernel, out user))
@@ -115,7 +126,7 @@ public static class IywNativeProcess
         return DateTime.FromFileTimeUtc(created);
     }
 
-    static string ReadOwner(SafeProcessHandle process)
+    static string ReadOwner(IywNativeProcessHandle process)
     {
         IntPtr token;
         if (!OpenProcessToken(process, TokenQuery, out token))
@@ -143,14 +154,14 @@ static class IywNativeCommandLine
     const int MaximumCommandLineBytes = 65534;
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
-    delegate int QueryInformation(SafeProcessHandle process, int kind,
+    delegate int QueryInformation(IywNativeProcessHandle process, int kind,
         IntPtr buffer, int length, out int written);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int id);
+    static extern IywNativeProcessHandle OpenProcess(uint access, bool inherit, int id);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool ReadProcessMemory(SafeProcessHandle process, IntPtr address,
+    static extern bool ReadProcessMemory(IywNativeProcessHandle process, IntPtr address,
         byte[] buffer, IntPtr length, out IntPtr read);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -187,7 +198,7 @@ static class IywNativeCommandLine
         }
     }
 
-    static IntPtr FindPeb(SafeProcessHandle process, QueryInformation query,
+    static IntPtr FindPeb(IywNativeProcessHandle process, QueryInformation query,
         ref int pointerSize)
     {
         // 安装器在 64 位系统使用原生 PowerShell，允许查询 32/64 位 Node。
@@ -209,7 +220,7 @@ static class IywNativeCommandLine
         finally { Marshal.FreeHGlobal(buffer); }
     }
 
-    static byte[] ReadBytes(SafeProcessHandle process, IntPtr address, int length)
+    static byte[] ReadBytes(IywNativeProcessHandle process, IntPtr address, int length)
     {
         var buffer = new byte[length];
         IntPtr read;

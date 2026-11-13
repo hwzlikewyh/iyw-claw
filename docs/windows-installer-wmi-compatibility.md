@@ -26,6 +26,8 @@
 同一用户的 Node 进程另读命令行，继续交给已有逻辑识别受管入口。
 无法核验的安装器候选进程仍明确失败，避免按名称直接终止进程。
 进程与令牌句柄通过 `using` 或 `finally` 释放。
+进程句柄基于 `SafeHandleZeroOrMinusOneIsInvalid` 封装，避免要求 .NET 4.6 的
+`SafeProcessHandle`，保持旧版 PowerShell 5.1 环境的兼容范围。
 
 64 位系统选择原生 Windows PowerShell，支持检查 32 位及 64 位 Node；
 32 位系统继续使用系统 PowerShell。最低要求仍为 Windows PowerShell 5.1。
@@ -44,3 +46,6 @@
 
 尚需发布环境生成正式应用安装包，再在 WMI 不可用的故障机器、Win7 和 32 位系统验证。
 现有 0.1.333 安装包不会因源码合并而改变；安装向导需取得包含本修复的正式应用包才会生效。
+
+参考微软 API 文档：[SafeProcessHandle](https://learn.microsoft.com/en-us/dotnet/api/microsoft.win32.safehandles.safeprocesshandle)
+与 [SafeHandleZeroOrMinusOneIsInvalid](https://learn.microsoft.com/en-us/dotnet/api/microsoft.win32.safehandles.safehandlezeroorminusoneisinvalid)。
