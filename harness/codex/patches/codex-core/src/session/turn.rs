@@ -1717,7 +1717,10 @@ async fn can_defer_auto_compaction_failure(
     pending_tokens: i64,
     error: &CodexErr,
 ) -> bool {
-    if !crate::responses_retry::is_retryable_response_error(error) {
+    if !crate::responses_retry::is_retryable_response_error(
+        turn_context.provider.info().name.as_str(),
+        error,
+    ) {
         return false;
     }
     let status = super::context_window::context_window_token_status(sess, turn_context).await;
