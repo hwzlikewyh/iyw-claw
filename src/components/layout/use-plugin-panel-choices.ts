@@ -3,6 +3,7 @@ import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { readPluginPanels, type PluginPanelChoice } from "@/lib/plugin-panel"
 import { extractAppCommandError } from "@/lib/app-error"
 import type { getTransport } from "@/lib/transport"
+import { onSkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
 
 export function usePluginPanelChoices(
   conversationId: number | null,
@@ -16,9 +17,11 @@ export function usePluginPanelChoices(
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1)
     window.addEventListener("focus", refresh)
+    const unsubscribe = onSkillMarketInstallationsChanged(refresh)
     const disconnect = transport.onReconnect?.(refresh)
     return () => {
       window.removeEventListener("focus", refresh)
+      unsubscribe()
       disconnect?.()
     }
   }, [transport])

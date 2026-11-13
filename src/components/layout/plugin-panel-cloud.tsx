@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { AppWindow } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { getSkillMarketSource } from "@/lib/skill-market-source"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
+import { onSkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
 import { usePluginMarketNavigation } from "./use-plugin-market-navigation"
 
 const PAGE_SIZE = 20
@@ -22,15 +23,29 @@ const readPage = (cursor: string | null) =>
     limit: PAGE_SIZE,
   })
 
-function useCloudPlugins() {
-  const [page, setPage] = useState<string | null>(null)
-  const [revision, setRevision] = useState(0)
-  const [state, setState] = useState({
-    items: [] as SkillMarketV2Item[],
-    cursor: null as string | null,
-    loading: true,
-    error: false,
-  })
+interface CloudPluginState {
+  items: SkillMarketV2Item[]
+  cursor: string | null
+  loading: boolean
+  error: boolean
+}
+
+function useInstallationRefresh(refresh: () => void) {
+  useEffect(() => {
+    window.addEventListener("focus", refresh)
+    const unsubscribe = onSkillMarketInstallationsChanged(refresh)
+    return () => {
+      window.removeEventListener("focus", refresh)
+      unsubscribe()
+    }
+  }, [refresh])
+}
+
+function useCloudPluginPage(
+  page: string | null,
+  revision: number,
+  setState: React.Dispatch<React.SetStateAction<CloudPluginState>>
+) {
   useEffect(() => {
     let alive = true
     const timer = setTimeout(() => {
@@ -61,7 +76,24 @@ function useCloudPlugins() {
       alive = false
       clearTimeout(timer)
     }
-  }, [page, revision])
+  }, [page, revision, setState])
+}
+
+function useCloudPlugins() {
+  const [page, setPage] = useState<string | null>(null)
+  const [revision, setRevision] = useState(0)
+  const [state, setState] = useState<CloudPluginState>({
+    items: [],
+    cursor: null,
+    loading: true,
+    error: false,
+  })
+  useCloudPluginPage(page, revision, setState)
+  const refresh = useCallback(() => {
+    setPage(null)
+    setRevision((value) => value + 1)
+  }, [])
+  useInstallationRefresh(refresh)
   return {
     ...state,
     more: () => setPage(state.cursor),
@@ -75,7 +107,7 @@ export function CloudPlugins({ installed }: { installed: string[] }) {
   const plugins = catalog.items.filter(
     (item) =>
       item.packageType === "plugin" &&
-      item.installState === "not_installed" &&
+      !installed.includes(item.id) &&
       !installed.includes(item.slug)
   )
   return (
@@ -132,13 +164,20 @@ function CloudPlugin({ item }: { item: SkillMarketV2Item }) {
         >
           {item.summary}
         </p>
+        {item.installState !== "not_installed" && (
+          <p className="truncate text-xs text-muted-foreground">
+            {t("installedVersion", {
+              version: item.installedVersion ?? item.currentVersion.version,
+            })}
+          </p>
+        )}
       </div>
       <Button
         size="xs"
         variant="outline"
-        onClick={() => route.openSkillMarket(item.slug)}
+        onClick={() => route.openSkillMarket(item.slug, item.packageType)}
       >
-        {t("install")}
+        {t(item.installState === "not_installed" ? "install" : "manage")}
       </Button>
     </li>
   )

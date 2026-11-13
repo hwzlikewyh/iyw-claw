@@ -5,9 +5,7 @@ import { useTranslations } from "next-intl"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
-import { CapabilityCard, CAPABILITY_GRID_CLASS } from "./capability-card"
-import { SkillCard } from "./skill-card"
+import { CapabilityCatalogResults } from "./capability-catalog-results"
 import { ConnectorInstallDialog } from "./connector-install-dialog"
 import { useConnectorInstallTasks } from "./use-connector-install-tasks"
 import { MarketPagination } from "./market-pagination"
@@ -18,6 +16,7 @@ import {
   type CatalogEntry,
 } from "./use-capability-catalog"
 import { useMarketPageFocus } from "./use-market-page-focus"
+import { CapabilitySkillDetailDialog } from "./capability-skill-detail-dialog"
 
 export function CapabilityCatalogView() {
   const catalog = useCapabilityCatalog()
@@ -27,6 +26,9 @@ export function CapabilityCatalogView() {
     CatalogEntry,
     { kind: "connector" }
   > | null>(null)
+  const [activeSkill, setActiveSkill] = useState<
+    Extract<CatalogEntry, { kind: "skill" | "plugin" }>["item"] | null
+  >(null)
   const { search, position, items, page, pagination, providers, change } =
     useCatalogPosition(catalog)
   const root = useMarketPageFocus({ ...pagination, error: catalog.error })
@@ -39,12 +41,13 @@ export function CapabilityCatalogView() {
         change={change}
         refresh={catalog.refresh}
       />
-      <CatalogBody
+      <CapabilityCatalogResults
         catalog={catalog}
         items={items}
         page={page}
-        position={position}
-        setActive={setActive}
+        pageSize={position.pageSize}
+        onConnectorSelect={setActive}
+        onSkillSelect={setActiveSkill}
       />
       {!catalog.loading && !catalog.error && !items.length && (
         <p
@@ -62,6 +65,12 @@ export function CapabilityCatalogView() {
         onClose={() => setActive(null)}
         refresh={catalog.refresh}
       />
+      <CapabilitySkillDetailDialog
+        item={activeSkill}
+        open={Boolean(activeSkill)}
+        onClose={() => setActiveSkill(null)}
+        onInstalled={catalog.refresh}
+      />
     </div>
   )
 }
@@ -72,19 +81,7 @@ function useCatalogPosition(catalog: ReturnType<typeof useCapabilityCatalog>) {
   const [position, setPosition] = useState({ page: 1, pageSize: 6 })
   const [automaticPageSize, setAutomaticPageSize] = useState(true)
   const items = useMemo(
-    () =>
-      catalog.items.filter((entry) => {
-        const description =
-          entry.kind === "connector"
-            ? entry.item.description
-            : entry.item.summary
-        return (
-          (search.source === "all" || entry.source === search.source) &&
-          (entry.name + " " + description)
-            .toLocaleLowerCase()
-            .includes(search.query.trim().toLocaleLowerCase())
-        )
-      }),
+    () => catalog.items.filter((entry) => matchesCatalogSearch(entry, search)),
     [catalog.items, search]
   )
   const page = Math.min(
@@ -115,6 +112,27 @@ function useCatalogPosition(catalog: ReturnType<typeof useCapabilityCatalog>) {
     setPosition((value) => ({ ...value, page: 1 }))
   }
   return { search, position, items, page, pagination, providers, change }
+}
+
+function matchesCatalogSearch(
+  entry: CatalogEntry,
+  search: { query: string; source: string }
+) {
+  if (search.source !== "all" && entry.source !== search.source) return false
+  const fields =
+    entry.kind === "connector"
+      ? [entry.name, entry.item.description, entry.providerName]
+      : [
+          entry.item.displayName,
+          entry.item.summary,
+          entry.item.category,
+          entry.item.organizationName ?? "",
+          ...entry.item.tags,
+        ]
+  return fields
+    .join(" ")
+    .toLocaleLowerCase()
+    .includes(search.query.trim().toLocaleLowerCase())
 }
 
 type CatalogToolbarProps = Pick<
@@ -165,89 +183,6 @@ function CatalogToolbar(props: CatalogToolbarProps) {
       </Button>
       <MarketQuickPages {...pagination} />
     </div>
-  )
-}
-
-function CatalogBody({
-  catalog,
-  items,
-  page,
-  position,
-  setActive,
-}: Pick<
-  ReturnType<typeof useCatalogPosition>,
-  "items" | "page" | "position"
-> & {
-  catalog: ReturnType<typeof useCapabilityCatalog>
-  setActive: (entry: ConnectorEntry) => void
-}) {
-  const market = useTranslations("SkillMarketV2")
-  return (
-    <>
-      {catalog.error ? (
-        <div role="alert" className="py-8">
-          <p>{catalog.error}</p>
-          <Button variant="outline" onClick={catalog.refresh}>
-            {market("list.retry")}
-          </Button>
-        </div>
-      ) : (
-        <div data-market-grid className={CAPABILITY_GRID_CLASS}>
-          {catalog.loading
-            ? Array.from({ length: position.pageSize }, (_, id) => (
-                <Skeleton
-                  data-market-skeleton
-                  key={id}
-                  className="h-44 rounded-[10px]"
-                />
-              ))
-            : items
-                .slice((page - 1) * position.pageSize, page * position.pageSize)
-                .map((entry) => (
-                  <CatalogCard
-                    key={entry.key}
-                    entry={entry}
-                    onConnector={setActive}
-                  />
-                ))}
-        </div>
-      )}
-    </>
-  )
-}
-
-function CatalogCard({
-  entry,
-  onConnector,
-}: {
-  entry: CatalogEntry
-  onConnector: (entry: ConnectorEntry) => void
-}) {
-  const route = useWorkbenchRoute()
-  if (entry.kind !== "connector")
-    return (
-      <SkillCard
-        item={entry.item}
-        selected={false}
-        onSelect={(item) => route.openSkillMarket(item.slug, item.packageType)}
-        onPrimaryAction={(item) =>
-          route.openSkillMarket(item.slug, item.packageType)
-        }
-      />
-    )
-  return (
-    <CapabilityCard
-      kind="connector"
-      name={entry.name}
-      publisher={entry.item.owner || entry.providerName}
-      summary={entry.item.description}
-      category={entry.item.protocols.join(" / ")}
-      source={entry.providerName}
-      version={entry.item.latest_version}
-      icon={entry.item.icon_url}
-      installed={entry.installed}
-      onOpen={() => onConnector(entry)}
-    />
   )
 }
 
