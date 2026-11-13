@@ -4,6 +4,8 @@
 
 使用当前宿主认证；不把云用户token当宿主口令，也不在网页直连服务端私有文件路径。云市场是另一服务，返回code/data；宿主成功响应为具体JSON对象、数组或null，失败沿AppCommandError，不能套用Fusion响应解析。
 
+`skill_market_publish` / `skill_market_add_version` 接收本地文件参数后，计算摘要、初始化清单并逐文件直传 TOS，最后只向 Fusion 提交 uploadId；不再组装 multipart。新建 request 支持可选 audience。Agent 已有本地目录时可直接按 [市场上传](market-upload.md) 的脚本与 JSON API 发布，不依赖文件夹选择框。连接器目录发布的宿主命令是 `connector_market_user_request`，请求 `{request:{action,body}}`，action 与 [连接器用户接口](connector-publishing.md) 对应，最终同样走用户登录态和 TOS 直传。
+
 ## 技能／插件市场：12个接口
 
 下表花括号是请求JSON，尖括号表示真实值占位。完整枚举以项目当前类型为准。
@@ -25,13 +27,13 @@
 
 PublishRequest = {slug,displayName,summary,category,iconUrl?,tags,visibility,version,changelog,packageType?,dependencies?,files}。files每项为{path,contentBase64,size}，dependencies每项{slug,version}。该宿主创建结构没有audience；创建后用元数据请求显式设置受众。
 
-该宿主发布器走普通用户API，不能发布v2 HostGateway包；v2需已有授权的管理员官方包流程。不要将管理凭据加到宿主request，或把packageType改skill绕过服务校验。
+该宿主发布器走普通用户 API，支持 v1/v2 插件及技能/专家包。不要将管理凭据加到宿主 request，或把 packageType 改成错误类型。
 
 AddVersionRequest = {id,version,changelog,packageType?,dependencies?,files}。
 
 MetadataRequest = {id,displayName,summary,category,iconUrl?,tags,visibility,audience}。它要求完整元数据，不能把云 /skills/update 的局部更新请求直接套用。
 
-云逐文件直传适合大插件；宿主Base64发布最多512文件，会在宿主解码并组装multipart。MCP连接器工具schema另声明25MiB解码限制，HTTP发布接口的实际限制取决于宿主版本及代理配置，不能统一声称36MiB。不要以扩容内存或分次发布绕过约束。
+云逐文件直传适合大插件；宿主 Base64 输入最多512文件，仅用于本地解码，随后原始字节直接 PUT TOS。大量文件优先用目录脚本，避免整个包进入工具参数；同一版本保持一个上传会话。Skill/Expert 的服务端总量限制和 Plugin 清单校验仍然有效。
 
 ## 插件准备：6个接口
 

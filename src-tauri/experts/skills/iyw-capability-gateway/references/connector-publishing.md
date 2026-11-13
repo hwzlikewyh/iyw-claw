@@ -1,6 +1,33 @@
-# 连接器市场后台：声明、制品、草稿、上架与下架
+# 连接器用户发布与后台维护
 
-本页说明维护者如何把 MCP 接入方式发布到**连接器目录**；用户插件上传另见 [市场上传](market-upload.md)。当前连接器后台未暴露 owner_private／organization／global_market 受众字段，不能把插件市场的 audience 加进这套接口。需要个人／组织插件分发时走插件包市场。
+普通用户使用当前登录态即可创建、上传和发布自己的连接器，无需管理员会话。用户调用 Fusion 基址 `/connector-market/*`，文件先直传 TOS，业务请求只提交任务引用、制品 ID 和声明。下面的管理接口仅供维护官方目录。
+
+## 用户接口
+
+JSON 请求可用 `fetch_iyw_url`，宿主注入用户 token；所有路径均为 POST，成功检查 `body.code=1`，结果在 `body.data`。
+
+| 路径 | 请求 | 返回／作用 |
+| --- | --- | --- |
+| /connector-market/mine | page、pageSize、query、status | 当前用户条目、total |
+| /connector-market/detail-owned | server_id | 本人的声明和 revision |
+| /connector-market/uploads/init | filename、size、sha256 | uploadToken、url、method、headers、expiresAt |
+| /connector-market/uploads/complete | uploadToken | 实际文件校验通过后的 id、filename、size、sha256 |
+| /connector-market/uploads/abort | uploadToken | 取消原任务 |
+| /connector-market/save | 下文完整声明，首次 revision=0 | 保存后的声明；server_id 自动加用户命名空间 |
+| /connector-market/publish | server_id、revision | 发布已保存草稿 |
+| /connector-market/unpublish | server_id、revision | 下架并保留已安装版本 |
+
+本地制品：计算真实字节大小和小写 SHA-256 → init → 按返回 URL/headers PUT 原始字节到 TOS → complete → 将返回 id 填入接入方式 artifact_id → save → 用返回 server_id 与最新 revision publish。PUT 可用 [市场上传](market-upload.md) 中的 `market-direct-upload.mjs put`；目标 JSON 仅需 url/method/headers，不要把 uploadToken 写入报告。远程 HTTP/SSE 无本地制品时直接 save、publish。
+
+新 server_id 填自己的短标识（1–74位字母数字开头，后续可含点、横线、下划线）；服务端按可信用户身份生成命名空间，不接受客户端指定 creator_scope。只能修改自己的条目，不能通过导入别人的完整 ID 认领旧官方条目。连接器目录本身没有插件 audience，发布进入连接器目录。
+
+上传任务默认30分钟，以 expiresAt 为准。文件先写独立随机暂存对象；即使知道其他制品摘要也不能认领。完成会验证真实字节，再登记当前用户归属；失败保留原 uploadToken，结果未知先读取原条目或复用原 complete，禁止新建任务盲重放。取消用 abort；URL 或任务过期重新初始化。HTTP409／CONNECTOR_CONFLICT 回读最新 revision 后合并，不将 revision 清零覆盖。
+
+完成后用 mine/detail-owned 核对 listed、published_version，再从连接器市场搜索同一 server_id；需要验证安装时按用户授权在目标宿主安装和连接检查。仅上传到 TOS 或保存草稿都不等于发布成功。
+
+## 管理员接口
+
+以下说明维护者如何把 MCP 接入方式发布到**连接器目录**；用户插件上传另见 [市场上传](market-upload.md)。连接器未暴露 owner_private／organization／global_market 受众字段，不能把插件市场的 audience 加进这套接口。需要个人／组织插件分发时走插件包市场。
 
 ## 地址和权限
 

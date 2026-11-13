@@ -11,9 +11,9 @@
 
 不要手工把v1的schemaVersion改2就称完成迁移。市场详情返回的plugin是服务端规范化结构（components为数组、含bindings和manifestDigest）；它不是可直接保存为原始 .iyw-plugin.json 的作者格式。
 
-**发布权限也不同**：普通用户可提交v1，当前用户上传complete拒绝v2；v2只能由已有授权管理员经官方包发布流程提交。管理端对非official项目上传v2也拒绝。用户生成导入包与管理员发布是两个交付阶段，不把前者当成已获管理员权限。
+普通用户可用 `/skills/uploads/*` 上传 v1/v2 插件，当前登录态即可；文件逐个直传 TOS，完成后校验清单再提交。用户发布保留 user 身份，官方标识仍由管理员维护。
 
-v2组织分发由管理员配置目标组织后验证；个人受众按官方包实际创建者判定，当前接口不能指定任意个人用户，详见[分发边界](capability-market.md)。不能把owner_private解释成“发给当前请求者”。
+v2 组织分发的目标来自上传用户的组织身份；个人受众属于实际创建者。普通用户可以发布自己的 owner_private 包，不能借该字段转移给任意用户，详见[分发边界](capability-market.md)。
 
 ### v1最小包
 
@@ -90,7 +90,7 @@ node scripts/validate_plugin_preparation.mjs <插件目录>
 
 具体参数以校验器当前usage为准。原生导入器已经生成并捕获契约时，不使用仅适用于v1脚手架的校验器替代v2校验。校验目录结构和契约通过不等于真实业务登录／生成已通过。
 
-上传选择整个输出插件目录；去掉外层目录名后，.iyw-plugin.json必须在清单根。v1上传其合法原生清单和组件；v2只上传转换后的HostGateway清单、技能、运行时和资源，不带禁止路径。packageType明确为plugin；v2走已授权管理员官方包入口。
+上传整个输出插件目录，也可用 [目录上传脚本](market-upload.md) 从命令行计算清单并直传，无需文件夹选择框。去掉外层目录名后，.iyw-plugin.json 必须在清单根。v1 上传其合法原生清单和组件；v2 只上传转换后的 HostGateway 清单、技能、运行时和资源，不带禁止路径。packageType 明确为 plugin；两者均走用户上传接口。
 
 ## 安装后的五层准备
 

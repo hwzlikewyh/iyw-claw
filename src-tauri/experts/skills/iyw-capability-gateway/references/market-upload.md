@@ -1,8 +1,17 @@
 # 技能、专家包与插件的上传、发布和版本管理
 
-先读 [市场入口](capability-market.md) 确定对象和受众。这里的 API 前缀为 Fusion 基础地址；用户请求使用当前登录 token，由宿主工具注入或客户端会话取得。下面包含两条已有路径：新客户端逐文件直传、主机兼容 multipart。不要把通用 upload_iyw_file 的 URL 当作市场上传记录。
+先读 [市场入口](capability-market.md) 确定对象和受众。API 前缀为 Fusion 基础地址；用户请求使用当前登录 token，由宿主工具注入或客户端会话取得。技能、专家包及 v1/v2 插件统一走逐文件 TOS 直传，Fusion 只接收文件清单、上传 ID 和元数据。不要把通用 upload_iyw_file 的 URL 当作市场上传记录。
 
-普通用户流程适用于Skill／Expert／v1插件。当前用户complete明确拒绝schemaVersion≥2；v2必须通过已授权管理接口发布到official项目。不能在文件传完后才检查发布身份；准备阶段先确定这条边界。
+用户 v2 插件与其他用户包使用相同接口，无需 admin-token。用户包保留 publisherType=user；official 标识仍由管理员维护。登录失效时恢复用户登录，不索要管理员令牌、不改用占位令牌。连接器目录声明和制品另见 [连接器用户发布](connector-publishing.md)。
+
+## Agent / CLI 直接上传目录
+
+无需操作文件夹选择框。JSON 请求用 `fetch_iyw_url` 调本页 `/skills/uploads/*`，宿主自动注入登录态；TOS PUT 使用本地执行工具与下列脚本（Node.js 22+），不把平台 token 传给脚本。
+
+1. `node <本skill目录>/scripts/market-direct-upload.mjs manifest <插件或技能绝对目录>`：输出真实 path、size、sha256、mimeType 清单，合并到初始化元数据。目录根就是包根，不携带外层目录名；包含文件须事先整理好，脚本不擅自忽略随包依赖。
+2. 按返回 path 映射文件，逐项 `/skills/uploads/url`。只将响应 `data`（url、method、headers）写入本地临时 JSON，可附加原清单 size、sha256 防止文件变化。预签名文件属于短时凭据，不输出到报告或登记为交付物。
+3. `node <本skill目录>/scripts/market-direct-upload.mjs put <该文件绝对路径> <临时JSON路径>`：文件原始字节直接传 TOS，不经过 Fusion。不将 Base64 或 multipart 交给 Fusion。
+4. 全部成功后 complete、detail 和制品状态核验；按原 uploadId 恢复未知结果。最后清理本轮预签名临时文件。若本轮没有本地执行能力，可使用宿主已有发布器，它也逐文件直传 TOS；两条都不可用时才报告具体缺失能力。
 
 ## 准备目录与元数据
 
@@ -125,15 +134,15 @@ async function putFile(target, file) {
 
 ### 4. 恢复与未知结果
 
-上传会话默认30分钟，预签名 PUT 默认15分钟；实际以 expiresAt 为准。保存 uploadId、目标 id／version 和清单摘要；不要保存凭据或带签名 URL。
+Skill/Expert 上传会话默认30分钟、PUT默认15分钟；Plugin 会话默认24小时、PUT默认2小时，实际以 expiresAt 为准。保存 uploadId、目标 id／version 和清单摘要；不要长期保存凭据或带签名 URL。
 
 恢复时重新选择相同目录，比较每项 path＋size＋sha256；查询 status，只补传 uploaded=false 的文件，且每次重新申请 URL。清单变了就不能假装续传原上传；明确中止旧会话后重新初始化。
 
 complete 超时先查原 uploadId 和版本状态；若已 ready 则完成，不重发创建请求。失效会话用新初始化；用户取消时 abort。已完成会话、失败会话、过期会话按服务端状态处理，不能单靠本地进度判定。
 
-## 兼容 multipart：两个接口
+## 旧 multipart 兼容：不用于新上传
 
-主机现有发布器使用这些路由，仍有效；新集成优先用上面的直传：
+以下旧路由仅保留历史客户端兼容。当前宿主发布器已改用上面的直传；新代码、Agent 和大包不要再把文件流、Base64 或 multipart 发到 Fusion：
 
 | 接口 | 表单字段 |
 | --- | --- |
@@ -142,7 +151,7 @@ complete 超时先查原 uploadId 和版本状态；若已 ready 则完成，不
 
 manifest 是 JSON 字符串 {"files":[{"path":"SKILL.md","field":"file0"}]}；file0 是同一表单中的一个二进制文件 part 名称。每个清单项对应且只对应一个 part，不允许额外文件。dependencies 也是 JSON 字符串；不是表单中嵌套对象的隐式展开。初次返回 data.skill，新版返回 data.version。
 
-主机JSON发布参数files:[{path,contentBase64,size}]由宿主组装multipart，最多512文件，size为解码字节数。MCP连接器发布工具的schema另声明解码总量25MiB；宿主HTTP发布路径的限制随已部署版本和代理配置确定，不能假定统一25／36MiB上限。Base64和multipart会占用宿主内存，大插件优先逐文件直传，不把同一版本拆成多次publish来绕过限制。
+主机JSON发布参数 files:[{path,contentBase64,size}] 只在本地宿主输入中使用；宿主解码后申请上传会话和逐文件 URL，原始字节直接 PUT TOS。最多512文件，size为解码字节数。大插件使用前述目录脚本避免将整个包编码到工具参数；同一版本只创建一次上传会话。
 
 ## 专家包与依赖
 
@@ -157,6 +166,6 @@ manifest 是 JSON 字符串 {"files":[{"path":"SKILL.md","field":"file0"}]}；fi
 
 失败时保留本地文件和会话。SKILL_VERSION_CONFLICT／NOT_GREATER 先读版本；FILE_UPLOAD_MISSING／FILE_INTEGRITY_MISMATCH 查状态再补文件；FORBIDDEN 查身份及 canManage；UPLOAD_EXPIRED 重新初始化。请求 outcome 未知时先核对原对象，不换工具重放。
 
-FORBIDDEN还可能是用户试图发布v2，或管理员给非official项目上传v2；此类错误不是重新登录可解决，不通过降schemaVersion、改为skill或重命名端点重试。
+用户 v2 不再因 schemaVersion 被拒绝。FORBIDDEN 时检查当前用户与上传项目归属，不通过降低 schemaVersion、改为 skill 或换管理端点重试。
 
 来源：Fusion docs/skill-market-user-client-integration.md、httpserver/skill/{skill,upload_dto,upload_handlers,request,write_handlers}.go、domain/skill/{validation,manifest,model}.go；宿主 commands/skill_market/{mod,client,types}.rs。限制按调用面区分。
