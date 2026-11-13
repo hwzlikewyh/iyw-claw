@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "name": "infinite-canvas",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "minClientVersion": "0.1.332",
   "targets": ["iyw-claw"],
   "components": {
@@ -37,7 +37,9 @@
       { "key": "read-asset", "id": "plugin.infinite-canvas.canvas.read-asset.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "read_infinite_canvas_asset", "schemaPath": "contracts/read-infinite-canvas-asset.schema.json", "description": "Read a range from a canvas asset.", "intentTerms": ["canvas", "asset", "read"], "readOnlyHint": true },
       { "key": "write-asset", "id": "plugin.infinite-canvas.canvas.write-asset.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "write_infinite_canvas_asset", "schemaPath": "contracts/write-infinite-canvas-asset.schema.json", "description": "Upload or import a canvas asset.", "intentTerms": ["canvas", "asset", "upload"], "readOnlyHint": false },
       { "key": "export-canvas", "id": "plugin.infinite-canvas.canvas.export.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "export_infinite_canvas", "schemaPath": "contracts/export-infinite-canvas.schema.json", "description": "Export a canvas scene or uploaded asset.", "intentTerms": ["canvas", "export"], "readOnlyHint": false },
-      { "key": "migrate-cowart", "id": "plugin.infinite-canvas.canvas.migrate-cowart.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "migrate_cowart_canvas", "schemaPath": "contracts/migrate-cowart-canvas.schema.json", "description": "Preview or migrate a Cowart page into a new canvas.", "intentTerms": ["cowart", "migrate", "canvas"], "readOnlyHint": false }
+      { "key": "migrate-cowart", "id": "plugin.infinite-canvas.canvas.migrate-cowart.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "migrate_cowart_canvas", "schemaPath": "contracts/migrate-cowart-canvas.schema.json", "description": "Preview or migrate a Cowart page into a new canvas.", "intentTerms": ["cowart", "migrate", "canvas"], "readOnlyHint": false },
+      { "key": "model-request", "id": "plugin.infinite-canvas.host.model-request.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "infinite_canvas_model_request", "schemaPath": "contracts/infinite-canvas-model-request.schema.json", "description": "Call the host-authenticated local model gateway for text and image generation.", "intentTerms": ["model", "image", "generation"], "readOnlyHint": false },
+      { "key": "store-data", "id": "plugin.infinite-canvas.host.store-data.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "infinite_canvas_store_data", "schemaPath": "contracts/infinite-canvas-store-data.schema.json", "description": "Persist Infinite Canvas app data in the current workspace.", "intentTerms": ["canvas", "storage", "workspace"], "readOnlyHint": false }
     ],
     "apps": [
       { "key": "infinite-canvas", "connectorKey": "infinite-canvas-mcp", "resourceUri": "ui://widget/infinite-canvas/canvas.html", "capabilityKey": "render-canvas", "displayModes": ["fullscreen", "inline"] }

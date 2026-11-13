@@ -1,3 +1,7 @@
+# 0.1.18
+
+- 声明 Widget 使用的本地模型网关和工作区存储 host-only 能力，修复启动时报 `Plugin app tool is not declared by its connector`。
+
 # 0.1.17
 
 - 修复 Widget 单文件内联替换导致外部脚本标签重复注入的问题。
