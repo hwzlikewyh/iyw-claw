@@ -99,6 +99,12 @@ fn expected_tool(
     if config["connectorKey"].as_str() != Some(connector_key) {
         return Ok(None);
     }
+    if matches!(
+        config["toolName"].as_str(),
+        Some("infinite_canvas_model_request" | "infinite_canvas_store_data")
+    ) {
+        return Ok(None);
+    }
     Ok(Some(ExpectedTool {
         name: config["toolName"].as_str().unwrap_or_default().to_string(),
         schema_path: config["schemaPath"]
