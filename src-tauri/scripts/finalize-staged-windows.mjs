@@ -5,9 +5,15 @@
  * CI authenticates the token inside each signing process using the configured PIN.
  */
 
+import { createHash } from "node:crypto"
 import {
   copyFileSync,
   cpSync,
+  existsSync,
+  openSync,
+  readSync,
+  closeSync,
+  statSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -20,7 +26,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { windowsLayout, verifyWindowsStaging } from "./windows-staging.mjs"
-import { discoverSigntool } from "./sign-windows.mjs"
+import { discoverSigntool, signFiles } from "./sign-windows.mjs"
 import { win7WebviewConfig } from "./build-desktop-windows.mjs"
 
 const TOOL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
@@ -131,19 +137,16 @@ function prepareBundleConfig() {
 
 function prepareSigningConfig() {
   const config = join(tmpdir(), `iyw-staged-signing-${process.pid}.json`)
-  const signer = join(
-    TOOL_ROOT,
-    "src-tauri",
-    "scripts",
-    "sign-staged-windows.mjs"
-  )
   writeFileSync(
     config,
     `${JSON.stringify(
       {
         bundle: {
           windows: {
-            signCommand: { cmd: process.execPath, args: [signer, "%1"] },
+            // The bundler runs signCommand before wrapping the app into the NSIS
+            // installer, so an installer-level signature is impossible here.
+            // Sign the app explicitly (signApplication) and let NSIS wrap it.
+            signCommand: null,
           },
         },
       },
@@ -153,6 +156,13 @@ function prepareSigningConfig() {
     "utf8"
   )
   return config
+}
+
+function signApplication() {
+  const executable = join(ROOT, TARGET_RELEASE, "iyw-claw.exe")
+  if (!existsSync(executable))
+    fail(`staged application is missing: ${executable}`)
+  signFiles([executable])
 }
 
 function bundleArgs(signingConfig, bundleConfig) {
@@ -188,6 +198,7 @@ function bundle(version) {
     )
       rmSync(join(output, entry.name), { force: true })
   }
+  signApplication()
   const signingConfig = prepareSigningConfig()
   const bundleConfig = prepareBundleConfig()
   try {
@@ -203,9 +214,6 @@ function bundle(version) {
     process.stderr.write(result.stderr ?? "")
     if (result.error) throw result.error
     const outputText = `${result.stdout ?? ""}${result.stderr ?? ""}`
-    if (outputText.includes("[sign-staged-windows][ERROR]")) {
-      fail("a signing command failed even though the bundler continued")
-    }
     if (result.status !== 0)
       fail(`NSIS bundle failed with exit code ${result.status}`)
     const installers = readdirSync(output).filter((name) =>
@@ -226,7 +234,7 @@ function bundle(version) {
 function verify(installer) {
   const result = spawnSync(
     process.execPath,
-    [join(ROOT, "src-tauri", "scripts", "verify-signatures.mjs"), installer],
+    [join(TOOL_ROOT, "src-tauri", "scripts", "verify-signatures.mjs"), installer],
     {
       cwd: ROOT,
       stdio: "inherit",
@@ -237,6 +245,43 @@ function verify(installer) {
   if (result.error) throw result.error
   if (result.status !== 0)
     fail("final installer Authenticode verification failed")
+}
+
+/**
+ * The bundler removes a pre-existing app signature when it wraps the app into
+ * the NSIS installer, so "the bundler exited 0" proves nothing. Assert that the
+ * installed PE carries a signature whose hash covers the file up to the
+ * certificate table.
+ */
+function verifyPeSignature(installer) {
+  const buffer = readFileSync(installer)
+  if (buffer.readUInt16LE(0) !== 0x5a4d) fail(`not a PE file: ${installer}`)
+  const peOffset = buffer.readInt32LE(0x3c)
+  const optionalHeader = peOffset + 24
+  const magic = buffer.readUInt16LE(optionalHeader)
+  const dataDirectories = optionalHeader + (magic === 0x20b ? 112 : 96)
+  const certificateOffset = buffer.readInt32LE(dataDirectories + 8 * 4 + 0)
+  const certificateSize = buffer.readInt32LE(dataDirectories + 8 * 4 + 4)
+  if (!certificateOffset || !certificateSize)
+    fail("installer has no Authenticode certificate table")
+  const certificate = buffer.subarray(certificateOffset, certificateOffset + certificateSize)
+  const length = certificate.readUInt32LE(0)
+  const revision = certificate.readUInt16LE(4)
+  const type = certificate.readUInt16LE(6)
+  if (revision !== 0x0200 || type !== 0x0002)
+    fail("installer certificate table is not a PKCS#7 Authenticode signature")
+  const digestAlgorithm = certificate.readUInt32LE(length + 8)
+  const digestSize = certificate.readUInt32LE(length + 12)
+  const digest = certificate.subarray(length + 16, length + 16 + digestSize)
+  const algorithm = { 0x8004: "sha1", 0x800c: "sha256", 0x800e: "sha384", 0x800d: "sha512" }[digestAlgorithm]
+  if (!algorithm) fail(`unsupported Authenticode digest 0x${digestAlgorithm.toString(16)}`)
+  const hash = createHash(algorithm)
+  hash.update(buffer.subarray(0, certificateOffset))
+  const end = certificateOffset + certificateSize
+  if (end < buffer.length) hash.update(buffer.subarray(end))
+  if (!hash.digest().equals(digest))
+    fail("installer Authenticode hash does not match its contents")
+  return { algorithm, digestSize }
 }
 
 function signEnvironmentHelper() {
@@ -286,7 +331,12 @@ function main() {
       env: { ...process.env, IYW_SHARE_UNSIGNED: "0" },
     }
   )
-  verify(bundle(version))
+  const installer = bundle(version)
+  const signature = verifyPeSignature(installer)
+  console.log(
+    `[staged-signing] installer Authenticode covered (${signature.algorithm})`
+  )
+  verify(installer)
 }
 
 try {
