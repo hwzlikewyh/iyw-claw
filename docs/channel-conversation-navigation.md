@@ -13,3 +13,18 @@
 
 定向验收：主窗口打开原对话、设置页保持原位、主窗口最小化后恢复、
 已激活对话从其他工作区视图切回、远程设置返回对应远程工作区。
+
+## 独立设置窗口的详情渲染
+
+渠道详情复用工作区的消息渲染器。独立设置窗口通过
+`ChannelRuntimeProviders` 补齐连接、委托、文件工作区和页面预览上下文；
+工作区内的设置继续使用已有上下文。
+
+消息链接和文件路径会调用 `useWorkspaceActions`，HTML 结果卡片会调用
+`useInteractivePage`。缺少对应 Provider 时，渲染这些内容会抛错，
+使设置页进入应用异常页面。
+
+2026-11-13 验证：Provider 及其导入依赖链的 TypeScript 检查、定向 ESLint
+和 diff 检查通过。全量类型检查被能力市场的 `capability-market-shell.tsx`
+和 `toolbar.tsx` 中已有的 JSX 语法错误阻断；未运行自动化测试，
+修复后的桌面客户端尚未打包并进行实机回归。
