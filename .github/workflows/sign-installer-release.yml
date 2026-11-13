@@ -1,0 +1,122 @@
+name: Sign Installer Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      installer_ref:
+        description: Installer repository commit, branch, or tag
+        required: true
+        default: main
+        type: string
+      release_tag:
+        description: Existing installer release tag to update
+        required: true
+        default: v0.1.0
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sign-installer-release
+  cancel-in-progress: false
+
+jobs:
+  build-sign-upload:
+    runs-on: [self-hosted, Windows, X64, iyw-signing]
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IYW_CLAW_SIGN_MODE: signtool
+      IYW_CLAW_SIGN_REQUIRED: "1"
+      IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+      IYW_CLAW_SIGN_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGN_TIMESTAMP_URL }}
+      IYW_CLAW_SAFENET_PIN: ${{ secrets.IYW_CLAW_SAFENET_PIN }}
+    steps:
+      - name: Checkout installer source
+        uses: actions/checkout@v4
+        with:
+          repository: hwzlikewyh/iyw-claw-installer
+          ref: ${{ inputs.installer_ref }}
+          path: installer
+
+      - name: Checkout signing tools
+        uses: actions/checkout@v4
+        with:
+          path: signing-tools
+          sparse-checkout: |
+            src-tauri/scripts
+          sparse-checkout-cone-mode: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build unsigned installer package
+        shell: pwsh
+        working-directory: installer
+        run: |
+          python scripts/fetch-deps.py
+          if ($LASTEXITCODE -ne 0) { throw 'dependency preparation failed' }
+          ./scripts/build.ps1 -WxSource .cache/wxWidgets-3.2.12
+          if ($LASTEXITCODE -ne 0) { throw 'installer build failed' }
+          python scripts/package.py windows
+          if ($LASTEXITCODE -ne 0) { throw 'installer packaging failed' }
+
+      - name: Sign and verify Windows files
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:IYW_CLAW_SAFENET_PIN)) { throw 'SafeNet PIN secret is missing' }
+          if (($env:IYW_CLAW_SIGN_THUMBPRINT -replace '[\s:]', '') -notmatch '^[a-fA-F0-9]{40}$') { throw 'Windows signing thumbprint is missing or invalid' }
+          $signer = Join-Path $env:GITHUB_WORKSPACE 'signing-tools/src-tauri/scripts/sign-staged-windows.mjs'
+          $node = (Get-Command node -ErrorAction Stop).Source
+          $packageRoot = Join-Path $env:GITHUB_WORKSPACE 'installer/packages'
+          $exe = Join-Path $packageRoot 'YuanAssistant-Setup-windows.exe'
+          $zip = Join-Path $packageRoot 'YuanAssistant-Setup-windows.zip'
+          & $node $signer $exe
+          if ($LASTEXITCODE -ne 0) { throw 'standalone installer signing failed' }
+
+          $extract = Join-Path $env:RUNNER_TEMP 'iyw-installer-signed-zip'
+          if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+          New-Item -ItemType Directory -Path $extract -Force | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+          $inner = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter '原助理安装向导.exe')
+          if ($inner.Count -ne 1) { throw "expected one executable in Windows ZIP, found $($inner.Count)" }
+          & $node $signer $inner[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'ZIP installer signing failed' }
+          $zipTemp = "$zip.new"
+          if (Test-Path -LiteralPath $zipTemp) { Remove-Item -LiteralPath $zipTemp -Force }
+          Compress-Archive -Path (Join-Path $extract '*') -DestinationPath $zipTemp -CompressionLevel Optimal
+          Move-Item -LiteralPath $zipTemp -Destination $zip -Force
+
+          $expectedThumbprint = ($env:IYW_CLAW_SIGN_THUMBPRINT -replace '[\s:]', '').ToUpperInvariant()
+          foreach ($file in @($exe, $inner[0].FullName)) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            $actualThumbprint = if ($signature.SignerCertificate) { $signature.SignerCertificate.Thumbprint.ToUpperInvariant() } else { '' }
+            if ($signature.Status -ne 'Valid' -or $actualThumbprint -ne $expectedThumbprint -or -not $signature.TimeStamperCertificate) {
+              throw "Authenticode verification failed: $file (status=$($signature.Status), thumbprint=$actualThumbprint)"
+            }
+          }
+
+          $sumLines = foreach ($name in @('YuanAssistant-Setup-windows.exe', 'YuanAssistant-Setup-windows.zip')) {
+            $hash = (Get-FileHash -LiteralPath (Join-Path $packageRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $name"
+          }
+          [System.IO.File]::WriteAllText((Join-Path $packageRoot 'SHA256SUMS.txt'), (($sumLines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
+          Get-Content (Join-Path $packageRoot 'SHA256SUMS.txt')
+
+      - name: Upload signed release assets
+        shell: pwsh
+        working-directory: installer
+        run: |
+          gh release upload "${{ inputs.release_tag }}" packages/YuanAssistant-Setup-windows.exe packages/YuanAssistant-Setup-windows.zip packages/SHA256SUMS.txt --repo hwzlikewyh/iyw-claw-installer --clobber
+
+      - name: Upload signed build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-installer-windows-${{ inputs.release_tag }}
+          path: installer/packages/*
+          if-no-files-found: error
+          retention-days: 7
