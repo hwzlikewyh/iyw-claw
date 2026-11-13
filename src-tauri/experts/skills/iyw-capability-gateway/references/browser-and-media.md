@@ -181,27 +181,21 @@ IYW product/material/commerce and ordinary raster creation. Attach SVG, BMP,
 ICO, and other unsupported model-image formats as ordinary files rather than
 forcing an image-analysis route.
 
-Prefer `generate` (`images/generations`) for text-to-image, `variation` for
-single-image changes, `mix` for multi-image fusion, and `extend` for four-panel
-grids or same-series extension from one base image. `auto` follows these defaults;
-without images it uses `generate`. A grid request without a reference also uses
-`generate`. Explicit `edit` (`images/edits`) requires source images. Prioritize
-applicable `variation`, `extend`, and `mix` routes; use model editing when the user
-selects it or the preferred route is demonstrably unsupported, unavailable, or
-confirmed failed. Documented incompatibility needs no failed trial. Match other
-specialized operations to their actual functions. The built-in image-to-3d endpoint
-is disabled, including browser/fetch fallbacks; local Three.js modeling for code
-deliverables remains allowed. A timeout, transport error
-or running task is not confirmed failure; query its task ID before any retry.
+Default to `generate` (`images/generations`) without images and `edit`
+(`images/edits`) with source images. `auto` follows the same defaults. Omit
+`parameters.model` and submit directly; the backend selects its separately
+configured generation or editing model. Only explicit model selection or
+recovery needs `list_iyw_image_models` and an opaque `model_ref`.
 
-Before `type=generate`, `auto` without images, or explicit `type=edit`, call
-`list_iyw_image_models` with `{}`. Choose a returned model for the user's task
-with `image_generation` or `image_editing` enabled, respectively, then pass its
-opaque `model_ref` unchanged in `parameters.model`. Reuse the catalog for the same task or batch;
-refresh once if a reference expires after a host restart. Use business display names in replies,
-never currency prices, real model IDs, references or providers. Only report platform-confirmed points.
-Specialized IYW operations such as `variation`, `extend`, and `mix` do not need
-this Fusion model lookup.
+Platform `micro-generate`, `variation`, `extend`, and `mix` are alternatives after
+confirmed Fusion failure or explicit platform requests. Simple default requests
+without special parameters, masks or more than 10 sources receive one automatic
+platform candidate. Requests with special constraints need a compatible explicit
+fallback; preserve all images and requirements. Timeouts and uncertain submissions
+stop the chain; query the original task before resubmitting. The built-in image-to-3d
+endpoint remains disabled, including browser/fetch bypasses; local Three.js modeling
+for code deliverables remains allowed. Use business display names and confirmed points
+in replies; never expose internal model references, IDs, providers or prices.
 
 Default timeouts are 600 seconds for platform HTTP requests and task polling,
 and 300 seconds for Fusion generation/editing. The agent may override either with

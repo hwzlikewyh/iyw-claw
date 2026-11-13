@@ -1,9 +1,11 @@
 use super::{ImageExecution, ImageRequest, ImageResult, IywGatewayService};
 
 mod output;
+mod platform;
 mod prepare;
 mod retry;
 
+pub(super) use platform::automatic_platform_kind;
 pub(super) use prepare::{prepare_candidates, validate_models};
 
 pub(super) async fn execute(

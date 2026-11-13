@@ -4,9 +4,9 @@
 
 `list_iyw_image_models` 的 `image_capabilities` 按 generate/edit 返回参数支持、可用枚举、
 数字范围、固定/自定义尺寸和输入输出限制。version=1；缺失/null 为未知，supported=false 明确不支持。
-先按用户要求选明确支持的 model_ref，再检查每个 fallback 的独立参数；未知只可正常透传，不能保证支持。
+默认请求不先读取目录，省略 model 直接生成；只有显式选型时按用户要求选择 model_ref 并检查候选参数。未知支持只可正常透传，不能保证支持。
 透明任务保留 background=transparent，使用 PNG/WebP；候选不能悄悄删掉透明参数。
-工具在生成前检查每个候选的声明，并在实际调用前再次核对；不满足要求返回 not_started。
+显式选型时工具在生成前检查目录声明；默认模型由服务端路由，参数支持交由对应上游校验。
 型号名、描述里的“高清”或编辑布尔标志不能代替尺寸、蒙版和透明能力声明。
 
 
@@ -15,12 +15,11 @@
 
 视频生成优先使用本 Skill 的 `generate_iyw_image`/`fetch_iyw_url`，按 [视频专篇](iyw-api-ecommerce-video.md) 选择。视频导演返回脚本，生成返回任务，成功后才能交付视频；不要把图片模型目录当成视频模型目录。
 
-自定义改款优先 `variation`，单基准图系列延伸优先 `extend`，多图融合优先 `mix`，无需先查模型目录。内置 `image-to-3d` 接口已禁用，不调用 `image-to-3d` 或 `commerce/ImageTo3D`，也不通过浏览器或其他封装绕过。此接口限制不禁止编码任务使用 Three.js 创建真实网格和导出 GLB；照片无法确定的细节应标为近似，不能因此拒绝整个 3D 网页或模型任务。
+无图默认 `generate`，有图默认 `edit`，不先查询模型列表；平台 `variation`、`extend`、`mix` 作为确认失败后的备选。内置 `image-to-3d` 接口已禁用，不调用 `image-to-3d` 或 `commerce/ImageTo3D`，也不通过浏览器或其他封装绕过。此接口限制不禁止编码任务使用 Three.js 创建真实网格和导出 GLB；照片无法确定的细节应标为近似，不能因此拒绝整个 3D 网页或模型任务。
 
-帮客户生图时，适用的平台功能优先；复杂、多重视觉约束或需要更自由控制的任务可直接用
-图片模型，不要求先制造平台失败。明确选择某平台模型的要求仍须保留。
-普通文生图可用 `micro-generate`，改款／延伸／融合用相应平台 type；选择图片模型后，
-无图用 `generate`、有参考图用 `edit`。用明确 type 表达已选路线，不依赖 auto 猜测服务。
+生图和编辑分别使用后台配置的默认模型，省略 `parameters.model` 直接调用。
+简单默认请求在 Fusion 确认失败后自动尝试一个平台候选；指定模型、蒙版、透明背景、
+尺寸等参数时不自动丢弃约束，需要显式声明兼容候选。用户明确指定平台路线时直接使用。
 
 这里的“模型一／二／三”分别选择平台 `parameters.modelChannel=1/2/3`，不是 Fusion
 模型目录的第一／二／三项。用户明确选择时原样传入，不改成默认模型，不切换 `edit`；
@@ -37,7 +36,7 @@
 
 1. 安装图像库或写处理脚本前，先按用户所需效果、输入与输出选择平台能力或图片模型。没有同名专用接口、关键词未命中或描述简略，都不等于明确不支持；继续评估单图指令编辑或模型目录。自然语言可描述的视觉变化不要求存在同名 API。
 2. 核对真实技术约束。`image_generation` / `image_editing` 不保证蒙版、透明输出、位深、参考图数量或任意分辨率；按文档使用参数。不得自行添加精确几何或位深要求来排除服务，也不得丢弃用户要求或调用已知不支持的操作来制造失败。
-3. 优先匹配上述平台路线；其他专用操作按实际功能选择。任务复杂、需要更自由控制、用户明确选择图片模型，或优先路线有明确不支持、不可用、确认失败的证据时，选择适用模型；无需先制造平台失败。有参考图且选择目录中的模型时使用 `edit`，无图创作用 `generate`；同任务复用模型目录。把目录引用放入平台操作参数不代表选中了该模型。目录 `model_ref` 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”。即使追问价格、型号或锁定模型，也不在正文、表格、括号、代码或错误转述中披露货币价格、真实 ID、目录引用、供应商或后端名称。点数仅用平台明确返回的数据，不换算或猜测；未确认时不报数值。
+3. 默认使用 Fusion `generate/edit`，平台路线作为确认失败后的备选。显式选择模型时查询并复用目录；把目录引用放入平台操作参数不代表选中了该模型。目录 `model_ref` 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”。即使追问价格、型号或锁定模型，也不在正文、表格、括号、代码或错误转述中披露货币价格、真实 ID、目录引用、供应商或后端名称。点数仅用平台明确返回的数据，不换算或猜测；未确认时不报数值。
 4. 按下表恢复失败，重新对照原始用户目标选择适用服务，不能让辅助步骤的失败决定整个任务改写为本地算法。
 5. 仅在适用平台和模型路线均有不可用、文档明确不兼容或有限恢复后确认失败的具体证据时，才可脚本兜底；先说明限制，不遍历无关服务。缺少专用接口、第一张效果不佳或认为本地算法更精确，均不足以回退。
 
@@ -95,7 +94,7 @@
 | `micro-generate` / `micro-variation` | `microModel/v2/generate` / `variation` | 前者 prompt，可选图片及 modelChannel/ratio/batchSize/tool；后者图片 + prompt |
 | `scheme-generate` | `ai-chat/api/designScheme/generateImage` | schemeId + prompt；schemeId 来自设计稿业务列表 |
 | `faddish` | `ai-application/faddish/generate` | prompt，可选图片 |
-| `generate` / `edit` | Fusion | 无图创作用 generate；edit 需参考图且遵循上文平台优先条件；将当前模型目录的 model_ref 原样放入 parameters.model |
+| `generate` / `edit` | Fusion | 默认无图 generate、有图 edit；省略 model 直接用后台默认模型；显式选型才查询目录并传 model_ref |
 
 新增原生类型仅验证文档已明确的图片、提示词和基础类型；未提供枚举的字段不硬编码猜测。上游明确拒绝要保留原错误，未知状态先查任务。蒙版服务域已由补充篇明确，但区域字段/坐标结构仍不完整，当前工具不猜测该请求。
 
@@ -183,35 +182,24 @@ Choose a route whose documented capabilities cover the task:
 | --- | --- |
 | Ordinary text-to-image covered by platform creation | `micro-generate` |
 | Complex or freer text-to-image through an image model | `generate` through Fusion `images/generations` |
-| Redesign or modify one source image | `variation` |
+| Redesign or modify one source image | Default `edit`; `variation` is a platform alternative |
 | Edit source images with a selected catalog model | `edit` through Fusion `images/edits`, preserving source images |
-| Fuse 2-10 reference images | `mix`, preserving input order |
-| Four-panel grids or same-series extension from one base image | `extend` |
+| Fuse 2-10 reference images | Default `edit`; `mix` is a platform alternative, preserving input order |
+| Four-panel grids or same-series extension from one base image | Default `edit`; `extend` is a platform alternative |
 
-Fusion `edit` (`images/edits`) is suitable for complex edits, freer control or explicit model selection and
-requires at least one source image. `generate` and `edit` do not require a prior
-platform attempt or failure. `fission` remains an explicitly selectable platform
-operation. Select the matching specialized operation for background, outpaint,
-super-resolution and similar tasks.
+Fusion `generate` and `edit` are the defaults for creation without images and editing
+with source images. Omit `parameters.model` to submit directly with the backend
+default configured for each operation. `auto` selects generate without images and
+edit with images. Preserve all source images and the requested composition.
 
-Before `generate`, `auto` without images, or explicit `edit`, call
-`list_iyw_image_models` with `{}`. Select from the returned descriptions,
-capabilities and task requirements: `generate` needs
-`capabilities.image_generation=true`; `edit` needs
-`capabilities.image_editing=true`. Copy the exact returned opaque `model_ref` into
-`parameters.model`. A missing/stale reference, raw model ID or display name is
-rejected; the host does not choose a default model. References remain stable within the current host process, independent of catalog order. Refresh the catalog once after an invalid reference or host restart. Reuse the catalog for the same task or batch;
-an empty or failed lookup supplies no model. Platform operations need no Fusion
-model lookup. Real IDs, providers and prices are omitted. Replace `MODEL_REF_FROM_CATALOG` in examples before calling.
-
-`auto` uses `generate` without images; with one image it uses `extend` for
-series, extension, four-panel or 2x2 wording, and `variation` otherwise; with
-multiple images it uses `mix`. Prefer an explicit type when the intent is known.
-An `extend` request needs one base image: describe the four-panel layout or series
-in its prompt. Without a reference, create the requested composition with
-`generate`. Keep multiple references for fusion; for independent series derived
-from multiple bases, use separate `requests` items, each with one base image.
-Do not discard references to force the single-image extension interface.
+Only explicit model selection or recovery calls `list_iyw_image_models` with `{}`.
+Choose the matching image_generation/image_editing capability and copy its opaque
+model_ref into parameters.model. Raw IDs and display names are rejected. Reuse the
+catalog for explicit models within the same task. Platform micro-generate, variation,
+extend and mix remain available as alternatives after confirmed Fusion failure or
+explicit platform requests. Simple default requests automatically receive one suitable
+platform candidate; masks, special parameters and explicit models require compatible
+declared fallbacks. Never discard constraints to enable a fallback.
 
 Use the returned operation's business name or confirmed model display name in
 user-facing explanations, without currency prices, internal IDs, references or backend names. After a timeout,

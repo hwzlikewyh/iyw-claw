@@ -45,12 +45,11 @@ For image work, choose an applicable platform operation or model through
 `generate_iyw_image` before installing image libraries or writing processing code.
 A missing dedicated operation does not exclude prompt-driven editing; evaluate
 the available service routes and verify technical constraints without inventing
-requirements. Prioritize custom redesign (`variation`), series extension (`extend`)
-and multi-image fusion (`mix`) when applicable. Use model editing for complex
-visual constraints, freer creative control, explicit model selection or a preferred
-route that is demonstrably unsupported, unavailable or confirmed failed; no
-manufactured failed trial is needed. With source
-images and a selected catalog model, use `edit`. The built-in image-to-3d endpoint
+requirements. Default to Fusion `generate` without images and `edit` with source
+images; omit `parameters.model` and submit directly using backend defaults.
+List models only for explicit selection or recovery. Platform custom redesign
+(`variation`), series extension (`extend`), and fusion (`mix`) are alternatives
+after confirmed Fusion failure or explicit platform requests. The built-in image-to-3d endpoint
 is disabled, including fetch/browser fallbacks; this does not prohibit local
 Three.js code-based modeling or GLB export for coding tasks.
 Correct input errors, reassess alternatives after confirmed route failures, and
@@ -72,8 +71,8 @@ parameters to pass validation or replay uncertain submissions through another to
 | --- | --- |
 | Business API progress | Every new fetch_iyw_url call supplies description naming the current action, plus the exact documented URL and query/body; descriptions never enter the HTTP payload |
 | Upload files | upload_iyw_file with description + readable host file path, including outside the workspace; prefer an absolute path; optional name/mime_type; <=1 GiB, returns a public URL |
-| Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
-| Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; model editing follows the platform priority and alternative-route conditions above. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. `delivery.registerArtifact` defaults to false; set true only when the image itself is selected as a final deliverable in this conversation. No generation capability ID exists |
+| Fusion image models | Call `list_iyw_image_models` only for explicit Fusion model selection or default recovery; default requests omit `parameters.model` |
+| Image generation/editing | Fusion `generate` (`images/generations`) is the default for text-only creation; Fusion `edit` (`images/edits`) is the default with source images. Omit `parameters.model` to use backend defaults without first listing models. On confirmed Fusion failure, use platform fallbacks: `micro-generate`, `variation`, `mix`, or `extend`; explicit platform types remain available. Explicit Fusion model selection uses the opaque `model_ref` from `list_iyw_image_models`. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. `delivery.registerArtifact` defaults to false; set true only when the image itself is selected as a final deliverable in this conversation. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Known IYW website API | `fetch_iyw_url`: HTTPS `iyw.cn` and all subdomains; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS; JSON/form/text bodies and ordinary header overrides; current login token supplied by the host; fixed output envelope |
 | Memory recall / learning / retirement | Call `manage_iyw_memory` directly with `operation` and its inline `parameters`; policy preflight is automatic |

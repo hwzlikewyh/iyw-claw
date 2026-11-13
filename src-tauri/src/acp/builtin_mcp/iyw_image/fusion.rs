@@ -19,18 +19,29 @@ pub(super) async fn generate(
     request: &ImageRequest,
 ) -> Result<ImageResult, rmcp::ErrorData> {
     let prompt = required_prompt(request.prompt.as_deref())?;
-    let (model_id, model_name) = select_model(service, &request.parameters, false).await?;
-    let models = load_catalog(service).await?;
-    validate_capabilities(&models, request, ("generate", &[]))?;
+    let selected = if has_model_parameter(&request.parameters) {
+        let selected = select_model(service, &request.parameters, false).await?;
+        let models = load_catalog(service).await?;
+        validate_capabilities(&models, request, ("generate", &[]))?;
+        Some(selected)
+    } else {
+        None
+    };
     let mut payload = request.parameters.clone();
-    payload.insert("model".to_string(), Value::String(model_id));
+    if let Some((model_id, _)) = &selected {
+        payload.insert("model".to_string(), Value::String(model_id.clone()));
+    }
     payload.insert("prompt".to_string(), Value::String(prompt));
     payload.entry("n").or_insert(Value::from(1));
+    let model_name = selected
+        .as_ref()
+        .map(|(_, name)| name.as_str())
+        .unwrap_or("image processing");
     let response = service
         .post_fusion("images/generations", Value::Object(payload))
         .await
-        .map_err(|error| super::errors::model_failure(error, &model_name))?;
-    output::finish(service, "generate", (&model_name, &response)).await
+        .map_err(|error| super::errors::model_failure(error, model_name))?;
+    output::finish(service, "generate", (model_name, &response)).await
 }
 
 pub(super) async fn edit(
@@ -42,9 +53,19 @@ pub(super) async fn edit(
     if images.is_empty() {
         return Err(invalid("edit requires at least one image"));
     }
-    let (model_id, model_name) = select_model(service, &request.parameters, true).await?;
-    let models = load_catalog(service).await?;
-    validate_capabilities(&models, request, ("edit", images))?;
+    let selected = if has_model_parameter(&request.parameters) {
+        let selected = select_model(service, &request.parameters, true).await?;
+        let models = load_catalog(service).await?;
+        validate_capabilities(&models, request, ("edit", images))?;
+        Some(selected)
+    } else {
+        None
+    };
+    let model_name = selected
+        .as_ref()
+        .map(|(_, name)| name.as_str())
+        .unwrap_or("image processing");
+    let model_id = selected.as_ref().map(|(model, _)| model.clone());
     let payload = build_edit_payload((request, images), (model_id, prompt))?;
     tracing::info!(
         image_count = images.iter().filter(|image| image.role != "mask").count(),
@@ -55,17 +76,19 @@ pub(super) async fn edit(
     let response = service
         .post_fusion("images/edits", payload)
         .await
-        .map_err(|error| super::errors::model_failure(error, &model_name))?;
-    output::finish(service, "edit", (&model_name, &response)).await
+        .map_err(|error| super::errors::model_failure(error, model_name))?;
+    output::finish(service, "edit", (model_name, &response)).await
 }
 
 fn build_edit_payload(
     (request, images): (&ImageRequest, &[PreparedImage]),
-    (model, prompt): (String, String),
+    (model, prompt): (Option<String>, String),
 ) -> Result<Value, rmcp::ErrorData> {
     let mut payload = request.parameters.clone();
     payload.retain(|key, value| key != "mask" && !value.is_null());
-    payload.insert("model".to_string(), Value::String(model));
+    if let Some(model) = model {
+        payload.insert("model".to_string(), Value::String(model));
+    }
     payload.insert("prompt".to_string(), Value::String(prompt));
     let mut sources = Vec::new();
     for image in images {
@@ -88,7 +111,9 @@ pub(super) async fn select_model(
     parameters: &Map<String, Value>,
     editing: bool,
 ) -> Result<(String, String), rmcp::ErrorData> {
-    let requested = requested_model(parameters)?;
+    let requested = requested_model(parameters)?.ok_or_else(|| {
+        invalid("an explicit model_ref is required when selecting a Fusion image model")
+    })?;
     let mut models = load_catalog(service).await?;
     if !models.iter().any(|item| {
         supports_operation(item, editing) && model_ref(item).as_deref() == Some(requested)
@@ -106,7 +131,9 @@ pub(super) fn resolve_model(
     parameters: &Map<String, Value>,
     editing: bool,
 ) -> Result<(String, String), rmcp::ErrorData> {
-    let requested = requested_model(parameters)?;
+    let requested = requested_model(parameters)?.ok_or_else(|| {
+        invalid("an explicit model_ref is required when selecting a Fusion image model")
+    })?;
     let model = models
         .iter()
         .find(|item| {
@@ -128,18 +155,29 @@ pub(super) fn resolve_model(
     Ok((id.to_string(), name.to_string()))
 }
 
-pub(super) fn requested_model(parameters: &Map<String, Value>) -> Result<&str, rmcp::ErrorData> {
-    parameters
-        .get("model")
-        .and_then(Value::as_str)
+pub(super) fn requested_model(
+    parameters: &Map<String, Value>,
+) -> Result<Option<&str>, rmcp::ErrorData> {
+    let Some(value) = parameters.get("model").filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    value
+        .as_str()
         .filter(|reference| is_model_ref(reference))
+        .map(Some)
         .ok_or_else(|| {
             tracing::warn!(
                 target: "builtin_mcp",
                 "[iyw-image] Fusion request rejected before execution: opaque model_ref required"
             );
-            invalid("generate (including auto without images) and edit require an opaque model_ref in parameters.model. Call list_iyw_image_models, select a model_ref supporting image_generation for generate or image_editing for edit, and copy it unchanged into parameters.model. Raw model IDs and display names are rejected. No prior platform failure is required and no default model is selected. edit also requires a source image")
+            invalid("parameters.model must be an opaque model_ref selected from list_iyw_image_models, or omitted to use the configured default image model. Raw model IDs and display names are rejected")
         })
+}
+
+fn has_model_parameter(parameters: &Map<String, Value>) -> bool {
+    parameters
+        .get("model")
+        .is_some_and(|value| !value.is_null())
 }
 
 // 候选预检与实际调用共享同一份目录声明。
@@ -148,7 +186,9 @@ pub(super) fn validate_capabilities(
     request: &ImageRequest,
     (kind, images): (&str, &[PreparedImage]),
 ) -> Result<(), rmcp::ErrorData> {
-    let reference = requested_model(&request.parameters)?;
+    let Some(reference) = requested_model(&request.parameters)? else {
+        return Ok(());
+    };
     if let Some(model) = models
         .iter()
         .find(|model| model_ref(model).as_deref() == Some(reference))

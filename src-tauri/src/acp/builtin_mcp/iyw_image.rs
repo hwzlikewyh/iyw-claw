@@ -99,40 +99,14 @@ fn validate_request(request: &ImageRequest) -> Result<(), rmcp::ErrorData> {
     Ok(())
 }
 
-fn select_kind(kind: Option<&str>, prompt: &Option<String>, image_count: usize) -> String {
+fn select_kind(kind: Option<&str>, _prompt: &Option<String>, image_count: usize) -> String {
     if let Some(kind) = kind.filter(|value| !value.trim().is_empty() && *value != "auto") {
         return kind.to_string();
     }
-    let text = prompt.as_deref().unwrap_or_default().to_ascii_lowercase();
     if image_count == 0 {
         "generate".to_string()
-    } else if image_count == 1
-        && [
-            "系列",
-            "延展",
-            "延伸",
-            "延申",
-            "四宫格",
-            "4宫格",
-            "四格",
-            "extend",
-            "series",
-            "four-panel",
-            "four panel",
-            "4-panel",
-            "4 panel",
-            "2x2",
-            "2 x 2",
-            "2×2",
-        ]
-        .iter()
-        .any(|term| text.contains(term))
-    {
-        "extend".to_string()
-    } else if image_count == 1 {
-        "variation".to_string()
     } else {
-        "mix".to_string()
+        "edit".to_string()
     }
 }
 

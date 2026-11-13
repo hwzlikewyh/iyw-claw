@@ -52,7 +52,7 @@ impl ImageRequest {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct FallbackRequest {
     #[serde(rename = "type")]

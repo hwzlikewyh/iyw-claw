@@ -24,10 +24,14 @@ pub(super) fn validate_batch(request: &ImageBatchRequest) -> Result<(), rmcp::Er
         ensure_image_enabled(item.kind.as_deref())?;
         validate_request(item)?;
         validate_batch_item(item, &mut ids)?;
-        executions = executions.saturating_add(
-            item.count()
-                .saturating_mul(item.fallbacks.len().saturating_add(1)),
-        );
+        let kind = select_kind(item.kind.as_deref(), &item.prompt, item.images.len());
+        let automatic_fallback = recovery::automatic_platform_kind(item, &kind).is_some();
+        let candidates = item
+            .fallbacks
+            .len()
+            .saturating_add(1)
+            .saturating_add(usize::from(automatic_fallback));
+        executions = executions.saturating_add(item.count().saturating_mul(candidates));
     }
     if executions > MAX_BATCH_EXECUTIONS {
         return Err(super::super::invalid(

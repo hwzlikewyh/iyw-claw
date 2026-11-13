@@ -27,19 +27,22 @@ pub(in crate::acp::builtin_mcp::iyw_image) fn prepare_candidates(
     if request.fallbacks.len() > MAX_FALLBACKS {
         return Err(invalid("fallbacks accepts at most 3 candidates"));
     }
-    if request.fallbacks.is_empty() {
+    let fallbacks = super::platform::candidates(request, kind);
+    if fallbacks.is_empty() {
         return Ok(Vec::new());
     }
     validate_counts(request)?;
     let mut candidates: Vec<ImageRequest> = Vec::new();
-    for fallback in &request.fallbacks {
+    for fallback in &fallbacks {
         if fallback.kind.trim().is_empty() || fallback.kind == "auto" {
             return Err(invalid("each fallback requires an explicit type"));
         }
         ensure_image_enabled(Some(&fallback.kind))?;
         let candidate = request.candidate(fallback, kind);
         validate_request(&candidate)?;
-        validate_counts(&candidate)?;
+        if !request.fallbacks.is_empty() {
+            validate_counts(&candidate)?;
+        }
         validate_preserved_inputs(request, &candidate)?;
         preflight_kind(&candidate, &fallback.kind, images)?;
         if same_route(request, kind, &candidate)
@@ -115,6 +118,9 @@ pub(in crate::acp::builtin_mcp::iyw_image) async fn validate_models(
         return Ok(());
     }
     for (request, kind) in requests {
+        if request.parameters.get("model").is_none_or(Value::is_null) {
+            continue;
+        }
         fusion::select_model(service, &request.parameters, kind == "edit").await?;
         let models = crate::acp::builtin_mcp::iyw_image_models::load_catalog(service).await?;
         fusion::validate_capabilities(&models, request, (kind, images))?;
