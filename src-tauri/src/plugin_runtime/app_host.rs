@@ -267,6 +267,7 @@ fn allowed_method(method: &str) -> bool {
             | "ui/open-link"
             | "ui/download-file"
             | "ui/message"
+            | "ui/iyw/authorize-message"
             | "ui/request-display-mode"
             | "ui/update-model-context"
             | "ui/resource-teardown"

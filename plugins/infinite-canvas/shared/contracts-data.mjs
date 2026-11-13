@@ -71,6 +71,30 @@ const scene = {
 }
 
 export const contracts = Object.freeze({
+  download_infinite_canvas_image: {
+    schemaPath: "contracts/download-infinite-canvas-image.schema.json",
+    description: "Download an already-generated image from the authorized image storage into workspace assets. This never generates another image; repeated calls reuse the saved asset.",
+    readOnlyHint: false,
+    inputSchema: schema({ url: { type: "string", minLength: 1, maxLength: 8192 } }, ["url"]),
+  },
+  infinite_canvas_host_context: {
+    schemaPath: "contracts/infinite-canvas-host-context.schema.json",
+    description: "Read the current Yuan Assistant window binding and selected model. Available only through the authorized host app bridge.",
+    readOnlyHint: true,
+    inputSchema: schema({}),
+  },
+  infinite_canvas_model_job: {
+    schemaPath: "contracts/infinite-canvas-model-job.schema.json",
+    description: "Read and complete a user-requested Canvas generation job through the current assistant conversation. Read first; do not regenerate completed or cancelled jobs. Return generated workspace files, text or a protocol response; never credentials.",
+    readOnlyHint: false,
+    inputSchema: schema({
+      operation: { enum: ["read", "status", "complete", "fail", "cancel"] },
+      requestId: { type: "string", pattern: "^[a-f0-9-]{36}$" },
+      response: { type: "object", additionalProperties: true },
+      images: { type: "array", minItems: 1, maxItems: 16, items: { type: "object", properties: { sourcePath: { type: "string", minLength: 1 }, mimeType: { enum: ["image/png", "image/jpeg", "image/webp", "image/gif"] } }, required: ["sourcePath", "mimeType"], additionalProperties: false } },
+      error: { type: "string", maxLength: 2000 },
+    }, ["operation", "requestId"]),
+  },
   infinite_canvas_model_request: {
     schemaPath: "contracts/infinite-canvas-model-request.schema.json",
     description: "Call the host-authenticated local model gateway for text and image generation.",

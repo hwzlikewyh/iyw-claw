@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "name": "infinite-canvas",
-  "version": "0.1.19",
+  "version": "0.1.22",
   "minClientVersion": "0.1.332",
   "targets": ["iyw-claw"],
   "components": {
@@ -28,6 +28,9 @@
       { "key": "infinite-canvas-image-workflow", "path": "skills/infinite-canvas-image-workflow", "requiresConnectors": ["infinite-canvas-mcp"] }
     ],
     "capabilities": [
+      {"key":"download-image","id":"plugin.infinite-canvas.asset.download-image.v1","connectorKey":"infinite-canvas-mcp","toolName":"download_infinite_canvas_image","schemaPath":"contracts/download-infinite-canvas-image.schema.json","description":"Download an already-generated image from the authorized image storage into workspace assets. This never generates another image; repeated calls reuse the saved asset.","intentTerms":["canvas","image","download"],"readOnlyHint":false},
+      {"key":"host-context","id":"plugin.infinite-canvas.host.context.v1","connectorKey":"infinite-canvas-mcp","toolName":"infinite_canvas_host_context","schemaPath":"contracts/infinite-canvas-host-context.schema.json","description":"Read the current Yuan Assistant window binding and selected model. Available only through the authorized host app bridge.","intentTerms":["canvas","host","window"],"readOnlyHint":true},
+      {"key":"model-job","id":"plugin.infinite-canvas.host.model-job.v1","connectorKey":"infinite-canvas-mcp","toolName":"infinite_canvas_model_job","schemaPath":"contracts/infinite-canvas-model-job.schema.json","description":"Read and complete a user-requested Canvas generation job through the current assistant conversation. Read first; do not regenerate completed or cancelled jobs. Return generated workspace files, text or a protocol response; never credentials.","intentTerms":["canvas","generation","result"],"readOnlyHint":false},
       { "key": "render-canvas", "id": "plugin.infinite-canvas.canvas.render-canvas.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "render_infinite_canvas_widget", "schemaPath": "contracts/render-infinite-canvas-widget.schema.json", "description": "Open the Infinite Canvas MCP App widget.", "intentTerms": ["infinite canvas", "canvas", "open"], "readOnlyHint": true },
       { "key": "get-canvas-state", "id": "plugin.infinite-canvas.canvas.get-canvas-state.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "get_infinite_canvas_state", "schemaPath": "contracts/get-infinite-canvas-state.schema.json", "description": "Read the current project canvas scene.", "intentTerms": ["canvas", "state", "scene"], "readOnlyHint": true },
       { "key": "get-selection", "id": "plugin.infinite-canvas.canvas.get-selection.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "get_infinite_canvas_selection", "schemaPath": "contracts/get-infinite-canvas-selection.schema.json", "description": "Read the current canvas selection.", "intentTerms": ["canvas", "selection"], "readOnlyHint": true },
@@ -48,7 +51,7 @@
   "permissions": {
     "workspace": { "read": ["canvas/infinite-canvas"], "write": ["canvas/infinite-canvas"] },
     "network": {
-      "connectDomains": ["https://raw.githubusercontent.com"],
+      "connectDomains": ["https://raw.githubusercontent.com", "https://vol-ai.iywtu.com"],
       "resourceDomains": ["https://raw.githubusercontent.com"],
       "frameDomains": []
     },

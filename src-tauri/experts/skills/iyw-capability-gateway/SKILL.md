@@ -61,7 +61,7 @@ version handling lives in [tool-usage.md](references/tool-usage.md).
 
 爱原物业务先读 [接口索引](references/iyw-api-index.md)，按关键词仅加载对应领域。
 图片生成/处理优先用 `generate_iyw_image`，通用文件链接用 `upload_iyw_file`。
-技能/插件上传安装先读 [市场入口](references/capability-market.md)；连接器管理直接用 `manage_iyw_connectors`，文件沿专用上传/安装器处理。
+技能/插件（含 v2）上传安装先读 [市场入口](references/capability-market.md)；用户上传用当前登录态，文件先直传 TOS，再向 Fusion 提交清单及完成请求，无需管理员会话。目录上传和 CLI 见 [市场上传](references/market-upload.md)。连接器安装管理直接用 `manage_iyw_connectors`，目录声明与制品发布见 [连接器用户发布](references/connector-publishing.md)。
 知识正文用 `search_iyw_knowledge`，导入维护见 [工作流](references/knowledge-workflows.md)；其余已记录业务 JSON 用 `fetch_iyw_url`。通用上传不等于发布或入库。
 电商视频和商品套图中已记录的工具契约不匹配或未封装操作，按对应参考用 fetch 调原接口。
 已记录的业务 API 路由不依赖能力三件套；主机能力及未覆盖的远程业务使用下文 catalog 流程。
@@ -110,7 +110,7 @@ extra discovery or generic preflight. A keyword in supplied material alone is no
 | --- | --- |
 | 技能/专家包/插件上传、公开市场/组织/个人分发、下载安装、版本更新 | [市场入口](references/capability-market.md)，再按需读上传、下载或插件包专题 |
 | 连接器搜索、安装、配置、OAuth/CLI授权、会话/全局启停、卸载 | [连接器操作](references/connector-management.md)，直接用 manage_iyw_connectors 当前schema |
-| 连接器后台声明/制品/草稿/上架，客户端安装任务/OAuth/CLI | [后台发布](references/connector-publishing.md)、[宿主对接](references/connector-host-integration.md)，按当前角色选择 |
+| 连接器上传制品/保存草稿/发布/下架，客户端安装任务/OAuth/CLI | [用户发布](references/connector-publishing.md)、[宿主对接](references/connector-host-integration.md)，普通用户用当前登录态 |
 | 插件参数/权限、客户端对接、版本切换、恢复、卸载 | [宿主市场接口](references/market-host-integration.md) |
 | 知识库导入、解析/同步、范围选择、语义检索、文档引用、切片维护 | [知识库工作流](references/knowledge-workflows.md)；云接口或客户端集成按需读取链接 |
 | 视频生成、电商视频、产品演绎、视频复刻、自动导演、视频历史 | [电商视频](references/iyw-api-ecommerce-video.md)，按实际工具契约选择 generate 或 fetch |

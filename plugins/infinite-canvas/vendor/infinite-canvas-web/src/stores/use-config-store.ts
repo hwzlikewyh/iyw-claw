@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { hostModelsReady } from "@/lib/host-model-state";
 
 export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -11,6 +12,7 @@ export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
 export type ChannelModel = {
     name: string;
+    displayName?: string;
     capability: ModelCapability;
     script?: string;
 };
@@ -88,23 +90,18 @@ export const defaultConfig: AiConfig = {
     channels: [
         {
             id: "default",
-            name: "iyw-claw 本地网关",
+            name: "原助理",
             baseUrl: IYW_GATEWAY_BASE_URL,
             apiKey: "",
             apiFormat: "openai",
-            models: [
-                { name: "gpt-image-2", capability: "image" },
-                { name: "grok-imagine-video", capability: "video" },
-                { name: "gpt-5.5", capability: "text" },
-                { name: "gpt-4o-mini-tts", capability: "audio" },
-            ],
+            models: [],
         },
     ],
-    model: "default::gpt-image-2",
-    imageModel: "default::gpt-image-2",
-    videoModel: "default::grok-imagine-video",
-    textModel: "default::gpt-5.5",
-    audioModel: "default::gpt-4o-mini-tts",
+    model: "",
+    imageModel: "",
+    videoModel: "",
+    textModel: "",
+    audioModel: "",
     audioVoice: "alloy",
     audioFormat: "mp3",
     audioSpeed: "1",
@@ -116,7 +113,7 @@ export const defaultConfig: AiConfig = {
     videoMode: "frames",
     systemPrompt: "",
     reasoningEffort: "auto",
-    models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
+    models: [],
     quality: "auto",
     size: "1:1",
     background: "",
@@ -210,6 +207,7 @@ export function resolveModelScript(config: AiConfig, value: string) {
 
 function isAiConfigReady(config: AiConfig, model: string) {
     const match = findChannelModel(config, model);
+    if (match && isIywGatewayBaseUrl(match.channel.baseUrl) && !hostModelsReady()) return false;
     return Boolean(match && match.channel.baseUrl.trim() && (isIywGatewayBaseUrl(match.channel.baseUrl) || match.channel.apiKey.trim()));
 }
 
@@ -311,7 +309,8 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script });
+        const displayName = typeof item === "string" ? undefined : item.displayName?.trim() || undefined;
+        result.push({ name, capability, script, displayName });
     }
     return result;
 }
@@ -414,7 +413,8 @@ export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     if (!decoded) return value;
     const channel = config.channels.find((item) => item.id === decoded.channelId);
-    return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
+    const name = channel?.models.find((model) => model.name === decoded.model)?.displayName || decoded.model;
+    return channel ? `${name}（${channel.name}）` : name;
 }
 
 export function modelOptionsFromChannels(channels: ModelChannel[]) {
@@ -427,6 +427,7 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
     const decoded = decodeChannelModel(model);
     if (decoded) {
         const channel = channels.find((item) => item.id === decoded.channelId);
+        if (channel && isIywGatewayBaseUrl(channel.baseUrl)) return model;
         return channel && channel.models.some((item) => item.name === decoded.model) ? model : "";
     }
     const channel = channels.find((item) => item.models.some((entry) => entry.name === model)) || channels[0];

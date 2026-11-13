@@ -7,10 +7,10 @@ export type RuntimeErrorCode =
   | "asset_upload_invalid"
   | "asset_upload_incomplete"
   | "asset_hash_mismatch"
+  | "asset_download_failed"
   | "runtime_unavailable"
   | "resource_not_found"
   | "migration_target_exists"
-  | "client_upgrade_required"
 
 export class CanvasRuntimeError extends Error {
   readonly code: RuntimeErrorCode

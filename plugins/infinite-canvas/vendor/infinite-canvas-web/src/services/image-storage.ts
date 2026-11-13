@@ -4,6 +4,8 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { withLocalProxy } from "@/stores/use-config-store";
 import { createImageThumbnail } from "@/lib/image-thumbnail";
+import { ImageDownloadError } from "./image-download-error";
+import type {} from "../../../../widget/src/upstream/host-bridge";
 
 export type UploadedImage = {
     url: string;
@@ -36,6 +38,19 @@ type ImageReadOptions = { signal?: AbortSignal };
 
 export async function uploadImage(input: string | Blob, options?: ImageReadOptions): Promise<UploadedImage> {
     if (typeof input !== "string") return storeImage(input, options);
+    const assets = window.__IYW_CANVAS_BRIDGE__?.assets;
+    if (assets && /^https?:\/\//i.test(input)) {
+        try {
+            throwIfAborted(options?.signal);
+            const asset = await assets.importUrl(input);
+            throwIfAborted(options?.signal);
+            const blob = await fetchImageBlob(await assets.getUrl(asset), options);
+            return await storeImage(blob, options);
+        } catch (error) {
+            if (options?.signal?.aborted) throw error;
+            throw new ImageDownloadError(input);
+        }
+    }
 
     let blob: Blob;
     try {

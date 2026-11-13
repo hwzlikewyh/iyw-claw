@@ -28,6 +28,8 @@ mod plugin_storage_io;
 mod plugin_storage_removal;
 mod plugin_types;
 mod routing_description;
+mod direct_upload;
+mod publish;
 mod types;
 
 pub use auto_update::task as auto_update_task;
@@ -284,101 +286,7 @@ pub async fn versions_core(
     }
 }
 
-pub async fn publish_core(
-    conn: &DatabaseConnection,
-    request: SkillMarketPublishRequest,
-) -> Result<SkillMarketDetail, AppCommandError> {
-    routing_description::validate_routing_descriptions(&request.files, request.package_type)?;
-    let dependencies = serialize_dependencies(&request.dependencies)?;
-    let form = client::upload_form(
-        vec![
-            ("slug", request.slug),
-            ("displayName", request.display_name),
-            ("summary", request.summary),
-            ("category", request.category),
-            ("iconUrl", request.icon_url.unwrap_or_default()),
-            ("visibility", request.visibility),
-            ("version", request.version),
-            ("changelog", request.changelog),
-            (
-                "packageType",
-                package_type_value(request.package_type).to_string(),
-            ),
-            ("dependencies", dependencies),
-        ],
-        &request.tags,
-        request.files,
-    )?;
-    let builder = client::request(conn, Method::POST, "/skills")
-        .await?
-        .multipart(form)
-        .timeout(client::transfer_timeout());
-    let skill: SkillMarketItem = parse_value(
-        client::send(builder).await.map_err(|error| {
-            tracing::error!(error = %error, "[skill-market] publish request failed");
-            error
-        })?,
-        Some("skill"),
-    )?;
-    tracing::info!(skill_id = %skill.id, slug = %skill.slug, "[skill-market] Skill published");
-    Ok(refresh_detail_or_minimal(conn, skill).await)
-}
-
-pub async fn add_version_core(
-    conn: &DatabaseConnection,
-    request: SkillMarketAddVersionRequest,
-) -> Result<SkillMarketDetail, AppCommandError> {
-    routing_description::validate_routing_descriptions(&request.files, request.package_type)?;
-    let id = request.id;
-    let dependencies = serialize_dependencies(&request.dependencies)?;
-    let mut fallback = detail_core(conn, id.clone(), None).await?;
-    let form = client::upload_form(
-        vec![
-            ("id", parse_id(&id)?.to_string()),
-            ("version", request.version),
-            ("changelog", request.changelog),
-            (
-                "packageType",
-                package_type_value(request.package_type).to_string(),
-            ),
-            ("dependencies", dependencies),
-        ],
-        &[],
-        request.files,
-    )?;
-    let builder = client::request(conn, Method::POST, "/skills/versions")
-        .await?
-        .multipart(form)
-        .timeout(client::transfer_timeout());
-    let version: SkillMarketVersion = parse_value(
-        client::send(builder).await.map_err(|error| {
-            tracing::error!(skill_id = %id, error = %error, "[skill-market] add version request failed");
-            error
-        })?,
-        Some("version"),
-    )?;
-    fallback.skill.current_version = version;
-    fallback.files.clear();
-    tracing::info!(skill_id = %id, version = %fallback.skill.current_version.version, "[skill-market] Skill version published");
-    Ok(refresh_detail_or_fallback(conn, id, fallback).await)
-}
-
-fn serialize_dependencies(
-    dependencies: &[SkillDependencyInput],
-) -> Result<String, AppCommandError> {
-    serde_json::to_string(dependencies).map_err(|error| {
-        AppCommandError::invalid_input("Failed to serialize Skill dependencies")
-            .with_detail(error.to_string())
-    })
-}
-
-fn package_type_value(package_type: SkillPackageType) -> &'static str {
-    match package_type {
-        SkillPackageType::Skill => "skill",
-        SkillPackageType::Expert => "expert",
-        SkillPackageType::Plugin => "plugin",
-    }
-}
+pub use publish::{add_version_core, publish_core};
 
 pub async fn update_metadata_core(
     conn: &DatabaseConnection,

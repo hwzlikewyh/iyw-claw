@@ -36,11 +36,11 @@
 
 普通用户创建时，组织目标来自身份服务返回的 caihongId；用户 API 不接受客户端指定另一组织。不传 audience 时，普通用户 public 默认 **organization**，private 默认 owner_private；官方 public 默认 global_market。不能把 public 直接翻译为“全平台公开”。
 
-普通用户的技能、专家包和v1插件可显式选择 global_market，不需要冒充官方。**v2 HostGateway插件当前不允许普通用户提交**：用户complete会返回SKILL_FORBIDDEN，管理complete也要求目标为official包。必须交由已有授权的管理员用官方包流程发布，不能靠修改audience或packageType绕过。
+普通用户的技能、专家包和 v1/v2 插件均可显式选择 global_market，不需要管理员会话。文件先逐个 PUT TOS，再调用用户 complete；v2 仍须满足完整清单、准备声明和最低宿主版本校验。
 
-publisherType=user／official 与 audience 独立，official 标识只能由管理员维护。组织成员可读不等于成员都能修改；客户端以响应 ownedByMe、canManage 判断操作入口，服务端最终授权。v2组织分发由管理员对实际官方项目配置organization及真实audienceCaihongId，再验证目标成员访问。
+publisherType=user／official 与 audience 独立，official 标识只能由管理员维护。组织成员可读不等于成员都能修改；客户端以响应 ownedByMe、canManage 判断操作入口，服务端最终授权。用户 v2 组织分发与其他用户包一致，目标来自当前账户的 caihongId，再验证目标成员访问。
 
-**v2不能凭owner_private指定任意个人**：官方创建者为平台身份，当前管理update没有转移所有权／targetUserId字段。owner_private仍按实际创建者判断，不会自动指向管理员或指定用户。当前可明确提供的是普通用户技能／专家包／v1插件的个人私有发布；v2指定个人分发缺少已确认的服务端入口，不能虚构请求。
+owner_private 按实际创建者判断：用户上传的 v2 私有包属于该用户；官方包仍属于平台身份。该字段不能指定任意其他个人，也不代表转移所有权。
 
 ### 已有项目切换范围
 
@@ -62,7 +62,7 @@ publisherType=user／official 与 audience 独立，official 标识只能由管�
 
 改为公开市场前，根包和整个依赖图必须都能公开分发；不能让公开包依赖组织／个人私有包。更改受众不修改已发布版本的字节、清单和摘要。
 
-主机 manage_iyw_connectors.publish_plugin 的 request **没有 audience**，不能往当前 schema 加字段。该路径先按 visibility 创建；如果用户要求全平台公开，在创建成功并取得真实 id 后，用 update_market_metadata 显式设置 global_market。仅生成包的请求不包含外部发布授权。
+主机 manage_iyw_connectors.publish_plugin 的 request 支持可选 audience；公开市场直接传 global_market，组织传 organization，个人传 owner_private，避免先发错受众再改。旧宿主 schema 尚未提供该字段时，以该宿主真实 schema 为准，创建后按用户授权用 update_market_metadata 设置目标受众。仅生成包的请求不包含外部发布授权。
 
 “个人市场”还可能指某个原生 Agent 的本地 marketplace.json。它与本平台 owner_private 云项目是不同存储和分发机制，不能用生成本地索引代替云端上传成功。
 
@@ -71,6 +71,7 @@ publisherType=user／official 与 audience 独立，official 标识只能由管�
 | 服务 | 基础地址 | 鉴权及返回 |
 | --- | --- | --- |
 | 技能／专家包／插件用户 API | https://gateway.iyw.cn/iyw-fusion-api | 登录 token；通常 code=1，data 为结果 |
+| 连接器用户发布 API | 同一 Fusion 基址 /connector-market/* | 登录 token；先 TOS 直传，再提交 uploadToken 和声明 |
 | 连接器用户目录 | https://gateway.iyw.cn/iyw-fusion-mcp-gateway/api/connector-market | 登录 token；宿主解析 data |
 | 管理后台 | Fusion 基址下 /admin/api | admin-token；普通 Agent 通过后台操作，不索要管理员凭据 |
 | 当前桌面／服务端 | 已配置 transport 的 /api 入口 | 使用当前宿主认证，不能使用云端 token 替代宿主权限 |

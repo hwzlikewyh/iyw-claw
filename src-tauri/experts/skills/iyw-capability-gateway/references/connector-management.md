@@ -79,7 +79,7 @@ MCP OAuth 与供应商业务登录可能分开。插件还可声明自己的 sta
 
 ## 通过本工具发布插件
 
-只适用于 .iyw-plugin.json 中 components.connectors 非空、且用户发布接口允许的v1可移植插件。v2虽可能通过前置文件检查，仍会被用户complete拒绝，应走已授权管理员官方包流程。单纯MCP配置、纯技能或无连接器插件不能借此发布。先按 [插件包](plugin-packaging.md) 校验；files每项 {path,contentBase64,size} 的编码必须来自实际文件。
+适用于 .iyw-plugin.json 中 components.connectors 非空的 v1/v2 插件。普通用户登录即可发布，宿主逐文件 PUT TOS，Fusion 只收清单和完成请求。单纯 MCP 配置、纯技能或无连接器插件按 [市场上传](market-upload.md) 或 [连接器用户发布](connector-publishing.md) 处理。先按 [插件包](plugin-packaging.md) 校验；files 每项 {path,contentBase64,size} 仅是本地宿主输入，编码必须来自实际文件。
 
 新插件 request 字段：
 
@@ -101,7 +101,7 @@ MCP OAuth 与供应商业务登录可能分开。插件还可声明自己的 sta
 }
 ```
 
-这是形状示意，必须包含整个合法包的真实files，size也必须替换。iconUrl可选字符串／null。工具内部固定packageType=plugin，request不接受audience或packageType。按MCP工具schema最多512文件、解码总量25MiB；.iyw-plugin.json≤1MiB且必须声明连接器。宿主HTTP发布接口另按其部署版本和代理限制处理。
+这是形状示意，必须包含整个合法包的真实 files，size 也必须替换。iconUrl 可选字符串／null；audience 可选 global_market／organization／owner_private。工具内部固定 packageType=plugin，request 不接受 packageType。最多512文件；.iyw-plugin.json≤1MiB且必须声明连接器。大包使用目录脚本逐文件直传，避免整包 Base64 工具参数。
 
 新版使用 operation=publish_plugin_version，request 为 {id,version,changelog,dependencies?,files}；id 是上次发布返回的实际市场ID。不是重新起一个slug。
 

@@ -118,6 +118,7 @@ export interface SkillMarketItem {
   iconUrl: string | null
   tags: string[]
   visibility: SkillMarketVisibility
+  audience?: SkillMarketAudience
   publisherType: SkillMarketPublisher
   currentVersion: SkillMarketVersion
   ownedByMe: boolean

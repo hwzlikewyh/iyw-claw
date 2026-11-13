@@ -148,7 +148,7 @@ export function CanvasTopBar({
                         icon={<Bot className="size-4" />}
                         onClick={onToggleAgent}
                     >
-                        Agent
+                        {window.__IYW_CANVAS_BRIDGE__ ? t("hostAgent.name") : "Agent"}
                     </Button>
                 </div>
             </div>

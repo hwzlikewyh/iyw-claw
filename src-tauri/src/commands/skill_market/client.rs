@@ -90,37 +90,12 @@ pub(super) async fn decode_response(
     Ok(envelope.data)
 }
 
-pub fn upload_form(
-    fields: Vec<(&'static str, String)>,
-    tags: &[String],
-    files: Vec<SkillMarketUploadFile>,
-) -> Result<reqwest::multipart::Form, AppCommandError> {
-    let files = decode_upload_files(files)?;
-    let manifest = serde_json::json!({
-        "files": files.iter().enumerate().map(|(index, file)| serde_json::json!({
-            "field": format!("file_{index:04}"), "path": file.path,
-        })).collect::<Vec<_>>()
-    });
-    let mut form = reqwest::multipart::Form::new().text("manifest", manifest.to_string());
-    for (key, value) in fields {
-        form = form.text(key, value);
-    }
-    for tag in tags {
-        form = form.text("tags", tag.clone());
-    }
-    for (index, file) in files.into_iter().enumerate() {
-        let part = reqwest::multipart::Part::bytes(file.bytes).file_name("skill-file");
-        form = form.part(format!("file_{index:04}"), part);
-    }
-    Ok(form)
+pub(super) struct DecodedUploadFile {
+    pub path: String,
+    pub bytes: Vec<u8>,
 }
 
-struct DecodedUploadFile {
-    path: String,
-    bytes: Vec<u8>,
-}
-
-fn decode_upload_files(
+pub(super) fn decode_upload_files(
     files: Vec<SkillMarketUploadFile>,
 ) -> Result<Vec<DecodedUploadFile>, AppCommandError> {
     if files.is_empty() || files.len() > MAX_FILES {

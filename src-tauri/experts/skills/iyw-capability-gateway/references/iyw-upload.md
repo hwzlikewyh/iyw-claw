@@ -1,6 +1,6 @@
 # 通用文件上传
 
-本页上传只生成文件存储结果。技能／专家包／插件发布使用[市场上传](market-upload.md)，连接器安装制品使用[连接器后台](connector-publishing.md)，知识文档还须按[入库流程](knowledge-workflows.md)注册并验证解析。它们的格式、权限和大小限制分别适用，不能用一个通用URL替代。
+本页上传只生成文件存储结果。技能／专家包／插件发布使用[市场上传](market-upload.md)，连接器制品与声明使用[连接器用户发布](connector-publishing.md)，知识文档还须按[入库流程](knowledge-workflows.md)注册并验证解析。市场文件先使用各自接口取得 TOS PUT 链接，上传后向 Fusion 提交任务引用；不能用一个未经登记的通用 URL 替代。
 
 直接调用 `upload_iyw_file`，通常只填 `path` 和 `description`，不需要 search/read/invoke。文件类型不限，单文件最大 1 GiB，即 1,073,741,824 字节，恰好达到上限可上传，超过即在网络请求前拒绝。
 

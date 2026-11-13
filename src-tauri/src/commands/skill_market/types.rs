@@ -113,6 +113,8 @@ pub struct SkillMarketItem {
     #[serde(default, deserialize_with = "null_as_default")]
     pub tags: Vec<String>,
     pub visibility: String,
+    #[serde(default)]
+    pub audience: Option<String>,
     pub publisher_type: String,
     // Contract v2 fields. The gateway emits these (see internal/domain/skill
     // model.go); every one is `#[serde(default)]` so a pre-v2 gateway response
@@ -328,7 +330,7 @@ where
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+pub(super) fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

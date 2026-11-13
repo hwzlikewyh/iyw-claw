@@ -2,6 +2,18 @@ use super::plugin_app_tools::{find_instance, plugin_error};
 
 type PluginAppMessageBlocks = (Vec<crate::acp::types::PromptInputBlock>, String);
 
+pub(super) fn validate_app_message(
+    params: &serde_json::Value,
+) -> Result<(), crate::plugin_runtime::types::PluginInvokeError> {
+    if params.get("role").and_then(serde_json::Value::as_str) != Some("user") {
+        return Err(plugin_error(
+            "plugin_app_invalid",
+            "ui/message only accepts user messages",
+        ));
+    }
+    content_blocks(params).map(|_| ())
+}
+
 pub(super) async fn send_app_message(
     db: &crate::db::AppDatabase,
     manager: &crate::acp::manager::ConnectionManager,

@@ -295,9 +295,11 @@ async fn run_compact_task_inner_impl(
         fallback_instructions.text.clear();
     }
 
+    let provider_name = turn_context.provider.info().name.as_str();
     let max_retries = turn_context.provider.info().stream_max_retries();
     let request_budget = request_budget::RequestBudget::new();
     let mut retries = 0;
+    let mut managed_gateway_retries = 0;
     let compaction_start = std::time::Instant::now();
     // Reuse one client session so turn-scoped state (sticky routing and websocket incremental
     // request tracking) survives retries within this compact turn.
@@ -387,23 +389,40 @@ async fn run_compact_task_inner_impl(
             }
             Err(e) => {
                 let elapsed = compaction_start.elapsed();
-                if crate::responses_retry::is_retryable_response_error(&e)
+                let managed_gateway_timeout =
+                    crate::responses_retry::is_managed_gateway_timeout(provider_name, &e);
+                let retry_limit = if managed_gateway_timeout {
+                    crate::responses_retry::MANAGED_GATEWAY_MAX_RETRIES
+                } else {
+                    max_retries
+                };
+                let retries_for_limit = if managed_gateway_timeout {
+                    managed_gateway_retries
+                } else {
+                    retries
+                };
+                if (managed_gateway_timeout
+                    || crate::responses_retry::is_retryable_response_error(provider_name, &e))
                     && !crate::responses_retry::is_request_too_large(&e)
                     && !request_budget.is_exhausted()
-                    && retries < max_retries
+                    && retries_for_limit < retry_limit
                 {
                     retries += 1;
-                    let delay = backoff(retries);
+                    if managed_gateway_timeout {
+                        managed_gateway_retries += 1;
+                    }
+                    let retry_number = retries_for_limit + 1;
+                    let delay = backoff(retry_number);
                     tracing::warn!(
                         elapsed_ms = elapsed.as_millis(),
-                        retries = retries,
-                        max_retries = max_retries,
+                        retries = retry_number,
+                        max_retries = retry_limit,
                         error = %e,
                         "compaction attempt failed, retrying after delay"
                     );
                     sess.notify_stream_error(
                         turn_context.as_ref(),
-                        format!("Reconnecting... {retries}/{max_retries}"),
+                        format!("Reconnecting... {retry_number}/{retry_limit}"),
                         e,
                     )
                     .await;

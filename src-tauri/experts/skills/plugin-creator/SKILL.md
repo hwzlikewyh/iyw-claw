@@ -19,6 +19,13 @@ Use the bundled `scripts/import-native-plugin.mjs`; it captures the real MCP
 contracts and creates a Plugin v2 directory for the existing iyw-claw market.
 Do not use the scaffold validator or Codex marketplace commands for this mode.
 
+When the user authorizes publication to the Fusion market, follow
+[the user upload workflow](../iyw-capability-gateway/references/market-upload.md).
+User v1/v2 plugin uploads use the current signed-in account: upload file bytes
+directly to TOS, then submit the manifest and completion reference to Fusion.
+The workflow includes a directory CLI and does not require a folder picker or
+an administrator token. Creating a package alone does not authorize publication.
+
 ## Quick Start
 
 1. Run the scaffold script:

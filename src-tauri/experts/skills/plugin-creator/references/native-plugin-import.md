@@ -23,8 +23,10 @@ node scripts/import-native-plugin.mjs --source <native-plugin-directory> --outpu
 形式引用宿主变量，不得写入插件包；源 `.mcp.json` 不会被复制到导入制品。
 源目录内的 `.env*` 与私钥文件也会跳过。
 
-导入完成后，在原助理插件市场现有的上传入口选择整个输出目录，保留原文件夹名称，
-再安装并授予插件权限。发布到市场属于外部写入，须遵守用户已有授权；用户仅要求
+导入完成后，按网关 skill 的 [用户上传流程](../../iyw-capability-gateway/references/market-upload.md)
+用目录 CLI 或宿主发布器上传整个输出包；用户 v2 无需管理员会话，文件先直传 TOS，
+再向 Fusion 提交上传记录，去掉外层目录名后清单位于包根。然后安装并授予插件权限。
+发布到市场属于外部写入，须遵守用户已有授权；用户仅要求
 生成导入包时，到交付目录为止。现有安装器继续负责摘要、大小、契约、版本和权限校验。
 
 技能中的工具名通过 `search_iyw_capabilities` 和 `invoke_iyw_capability` 使用。

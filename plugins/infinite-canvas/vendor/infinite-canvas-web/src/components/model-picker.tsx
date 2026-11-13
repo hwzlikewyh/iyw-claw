@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { isIywGatewayBaseUrl, modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -22,8 +22,10 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
     const { t } = useTranslation();
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))), [capability, config, value]);
+    const hostModels = config.channels.some((channel) => isIywGatewayBaseUrl(channel.baseUrl));
+    const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" && !capability && !hostModels ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))), [capability, config, value, hostModels]);
     const current = value || "";
+    const unavailable = hostModels && current && !options.includes(current);
     const pickerPlaceholder = placeholder || t("settingsPanels.model.select");
 
     useEffect(() => {
@@ -39,11 +41,11 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
             open={open}
             value={current}
             onOpenChange={(nextOpen) => {
-                if (nextOpen && !options.length && config.channelMode === "local") onMissingConfig?.();
+                if (nextOpen && !options.length && config.channelMode === "local" && !hostModels) onMissingConfig?.();
                 if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
                 setOpen(nextOpen);
             }}
-            onValueChange={onChange}
+            onValueChange={(model) => model === "__refresh_host_models__" ? window.dispatchEvent(new Event("iyw-canvas-refresh-models")) : onChange(model)}
         >
             <SelectTrigger
                 className={cn(
@@ -57,7 +59,7 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
                 title={current ? modelOptionLabel(config, current) : pickerPlaceholder}
             >
                 <ModelIcon model={current} />
-                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{current ? modelOptionLabel(config, current) : pickerPlaceholder}</span>
+                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{unavailable ? t("hostAgent.modelUnavailable") : current ? modelOptionLabel(config, current) : pickerPlaceholder}</span>
             </SelectTrigger>
             <SelectContent
                 data-canvas-no-zoom
@@ -77,9 +79,10 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
                     ))
                 ) : (
                     <SelectItem value="__empty__" disabled>
-                        {emptyModelLabel(config, capability)}
+                        {hostModels ? t("hostAgent.modelsNone") : emptyModelLabel(config, capability)}
                     </SelectItem>
                 )}
+                {hostModels ? <SelectItem value="__refresh_host_models__">{t("hostAgent.modelsRefresh")}</SelectItem> : null}
             </SelectContent>
         </Select>
     );

@@ -34,11 +34,13 @@ pub(crate) fn should_retry_responses_with_current_model(
         )
         && !matches!(error.details(), CodexErrorDetails::UnexpectedStatus(response)
             if response.status == http::StatusCode::TOO_MANY_REQUESTS)
-        && (crate::responses_retry::is_retryable_response_error(error)
-            || matches!(
-                error.details(),
-                CodexErrorDetails::ModelNotFound { .. } | CodexErrorDetails::ContextWindowExceeded
-            ))
+        && (crate::responses_retry::is_retryable_response_error(
+            previous.provider.info().name.as_str(),
+            error,
+        ) || matches!(
+            error.details(),
+            CodexErrorDetails::ModelNotFound { .. } | CodexErrorDetails::ContextWindowExceeded
+        ))
 }
 
 fn may_use_current_model(error: &CodexErr, previous: &TurnContext, current: &TurnContext) -> bool {
