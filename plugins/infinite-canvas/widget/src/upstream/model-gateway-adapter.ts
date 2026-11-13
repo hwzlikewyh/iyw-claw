@@ -110,7 +110,12 @@ async function callGateway(
     arguments: { path, method, ...(body === undefined ? {} : { body }), ...(Object.keys(query).length ? { query } : {}) },
   })
   const text = response.content.find((item) => item.type === "text")?.text
-  if (response.isError || !text) throw new Error(text || "The local model gateway is unavailable")
+  if (!text) throw new Error("The local model gateway is unavailable")
+  if (response.isError) {
+    let message = text
+    try { message = (JSON.parse(text) as { message?: string }).message || text } catch { /* 保留宿主的原始错误 */ }
+    throw new Error(message)
+  }
   return JSON.parse(text) as GatewayResult
 }
 

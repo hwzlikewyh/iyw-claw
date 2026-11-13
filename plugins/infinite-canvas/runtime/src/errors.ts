@@ -10,6 +10,7 @@ export type RuntimeErrorCode =
   | "runtime_unavailable"
   | "resource_not_found"
   | "migration_target_exists"
+  | "client_upgrade_required"
 
 export class CanvasRuntimeError extends Error {
   readonly code: RuntimeErrorCode

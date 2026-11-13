@@ -18,7 +18,6 @@ const widgetPath = resolve(root, "widget/dist/infinite-canvas-widget.html")
 await mkdir(dirname(widgetPath), { recursive: true })
 await writeFile(widgetPath, widget, "utf8")
 if (rebuildWorkbench) await rm(workbenchDirectory, { recursive: true, force: true })
-if (rebuildWorkbench) await rm(workbenchDirectory, { recursive: true, force: true })
 const bytes = (await readFile(output)).byteLength
 console.log(JSON.stringify({ runtime: output, runtimeBytes: bytes, widget: widgetPath }, null, 2))
 
@@ -29,7 +28,7 @@ async function inlineWorkbench(directory) {
   const stylesheet = names.find((name) => extname(name) === ".css")
   if (!javascript || !stylesheet) throw new Error("workbench bundle is incomplete")
   const [script, styles] = await Promise.all([
-    readFile(join(directory, "assets", javascript), "utf8"),
+    bundleWorkbenchScript(),
     readFile(join(directory, "assets", stylesheet), "utf8"),
   ])
   const embeddedScript = await inlineModelIcons(script)
@@ -41,6 +40,20 @@ async function inlineWorkbench(directory) {
     .replace(styleTag[0], () => `<style>${styles}</style>`)
     .replace(/<link[^>]+modulepreload[^>]*>/g, "")
   return result
+}
+
+async function bundleWorkbenchScript() {
+  // 保留动态 import 的延迟初始化，等待沙箱存储桥接完成后再执行工作台模块。
+  const result = await buildRuntime({
+    entryPoints: [resolve(root, "widget/src/boot.ts")],
+    bundle: true, write: false, platform: "browser", format: "iife", target: "es2022", minify: true,
+    alias: { "@": resolve(root, "vendor/infinite-canvas-web/src") },
+    define: { "process.env.NODE_ENV": '"production"', "import.meta.env": "{}", __APP_VERSION__: '"0.20.0"', __APP_RELEASES__: "[]" },
+    plugins: [{ name: "workbench-css-from-vite", setup(build) {
+      build.onLoad({ filter: /\.css$/ }, () => ({ contents: "", loader: "js" }))
+    } }],
+  })
+  return result.outputFiles[0].text
 }
 
 async function inlineModelIcons(source) {
