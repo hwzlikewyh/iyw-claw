@@ -75,7 +75,10 @@ function SkillMarketContent() {
     if (connectorMarketRequested || pluginMarketRequested || skillMarketTarget)
       queueMicrotask(() => {
         if (active) {
-          if (skillMarketTarget) openSection("skills")
+          if (skillMarketTarget)
+            openSection(
+              skillMarketTarget.packageType === "plugin" ? "plugins" : "skills"
+            )
           else if (pluginMarketRequested) {
             openSection("plugins")
             consumePluginMarket()

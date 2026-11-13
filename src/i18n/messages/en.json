@@ -191,6 +191,8 @@
     "more": "More plugins",
     "open": "Open",
     "install": "Install",
+    "manage": "Manage",
+    "installedVersion": "Installed · v{version}",
     "prepare": "Prepare",
     "prepareContext": "Use this conversation",
     "limit": "Up to 8 plugin pages can stay open. Close an unused page first.",

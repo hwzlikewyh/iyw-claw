@@ -26,6 +26,7 @@ import type {
   SkillMarketMetadataRequestV2,
   SkillMarketPublishRequestV2,
 } from "@/lib/skill-market-source"
+import { notifySkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
 
 export function SkillMarketView({
   navigationTarget,
@@ -314,6 +315,7 @@ export function SkillMarketView({
         onInstalled={(skillId, version) => {
           market.applyInstalled(skillId, version)
           market.refresh()
+          notifySkillMarketInstallationsChanged()
         }}
         onClose={() => setPendingTarget(null)}
       />
@@ -336,11 +338,13 @@ export function SkillMarketView({
             market.applyUninstalled(uninstallTarget.id)
             market.refresh()
             inventory.refresh()
+            notifySkillMarketInstallationsChanged()
           }}
           onRecovered={(version) => {
             market.applyInstalled(uninstallTarget.id, version)
             market.refresh()
             inventory.refresh()
+            notifySkillMarketInstallationsChanged()
           }}
         />
       ) : null}

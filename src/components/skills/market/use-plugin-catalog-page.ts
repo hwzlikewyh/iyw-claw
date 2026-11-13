@@ -7,6 +7,22 @@ import {
 } from "@/lib/market-pagination"
 import { usePluginCatalog } from "./use-plugin-catalog"
 
+function matchesPluginSearch(
+  item: ReturnType<typeof usePluginCatalog>["items"][number],
+  needle: string
+) {
+  return [
+    item.displayName,
+    item.summary,
+    item.category,
+    item.organizationName ?? "",
+    ...item.tags,
+  ]
+    .join(" ")
+    .toLocaleLowerCase()
+    .includes(needle)
+}
+
 export function usePluginCatalogPage() {
   const [search, setSearch] = useState({
     view: "market" as "market" | "organization",
@@ -19,12 +35,7 @@ export function usePluginCatalogPage() {
   const catalog = usePluginCatalog(search.view)
   const items = useMemo(() => {
     const needle = search.query.trim().toLocaleLowerCase()
-    return catalog.items.filter((item) =>
-      [item.displayName, item.slug, item.summary, ...item.tags]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(needle)
-    )
+    return catalog.items.filter((item) => matchesPluginSearch(item, needle))
   }, [catalog.items, search.query])
   const page = Math.min(
     position.page,
