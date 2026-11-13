@@ -15,7 +15,7 @@
     "latency": "请求延迟",
     "download": "下载速率",
     "upload": "上传速率",
-    "targetHint": "测速目标：speed.cloudflare.com。下载约 1 MB、上传约 256 KB；每项最多等待 8 秒。小流量测试结果受目标服务和当前代理影响，包含请求开销，不代表线路最大带宽。",
+    "targetHint": "测速目标：SpeedTest.cn 国内节点。下载约 1 MB、上传约 256 KB；每项最多等待 8 秒。小流量测试结果受目标服务和当前代理影响，包含请求开销，不代表线路最大带宽。",
     "start": "开始测速",
     "test": "测速",
     "testing": "正在测量{phase}…",

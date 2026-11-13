@@ -8,9 +8,10 @@ use crate::app_error::AppCommandError;
 
 const DOMESTIC_LATENCY_TARGET: &str = "connect.rom.miui.com";
 const DOMESTIC_LATENCY_URL: &str = "https://connect.rom.miui.com/generate_204";
-const TRANSFER_TARGET: &str = "speed.cloudflare.com";
-const DOWNLOAD_URL: &str = "https://speed.cloudflare.com/__down";
-const UPLOAD_URL: &str = "https://speed.cloudflare.com/__up";
+// SpeedTest.cn 的公开南京节点，测速接口不经过应用服务端的代理层。
+const TRANSFER_TARGET: &str = "223.160.155.255:51090";
+const DOWNLOAD_URL: &str = "http://223.160.155.255:51090/download?size=1";
+const UPLOAD_URL: &str = "http://223.160.155.255:51090/upload";
 const DOWNLOAD_BYTES: usize = 1_000_000;
 const UPLOAD_BYTES: usize = 256_000;
 const RESPONSE_LIMIT_BYTES: usize = DOWNLOAD_BYTES + 16_384;
@@ -74,7 +75,7 @@ async fn measure_request(kind: NetworkProbeKind) -> Result<NetworkProbeResult, A
             response.status()
         )));
     }
-    let received = read_response(response).await?;
+    let received = read_response(response, kind).await?;
     let elapsed = started.elapsed();
     let bytes = measured_bytes(kind, received)?;
     Ok(NetworkProbeResult {
@@ -94,13 +95,7 @@ fn build_request(client: &Client, kind: NetworkProbeKind) -> RequestBuilder {
             .post(UPLOAD_URL)
             .header(header::CONTENT_TYPE, "application/octet-stream")
             .body(vec![0_u8; UPLOAD_BYTES]),
-        _ => client.get(DOWNLOAD_URL).query(&[(
-            "bytes",
-            match kind {
-                NetworkProbeKind::Download => DOWNLOAD_BYTES,
-                _ => 0,
-            },
-        )]),
+        NetworkProbeKind::Download => client.get(DOWNLOAD_URL),
     }
 }
 
@@ -111,10 +106,16 @@ fn target_host(kind: NetworkProbeKind) -> &'static str {
     }
 }
 
-async fn read_response(mut response: Response) -> Result<usize, AppCommandError> {
+async fn read_response(
+    mut response: Response,
+    kind: NetworkProbeKind,
+) -> Result<usize, AppCommandError> {
     let mut received = 0;
     while let Some(chunk) = response.chunk().await.map_err(request_error)? {
         received += chunk.len();
+        if matches!(kind, NetworkProbeKind::Download) && received >= DOWNLOAD_BYTES {
+            return Ok(DOWNLOAD_BYTES);
+        }
         if received > RESPONSE_LIMIT_BYTES {
             return Err(AppCommandError::network(
                 "Measurement response exceeds the size limit",

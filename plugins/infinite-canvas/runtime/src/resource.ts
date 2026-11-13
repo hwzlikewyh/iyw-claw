@@ -16,5 +16,5 @@ export async function readResource(uri: string) {
   const info = await stat(path).catch(() => undefined)
   if (!info || !info.isFile() || info.size > MAX_RESOURCE_BYTES) throw new CanvasRuntimeError("resource_not_found", "widget resource is unavailable")
   const text = await readFile(path, "utf8")
-  return { contents: [{ uri, mimeType: "text/html;profile=mcp-app", text, _meta: { "ui.csp": { connectDomains: [], resourceDomains: [], frameDomains: [] }, "ui.permissions": { clipboardWrite: true } } }] }
+  return { contents: [{ uri, mimeType: "text/html;profile=mcp-app", text, _meta: { "ui.csp": { connectDomains: ["https://raw.githubusercontent.com"], resourceDomains: ["https://raw.githubusercontent.com"], frameDomains: [] }, "ui.permissions": { clipboardWrite: true } } }] }
 }

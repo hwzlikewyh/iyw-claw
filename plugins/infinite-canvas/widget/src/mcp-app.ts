@@ -1,5 +1,5 @@
 import { App } from "@modelcontextprotocol/ext-apps"
 
 export function createCanvasApp() {
-  return new App({ name: "Infinite Canvas", version: "0.1.13" }, { availableDisplayModes: ["inline", "fullscreen"] })
+  return new App({ name: "Infinite Canvas", version: "0.1.17" }, { availableDisplayModes: ["inline", "fullscreen"] })
 }
