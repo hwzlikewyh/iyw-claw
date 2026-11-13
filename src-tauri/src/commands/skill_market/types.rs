@@ -121,8 +121,6 @@ pub struct SkillMarketItem {
     // still deserializes. Without them declared here serde silently dropped the
     // values on the way through, and the frontend adapter fell back forever.
     #[serde(default)]
-    pub audience: Option<String>,
-    #[serde(default)]
     pub distribution_policy: Option<String>,
     #[serde(default, deserialize_with = "null_as_default")]
     pub compatibility: Vec<SkillCompatibilityConstraint>,
@@ -200,6 +198,8 @@ pub struct SkillMarketPublishRequest {
     pub icon_url: Option<String>,
     pub tags: Vec<String>,
     pub visibility: String,
+    #[serde(default)]
+    pub audience: Option<String>,
     pub version: String,
     pub changelog: String,
     #[serde(default)]
