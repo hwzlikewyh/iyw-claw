@@ -14,6 +14,14 @@ import {
   unsupported,
   sendToolData,
 } from "./plugin-app-protocol"
+import {
+  AUTHORIZE_WINDOW_MESSAGE,
+  currentPluginWindow,
+  sendWindowMessage,
+  usesCurrentPluginWindow,
+  windowToolResult,
+  WINDOW_CONTEXT_TOOL,
+} from "./plugin-app-window"
 type DisplayMode = "inline" | "fullscreen"
 export type MessageContext = {
   message: PluginAppMessage
@@ -103,6 +111,36 @@ async function routeMessage(
   }
   if (context.message.method === "resources/read") {
     return authorizeMessage(context)
+  }
+  if (
+    context.message.method === "ui/message" &&
+    usesCurrentPluginWindow(context)
+  ) {
+    const window = currentPluginWindow(context)
+    const authorized = await authorizeMessage({
+      ...context,
+      message: { ...context.message, method: AUTHORIZE_WINDOW_MESSAGE },
+    })
+    if (authorized.error || !authorized.accepted) return authorized
+    return sendWindowMessage(context, window)
+  }
+  const params = context.message.params as { name?: string } | undefined
+  if (
+    context.message.method === "tools/call" &&
+    params?.name === "infinite_canvas_model_request"
+  )
+    currentPluginWindow(context)
+  if (
+    context.message.method === "tools/call" &&
+    params?.name === WINDOW_CONTEXT_TOOL
+  ) {
+    currentPluginWindow(context)
+    const authorized = await authorizeMessage(context)
+    if (authorized.error || !authorized.accepted) return authorized
+    return {
+      ...authorized,
+      result: windowToolResult(context, authorized.result),
+    }
   }
   const authorized = await authorizeMessage(context)
   if (!authorized.error) resizeFrame(context.iframe, context.message)

@@ -8,6 +8,7 @@ import { sendToolData } from "./plugin-app-protocol"
 import type { PluginAppBridge } from "@/lib/plugin-app-bridge"
 import type { PluginDownloadHandler } from "@/lib/plugin-app-download"
 import { registerPluginAppTeardown } from "@/lib/plugin-app-teardown"
+import { onPluginWindowContextChanged } from "@/lib/plugin-window-context"
 
 const MAX_APP_HTML_BYTES = 8 * 1024 * 1024
 
@@ -68,6 +69,17 @@ function useHostValues(
       params: { displayMode: props.displayMode ?? "inline" },
     })
   }, [bridge, props.displayMode])
+  useEffect(
+    () =>
+      onPluginWindowContextChanged(() => {
+        bridge.current?.notify({
+          jsonrpc: "2.0",
+          method: "ui/notifications/host-context-changed",
+          params: { displayMode: mode.current.displayMode },
+        })
+      }),
+    [bridge]
+  )
   return { mode, payload }
 }
 

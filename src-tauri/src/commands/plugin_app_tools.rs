@@ -34,7 +34,10 @@ pub(super) async fn authorize_app_message(
             "Plugin permissions are not granted",
         ));
     }
-    if matches!(method, "ui/open-link" | "ui/message" | "ui/download-file") {
+    if matches!(
+        method,
+        "ui/open-link" | "ui/message" | "ui/iyw/authorize-message" | "ui/download-file"
+    ) {
         authorize_host_action(db, (&instance, plugin, &snapshot.plugins), true).await?;
     }
     authorize_method(plugin, method)
@@ -144,7 +147,9 @@ pub(super) async fn route_app_tool(
         })?;
     if matches!(
         name,
-        "infinite_canvas_model_request" | "infinite_canvas_store_data"
+        "infinite_canvas_model_request"
+            | "infinite_canvas_store_data"
+            | "infinite_canvas_host_context"
     ) {
         return route_local_app_tool(db, &instance, &name, &arguments).await;
     }
@@ -191,8 +196,16 @@ async fn route_local_app_tool(
             "The plugin does not have local model gateway access",
         ));
     }
-    authorize_host_action(db, (instance, plugin, &snapshot.plugins), is_gateway).await?;
-    let result = if is_gateway {
+    let is_window = name == "infinite_canvas_host_context";
+    authorize_host_action(
+        db,
+        (instance, plugin, &snapshot.plugins),
+        is_gateway || is_window,
+    )
+    .await?;
+    let result = if is_window {
+        serde_json::json!({ "conversationId": instance.conversation_id, "modelGateway": true })
+    } else if is_gateway {
         super::plugin_app_model_gateway::request(db, arguments).await?
     } else {
         let workspace = super::plugin_app_context::load_workspace(
@@ -234,7 +247,7 @@ fn authorize_method(
 ) -> Result<(), crate::plugin_runtime::types::PluginInvokeError> {
     let required = match method {
         "ui/open-link" => Some("open-link"),
-        "ui/message" => Some("send-message"),
+        "ui/message" | "ui/iyw/authorize-message" => Some("send-message"),
         "ui/update-model-context" => {
             return Err(plugin_error(
                 "plugin_app_method_unsupported",

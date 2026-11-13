@@ -8,7 +8,7 @@ import { contracts } from "../shared/contracts-data.mjs"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const manifest = JSON.parse(await readFile(join(root, ".iyw-plugin.json"), "utf8"))
-if (manifest.schemaVersion !== 2 || manifest.name !== "infinite-canvas" || manifest.version !== "0.1.20" || JSON.stringify(manifest.targets) !== JSON.stringify(["iyw-claw"])) throw new Error("plugin manifest identity is invalid")
+if (manifest.schemaVersion !== 2 || manifest.name !== "infinite-canvas" || manifest.version !== "0.1.21" || JSON.stringify(manifest.targets) !== JSON.stringify(["iyw-claw"])) throw new Error("plugin manifest identity is invalid")
 if (manifest.minClientVersion !== "0.1.332") throw new Error("interactive plugin minimum client version is invalid")
 const upstream = JSON.parse(await readFile(join(root, "upstream.json"), "utf8"))
 if (upstream.license !== "MIT" || typeof upstream.commit !== "string" || !/^[a-f0-9]{40}$/.test(upstream.commit)) throw new Error("upstream license provenance is invalid")

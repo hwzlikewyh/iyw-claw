@@ -71,6 +71,12 @@ const scene = {
 }
 
 export const contracts = Object.freeze({
+  infinite_canvas_host_context: {
+    schemaPath: "contracts/infinite-canvas-host-context.schema.json",
+    description: "Read the current Yuan Assistant window binding and selected model. Available only through the authorized host app bridge.",
+    readOnlyHint: true,
+    inputSchema: schema({}),
+  },
   infinite_canvas_model_job: {
     schemaPath: "contracts/infinite-canvas-model-job.schema.json",
     description: "Read and complete a user-requested Canvas generation job through the current assistant conversation. Read first; do not regenerate completed or cancelled jobs. Return generated workspace files, text or a protocol response; never credentials.",

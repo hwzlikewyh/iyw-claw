@@ -27,7 +27,7 @@ import NotFound from "@/pages/not-found"
 import { useThemeStore } from "@/stores/use-theme-store"
 import { getAntThemeConfig } from "@/lib/app-theme"
 import { PluginCanvasBridge } from "@/components/layout/plugin-canvas-bridge"
-import { HostAgentPanel, HostGenerationStatus } from "@/components/agent/host-agent-panel"
+import { HostAgentPanel } from "@/components/agent/host-agent-panel"
 import { HostModelCatalog } from "@/components/agent/host-model-catalog"
 import type { ReactNode } from "react"
 
@@ -69,7 +69,7 @@ function WorkbenchShell() {
         <Link to="/config" aria-label={t("navigation.config")} title={t("navigation.config")} className="flex size-8 shrink-0 items-center justify-center text-stone-600 hover:text-stone-950 dark:text-stone-300 dark:hover:text-white"><Settings2 className="size-4" /></Link>
         <Button type="text" shape="circle" aria-label={t(dark ? "canvasShell.lightTheme" : "canvasShell.darkTheme")} title={t(dark ? "canvasShell.lightTheme" : "canvasShell.darkTheme")} icon={dark ? <Sun className="size-4" /> : <Moon className="size-4" />} onClick={() => setTheme(dark ? "light" : "dark")} />
       </header> : null}
-      <HostModelCatalog /><HostGenerationStatus />
+      <HostModelCatalog />
       <main className="min-h-0 flex-1 overflow-hidden"><Outlet /><PluginCanvasBridge /><HostAgentPanel /></main>
     </div>
   )

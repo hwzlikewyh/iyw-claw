@@ -37,6 +37,7 @@ export function initializeFrame(
       ...result.hostCapabilities,
       experimental: {
         "iyw/surface": { kind: context.panel ? "panel" : "message" },
+        "iyw/current-window": { version: 1 },
       },
     },
     hostContext: {

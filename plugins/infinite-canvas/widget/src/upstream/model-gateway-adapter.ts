@@ -1,13 +1,13 @@
 import axios, { AxiosError, AxiosHeaders, type AxiosRequestConfig } from "axios"
 import type { App } from "@modelcontextprotocol/ext-apps"
-import { runLegacyModel } from "./legacy-model.js"
+import { supportsCurrentWindow } from "./host-bridge.js"
 
 const GATEWAY_ORIGIN = "http://iyw-canvas.local"
 const MODEL_REQUEST_TIMEOUT_MS = 900_000
 const allowedPaths = new Set(["models", "chat/completions", "responses", "responses/compact", "images/generations", "images/edits"])
 
 export type GatewayResult = { status: number; contentType: string; body: { text?: string; base64?: string } }
-type CanvasHost = Pick<App, "callServerTool" | "sendMessage">
+type CanvasHost = Pick<App, "callServerTool" | "getHostCapabilities">
 type GatewayRequest = { pathname: string; method: string; body: unknown; query: Record<string, string>; signal?: { readonly aborted: boolean } }
 
 export function installModelGatewayAdapter(app: CanvasHost): void {
@@ -95,7 +95,8 @@ async function blobDataUrl(blob: Blob): Promise<string> {
 }
 
 async function callGateway(app: CanvasHost, request: GatewayRequest): Promise<GatewayResult> {
-  const { pathname, method, body, query, signal } = request
+  const { pathname, method, body, query } = request
+  if (!supportsCurrentWindow(app)) throw new Error("当前原助理尚未开放窗口模型桥接，请更新客户端后重新打开插件。")
   const path = normalizePath(pathname)
   if (!allowedPaths.has(path)) throw new Error("This local gateway endpoint is not supported")
   if (path === "models" ? method !== "GET" : method !== "POST") throw new Error("This local gateway method is not supported")
@@ -110,9 +111,7 @@ async function callGateway(app: CanvasHost, request: GatewayRequest): Promise<Ga
     try { message = (JSON.parse(text) as { message?: string }).message || text } catch { /* 保留宿主的原始错误 */ }
     throw new Error(message)
   }
-  const result = JSON.parse(text) as GatewayResult & { delegated?: boolean; requestId?: string }
-  if (result.delegated && result.requestId) return runLegacyModel(app, result.requestId, { path, body, signal })
-  return result
+  return JSON.parse(text) as GatewayResult
 }
 
 function decodeResponse(result: GatewayResult, responseType?: string): unknown {

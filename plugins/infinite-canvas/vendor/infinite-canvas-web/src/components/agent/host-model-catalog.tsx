@@ -3,11 +3,14 @@ import { Alert, Button } from "antd"
 import { useTranslation } from "react-i18next"
 import { encodeChannelModel, isIywGatewayBaseUrl, modelOptionsFromChannels, useConfigStore, type ChannelModel, type ModelCapability } from "@/stores/use-config-store"
 import { hostModelsReady, setHostModelsReady } from "@/lib/host-model-state"
-import type {} from "../../../../../widget/src/upstream/host-bridge"
+import { readCurrentWindow } from "../../../../../widget/src/upstream/host-bridge"
 
 let loading: Promise<ChannelModel[]> | undefined
 
 async function loadModels(): Promise<ChannelModel[]> {
+  const bridge = window.__IYW_CANVAS_BRIDGE__
+  if (!bridge) throw new Error("hostAgent.unsupported")
+  bridge.currentWindow = await readCurrentWindow(bridge.app)
   const response = await fetch("http://iyw-canvas.local/v1/models?model_type=all")
   if (!response.ok) throw new Error("hostAgent.modelsFailed")
   const payload = await response.json() as { data?: unknown }
@@ -42,8 +45,9 @@ function applyModels(models: ChannelModel[]): void {
   const bridge = window.__IYW_CANVAS_BRIDGE__
   if (bridge) bridge.modelNames = Object.fromEntries(models.map((model) => [model.name, model.displayName || model.name]))
   setHostModelsReady(true)
+  const currentModel = models.find((model) => model.name === bridge?.currentWindow?.modelId && model.capability === "text")
   useConfigStore.setState({ config: { ...current, channels, models: modelOptionsFromChannels(channels),
-    model: current.model || first("image"), imageModel: current.imageModel || first("image"), textModel: current.textModel || first("text"),
+    model: current.model || first("image"), imageModel: current.imageModel || first("image"), textModel: current.textModel || (currentModel ? encodeChannelModel(host.id, currentModel.name) : first("text")),
     videoModel: current.videoModel || first("video"), audioModel: current.audioModel || first("audio"),
   } })
 }
@@ -63,14 +67,17 @@ export function HostModelCatalog() {
     void loading.then((models) => {
       if (!active) return
       applyModels(models); setStatus(models.length ? "ready" : "empty")
-    }, () => { if (active) setStatus("failed") })
+    }, (error: unknown) => { if (active) setStatus(error instanceof Error && error.message === "hostAgent.unsupported" ? "unsupported" : "failed") })
     return () => { active = false }
   }, [attempt])
   useEffect(() => {
     const refresh = () => setAttempt((value) => value + 1)
+    const contextChanged = (context: { containerDimensions?: unknown }) => { if (!context.containerDimensions) refresh() }
+    const app = window.__IYW_CANVAS_BRIDGE__?.app
     window.addEventListener("iyw-canvas-refresh-models", refresh)
-    return () => window.removeEventListener("iyw-canvas-refresh-models", refresh)
+    app?.addEventListener("hostcontextchanged", contextChanged)
+    return () => { window.removeEventListener("iyw-canvas-refresh-models", refresh); app?.removeEventListener("hostcontextchanged", contextChanged) }
   }, [])
   if (status === "ready") return null
-  return <Alert banner type={status === "failed" ? "error" : "info"} title={t(status === "loading" ? "hostAgent.modelsLoading" : status === "empty" ? "hostAgent.modelsEmpty" : "hostAgent.modelsFailed")} action={status !== "loading" ? <Button size="small" onClick={() => setAttempt((value) => value + 1)}>{t("hostAgent.modelsRefresh")}</Button> : undefined} />
+  return <Alert banner type={status === "failed" || status === "unsupported" ? "error" : "info"} title={t(status === "loading" ? "hostAgent.modelsLoading" : status === "empty" ? "hostAgent.modelsEmpty" : status === "unsupported" ? "hostAgent.unsupported" : "hostAgent.modelsFailed")} action={status !== "loading" ? <Button size="small" onClick={() => setAttempt((value) => value + 1)}>{t("hostAgent.modelsRefresh")}</Button> : undefined} />
 }

@@ -79,6 +79,11 @@ pub async fn message_core(
             Ok(result) => Some(result),
             Err(error) => return Ok(plugin_error_response(error)),
         }
+    } else if request.method == "ui/iyw/authorize-message" {
+        if let Err(error) = plugin_app_messages::validate_app_message(&params) {
+            return Ok(plugin_error_response(error));
+        }
+        Some(serde_json::json!({}))
     } else if request.method == "ui/message" {
         if let Err(error) =
             plugin_app_messages::send_app_message(db, manager, &request.instance_id, params).await

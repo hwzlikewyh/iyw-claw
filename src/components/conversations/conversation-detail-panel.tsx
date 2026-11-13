@@ -163,6 +163,7 @@ import { planSessionConfigSync } from "@/lib/session-config-compat"
 import { compareSessionControlInventory } from "@/lib/session-control-compat"
 import { isInsufficientBalanceError } from "@/lib/agent-runtime-error"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
+import { usePluginWindowContext } from "@/hooks/use-plugin-window-context"
 
 function reconcileConversationConfigValues(
   snapshot: AgentOptionsSnapshot,
@@ -2861,6 +2862,17 @@ const ConversationTabView = memo(function ConversationTabView({
   )
 
   // Sync handleSend ref for auto-send effect (declared before handleSend)
+  usePluginWindowContext({
+    tabId,
+    conversationId: dbConversationId,
+    agentType: selectedAgent,
+    modelId: draftConfigValues.model,
+    options: connectionConfigOptions,
+    send: (draft) => connStatus === "prompting"
+      ? handlePromptingSubmit(draft, selectedModeId)
+      : handleSend(draft, selectedModeId),
+  })
+
   useEffect(() => {
     handleSendRef.current = handleSend
   }, [handleSend])

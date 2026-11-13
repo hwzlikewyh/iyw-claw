@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { Alert, Button, Drawer, Input } from "antd"
 import { useTranslation } from "react-i18next"
 import { useAgentStore } from "@/stores/use-agent-store"
@@ -8,7 +8,7 @@ import "./host-agent-text"
 
 export function HostAgentPanel() {
   const { t } = useTranslation()
-  const reconnect = useHostAgentConnection()
+  const { reconnect, currentWindow } = useHostAgentConnection()
   const open = useAgentStore((state) => state.panelOpen)
   const close = useAgentStore((state) => state.closePanel)
   const connected = useAgentStore((state) => state.connected)
@@ -28,6 +28,7 @@ export function HostAgentPanel() {
   return <Drawer title={t("hostAgent.name")} open={open} onClose={close} size={400} styles={{ wrapper: { maxWidth: "100vw" } }}>
     <div className="flex flex-col gap-5">
       <p className="text-sm text-stone-600 dark:text-stone-400">{t("hostAgent.description")}</p>
+      {currentWindow ? <p className="text-sm">{t("hostAgent.window", { agent: currentWindow.agentLabel, model: currentWindow.modelName || t("hostAgent.noModel") })}</p> : null}
       <p className="text-sm" role="status">{snapshot ? t("hostAgent.context", { title: snapshot.title, count: snapshot.selectedNodeIds.length }) : t("hostAgent.noCanvas")}</p>
       {connectionError ? <Alert type="error" title={connectionError} action={<Button size="small" onClick={reconnect}>{t("hostAgent.retry")}</Button>} /> : null}
       <label htmlFor="host-agent-prompt" className="text-sm font-medium">{t("hostAgent.prompt")}</label>
@@ -37,22 +38,4 @@ export function HostAgentPanel() {
       {result.sent ? <Alert type="success" title={t("hostAgent.sent")} /> : null}
     </div>
   </Drawer>
-}
-
-export function HostGenerationStatus() {
-  const { t } = useTranslation()
-  const [pending, setPending] = useState<Set<string>>(new Set())
-  useEffect(() => {
-    const update = (event: Event) => {
-      const value = (event as CustomEvent<{ requestId: string; pending: boolean }>).detail
-      setPending((previous) => {
-        const next = new Set(previous)
-        if (value.pending) next.add(value.requestId); else next.delete(value.requestId)
-        return next
-      })
-    }
-    window.addEventListener("iyw-canvas-generation", update)
-    return () => window.removeEventListener("iyw-canvas-generation", update)
-  }, [])
-  return pending.size ? <Alert type="info" banner title={t("hostAgent.generating", { count: pending.size })} /> : null
 }
