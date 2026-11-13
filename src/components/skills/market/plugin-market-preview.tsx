@@ -10,9 +10,9 @@ import { PluginMarketToolbar } from "./plugin-market-toolbar"
 import { usePluginCatalog } from "./use-plugin-catalog"
 import { usePluginCatalogPage } from "./use-plugin-catalog-page"
 import { MarketPagination } from "./market-pagination"
-
-const CATALOG_GRID =
-  "grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5"
+import type { SkillMarketV2Item } from "@/lib/skill-market"
+import type { PluginCatalogView } from "./plugin-market-toolbar"
+import { CAPABILITY_GRID_CLASS } from "./capability-card"
 
 export function PluginMarketPreview({
   onOpenPlugin,
@@ -21,44 +21,41 @@ export function PluginMarketPreview({
   onOpenPlugin: (item: SkillMarketV2Item) => void
   onViewChange?: (view: PluginCatalogView) => void
 }) {
-  const t = useTranslations("CapabilityMarket.plugins")
   const {
     view,
+    publisher,
     query,
     catalog,
     items,
     pagination,
     onViewChange,
     onQueryChange,
+    onPublisherChange,
   } = usePluginCatalogPage()
+  const root = useMarketPageFocus({ ...pagination, error: catalog.error })
   return (
-    <div className="@container flex h-full min-h-0 flex-col bg-background">
+    <div ref={root} className="@container min-w-0 bg-background">
       <PluginMarketToolbar
         view={view}
         publisher={publisher}
         onPublisherChange={onPublisherChange}
         query={query}
         loading={catalog.loading}
-        onViewChange={onViewChange}
+        onViewChange={(next) => {
+          onViewChange(next)
+          onParentViewChange?.(next)
+        }}
         onQueryChange={onQueryChange}
         onRefresh={catalog.refresh}
         pagination={pagination}
       />
-      <div
-        className="flex h-8 shrink-0 items-end px-4 pb-1 text-[11px] text-muted-foreground sm:px-5"
-        aria-live="polite"
-      >
-        {catalog.loading
-          ? t("loading")
-          : t("catalogCount", { count: pagination.total })}
-      </div>
       <PluginCatalogBody
         key={`${view}:${query}:${pagination.page}:${pagination.pageSize}`}
         catalog={catalog}
         items={items}
         onOpenPlugin={onOpenPlugin}
       />
-      <MarketPagination {...pagination} />
+      {!catalog.error && <MarketPagination {...pagination} />}
     </div>
   )
 }

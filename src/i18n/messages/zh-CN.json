@@ -31,6 +31,8 @@
     "invalidLimit": "请输入大于或等于 0 的整数。",
     "saveFailed": "保存标签数量设置失败，请重试。",
     "detach": "移动到新窗口",
+    "returnToWorkspace": "还原到主窗口",
+    "dragBackHint": "拖动此标题到原窗口的标签栏可还原；拖动顶部空白处可移动窗口。",
     "moving": "正在移动会话到新窗口…",
     "moveFailed": "移动会话失败：{message}",
     "busyDraft": "请等待附件处理或消息发送完成，并保存消息编辑后再移动会话。"
@@ -190,6 +192,9 @@
     "cloudError": "暂时无法读取云端插件，已安装应用仍可使用。",
     "more": "更多插件",
     "open": "打开",
+    "openUnavailable": "当前无法打开这个插件应用。",
+    "openNamed": "打开 {name}",
+    "removeSelection": "移除 {name}",
     "install": "安装",
     "prepare": "准备使用",
     "prepareContext": "使用当前对话",
@@ -971,6 +976,7 @@
     "emptyTab": "暂无浏览器页签",
     "connecting": "正在连接浏览器",
     "streamDisconnected": "浏览器画面已断开",
+    "openOverview": "打开浏览器概览",
     "newTab": "新建页签",
     "newTabTitle": "新标签页",
     "newTabHint": "输入网址或搜索，开始浏览",
@@ -7518,6 +7524,7 @@
     }
   },
   "MarketPagination": {
+    "automatic": "自动（{count} 项）",
     "loading": "正在读取目录…",
     "label": "市场分页",
     "pageSize": "每页",
@@ -8207,6 +8214,8 @@
   },
   "NativeShare": {
     "title": "微信聊天记录",
+    "systemSharing": "系统分享入口",
+    "platformSupport": "Windows 10 2004 及更新版本和 macOS 14 及更新版本支持系统分享；其他平台可以导入文件。",
     "description": "在微信中多选消息、合并转发，再选择原助理。也可以导入已导出的 ZIP 或 TXT 文件。",
     "pendingCount": "{count} 批微信记录待导入",
     "importFile": "导入文件",

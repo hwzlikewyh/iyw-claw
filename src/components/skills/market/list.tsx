@@ -25,7 +25,7 @@ function ListState({
   const t = useTranslations("SkillMarketV2")
   if (kind === "loading") {
     return (
-      <div className="grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5">
+      <div data-market-grid className={CAPABILITY_GRID_CLASS}>
         {Array.from({ length: 6 }, (_, index) => (
           <Skeleton
             data-market-skeleton
@@ -75,15 +75,13 @@ export interface SkillMarketListProps extends Omit<
 }
 
 export function SkillMarketList(props: SkillMarketListProps) {
+  const root = useMarketPageFocus(props)
   return (
-    <div
-      className="@container flex h-full min-h-0 flex-col"
-      aria-busy={props.loading}
-    >
-      <section className="min-h-0 flex-1 overflow-hidden">
+    <div ref={root} className="@container min-w-0" aria-busy={props.loading}>
+      <section>
         <SkillPageContent {...props} />
       </section>
-      <MarketPagination {...props} />
+      {!props.error && <MarketPagination {...props} />}
     </div>
   )
 }
@@ -97,18 +95,16 @@ function SkillPageContent(props: SkillMarketListProps) {
   if (!props.items.length)
     return <ListState kind="empty" onRetry={props.onRetry} />
   return (
-    <ScrollArea key={`${props.page}:${props.pageSize}`} className="h-full">
-      <div className="grid grid-cols-1 gap-3 p-4 @min-[480px]:grid-cols-2 @min-[840px]:grid-cols-3 sm:p-5">
-        {props.items.map((item) => (
-          <SkillCard
-            key={item.id}
-            item={item}
-            selected={props.selectedId === item.id}
-            onSelect={props.onSelect}
-            onPrimaryAction={props.onPrimaryAction}
-          />
-        ))}
-      </div>
-    </ScrollArea>
+    <div data-market-grid className={CAPABILITY_GRID_CLASS}>
+      {props.items.map((item) => (
+        <SkillCard
+          key={item.id}
+          item={item}
+          selected={props.selectedId === item.id}
+          onSelect={props.onSelect}
+          onPrimaryAction={props.onPrimaryAction}
+        />
+      ))}
+    </div>
   )
 }

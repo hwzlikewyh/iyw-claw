@@ -8,6 +8,10 @@ import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
 import { firstLeafId } from "./tab-group-layout"
 import {
+  assertReturnCapacity,
+  restoreTab as appendRestoredTab,
+} from "./conversation-window-restoration"
+import {
   buildConversationDraftStorageKey,
   buildNewConversationDraftStorageKey,
 } from "./message-input-draft"
@@ -175,13 +179,23 @@ function restoreTab(payload: ConversationWindowPayload) {
   useTabStore.getState().switchTab(tab.id)
 }
 
-function isTransferredConnectionReady(current: ConnectionState, expected: ConnectionState) {
-  const metadataReady = (!expected.sessionId || !!current.sessionId) &&
+function isTransferredConnectionReady(
+  current: ConnectionState,
+  expected: ConnectionState
+) {
+  const metadataReady =
+    (!expected.sessionId || !!current.sessionId) &&
     (!expected.selectorsReady || current.selectorsReady)
-  return metadataReady && (current.status === "connected" || current.status === "prompting")
+  return (
+    metadataReady &&
+    (current.status === "connected" || current.status === "prompting")
+  )
 }
 
-function waitForConnectionSnapshot(store: ConnectionStoreApi, expected: ConnectionState) {
+function waitForConnectionSnapshot(
+  store: ConnectionStoreApi,
+  expected: ConnectionState
+) {
   return new Promise<void>((resolve, reject) => {
     let unsubscribe = () => {}
     const finish = (error?: Error) => {
@@ -196,7 +210,11 @@ function waitForConnectionSnapshot(store: ConnectionStoreApi, expected: Connecti
     )
     const check = () => {
       const current = store.getConnection(expected.contextKey)
-      if (!current || current.connectionId !== expected.connectionId || current.status === "disconnected") {
+      if (
+        !current ||
+        current.connectionId !== expected.connectionId ||
+        current.status === "disconnected"
+      ) {
         finish(new Error("Conversation connection ended during transfer"))
       } else if (isTransferredConnectionReady(current, expected)) {
         finish()
@@ -210,10 +228,15 @@ function waitForConnectionSnapshot(store: ConnectionStoreApi, expected: Connecti
 export async function restoreConversationWindow(
   label: string,
   actions: AcpActionsValue,
-  connections: ConnectionStoreApi
+  target:
+    | ConnectionStoreApi
+    | { connections: ConnectionStoreApi; append?: boolean }
 ) {
+  const append = "connections" in target && target.append === true
+  const connections = "connections" in target ? target.connections : target
   const { payload } = await getWindowTransfer(label)
   if (!payload?.tab?.id) throw new Error("Conversation window state is missing")
+  if (append) assertReturnCapacity(payload)
   const workspace = useAppWorkspaceStore.getState()
   if (
     payload.tab.folderId > 0 &&
@@ -236,7 +259,8 @@ export async function restoreConversationWindow(
     restored.tab.id,
     !!(restored.connection?.isViewer || restored.connection?.isDelegationChild)
   )
-  restoreTab(restored)
+  if (append) appendRestoredTab(restored, true)
+  else restoreTab(restored)
   markConversationWindowInitialized()
   await finishRestoration(label, restored.tab.id)
 }

@@ -10,10 +10,7 @@ import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
 import { useNativeShareComposer } from "@/components/native-share/use-native-share-composer"
 import { ComposerActivityBorder } from "./composer-activity-border"
 import { PluginComposerChip } from "./plugin-composer-chip"
-import {
-  clearComposerPlugin,
-  pluginPrompt,
-} from "@/lib/plugin-composer-context"
+import { pluginPrompt } from "@/lib/plugin-composer-context"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {

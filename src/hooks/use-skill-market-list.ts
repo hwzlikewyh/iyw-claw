@@ -22,17 +22,28 @@ const INITIAL_LIST = {
 }
 
 export function useSkillMarketList(input: {
+  packageType: "skill" | "plugin"
   query: SkillMarketQueryState
   source: SkillMarketSource
-  initial: { page: string | null; pageSize: string | null }
+  initial: { page: string | null; pageSize: string | null; persist?: boolean }
   metric: (name: string, elapsed: number) => void
 }) {
-  const { query, source, metric } = input
+  const { query, source, metric, packageType } = input
   const [list, setList] = useState(INITIAL_LIST)
   const requestRef = useRef({ value: 0 })
-  const { position, setPosition, revision, refresh, reset, move } =
-    useListControls(input.initial, requestRef, setList)
+  const {
+    position,
+    setPosition,
+    revision,
+    refresh,
+    reset,
+    move,
+    automatic,
+    chooseSize,
+    autoSize,
+  } = useListControls(input.initial, requestRef, setList)
   useCatalogRequest({
+    packageType,
     query,
     source,
     metric,
@@ -49,17 +60,23 @@ export function useSkillMarketList(input: {
     reset,
     pagination: {
       ...position,
+      unavailable: Boolean(list.error),
       onPageChange: (page: number) => move(page, position.pageSize),
-      onPageSizeChange: (size: number) => move(1, size),
+      onPageSizeChange: chooseSize,
+      automaticPageSize: automatic,
+      onAutoPageSizeChange: autoSize,
     },
   }
 }
 
 function useListControls(
-  initial: { page: string | null; pageSize: string | null },
+  initial: { page: string | null; pageSize: string | null; persist?: boolean },
   requestRef: React.RefObject<{ value: number }>,
   setList: React.Dispatch<React.SetStateAction<typeof INITIAL_LIST>>
 ) {
+  const [automatic, setAutomatic] = useState(
+    () => !initial.pageSize || initial.pageSize === "auto"
+  )
   const [position, setPosition] = useState(() => ({
     page: marketPage(initial.page),
     pageSize: marketPageSize(initial.pageSize),
@@ -84,11 +101,26 @@ function useListControls(
     setList(INITIAL_LIST)
     setPosition((value) => ({ ...value, page: 1 }))
   }, [requestRef, setList])
-  useEffect(
-    () => persistMarketPage(position.page, position.pageSize),
-    [position]
-  )
-  return { position, setPosition, revision, refresh, reset, move }
+  const chooseSize = (size: number) => {
+    setAutomatic(size === 0)
+    if (size > 0) move(1, size)
+  }
+  const autoSize = useCallback((size: number) => move(1, size), [move])
+  useEffect(() => {
+    if (initial.persist !== false)
+      persistMarketPage(position.page, position.pageSize, automatic)
+  }, [position, initial.persist, automatic])
+  return {
+    position,
+    setPosition,
+    revision,
+    refresh,
+    reset,
+    move,
+    automatic,
+    chooseSize,
+    autoSize,
+  }
 }
 
 function invalidateList(
@@ -101,7 +133,7 @@ function invalidateList(
 
 type RequestInput = Pick<
   Parameters<typeof useSkillMarketList>[0],
-  "query" | "source" | "metric"
+  "query" | "source" | "metric" | "packageType"
 > & {
   position: { page: number; pageSize: number }
   revision: number
@@ -122,6 +154,7 @@ function useCatalogRequest(input: RequestInput) {
     requestRef,
     setList,
     setPosition,
+    packageType,
   } = input
   useEffect(() => {
     const counter = requestRef.current
@@ -130,6 +163,7 @@ function useCatalogRequest(input: RequestInput) {
       () =>
         void readPage(
           {
+            packageType,
             query,
             source,
             metric,
@@ -156,6 +190,7 @@ function useCatalogRequest(input: RequestInput) {
     requestRef,
     setList,
     setPosition,
+    packageType,
   ])
 }
 
@@ -168,6 +203,7 @@ async function readPage(input: RequestInput, request: number) {
   try {
     const value = await source.list({
       ...query,
+      packageType: input.packageType,
       cursor:
         position.page === 1
           ? null
