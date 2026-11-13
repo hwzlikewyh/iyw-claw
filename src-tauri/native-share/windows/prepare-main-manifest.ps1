@@ -7,7 +7,17 @@ $ErrorActionPreference = 'Stop'
 [xml]$document = Get-Content -LiteralPath $Manifest -Raw -Encoding UTF8
 $assembly = $document.DocumentElement
 if ($assembly.LocalName -ne 'assembly') { throw '主程序清单缺少 assembly 根元素。' }
-foreach ($existing in @($assembly.SelectNodes('*[local-name()="msix"]'))) {
+$existingIdentities = @($assembly.SelectNodes('*[local-name()="msix"]'))
+if ($existingIdentities.Count -eq 1 -and
+    $existingIdentities[0].NamespaceURI -ceq 'urn:schemas-microsoft-com:msix.v1' -and
+    $existingIdentities[0].GetAttribute('publisher') -ceq $Publisher -and
+    $existingIdentities[0].GetAttribute('packageName') -ceq 'IywAssistant.Desktop' -and
+    $existingIdentities[0].GetAttribute('applicationId') -ceq 'Share.Hub') {
+    [IO.File]::Copy($Manifest, $Output, $true)
+    Write-Output 'identity-unchanged'
+    exit 0
+}
+foreach ($existing in $existingIdentities) {
     $null = $assembly.RemoveChild($existing)
 }
 if (-not $assembly.SelectSingleNode('*[local-name()="assemblyIdentity"]')) {
@@ -25,3 +35,4 @@ $settings = New-Object Xml.XmlWriterSettings
 $settings.Encoding = New-Object Text.UTF8Encoding($false)
 $writer = [Xml.XmlWriter]::Create($Output, $settings)
 try { $document.Save($writer) } finally { $writer.Dispose() }
+Write-Output 'identity-updated'

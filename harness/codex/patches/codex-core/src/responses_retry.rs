@@ -23,6 +23,7 @@ use tracing::warn;
 const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
 const MANAGED_GATEWAY_PROVIDER: &str = "iyw-claw";
+pub(crate) const MANAGED_GATEWAY_MAX_RETRIES: u64 = 3;
 
 pub(crate) fn is_request_too_large(err: &CodexErr) -> bool {
     matches!(err.details(), CodexErrorDetails::UnexpectedStatus(response)
@@ -63,6 +64,7 @@ pub(crate) enum ResponsesStreamRequest {
 
 pub(crate) struct ResponsesStreamRetryState {
     retries: u64,
+    managed_gateway_retries: u64,
     connection_retries: u64,
     connection_retry_delay: Duration,
 }
@@ -71,6 +73,7 @@ impl Default for ResponsesStreamRetryState {
     fn default() -> Self {
         Self {
             retries: 0,
+            managed_gateway_retries: 0,
             connection_retries: 0,
             connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
         }
@@ -98,13 +101,26 @@ pub(crate) async fn handle_response_stream_error(
 ) -> Result<(), CodexErr> {
     let turn_context = &step_context.turn;
     let provider_name = turn_context.provider.info().name.as_str();
-    if is_managed_gateway_timeout(provider_name, &err) {
+    let managed_gateway_timeout = is_managed_gateway_timeout(provider_name, &err);
+    let max_retries = if managed_gateway_timeout {
+        max_retries.min(MANAGED_GATEWAY_MAX_RETRIES)
+    } else {
+        max_retries
+    };
+    let retries_for_limit = if managed_gateway_timeout {
+        retry_state.managed_gateway_retries
+    } else {
+        retry_state.retries
+    };
+    if managed_gateway_timeout {
         warn!(
             turn_id = %turn_context.sub_id,
             provider = %provider_name,
-            "managed gateway returned 504 after upstream failover; skipping request replay"
+            retry_count = retries_for_limit,
+            max_retries,
+            action = if retries_for_limit < max_retries { "retry" } else { "stop" },
+            "managed gateway returned 504; applying bounded request retry"
         );
-        return Err(err);
     }
     // 请求体不变时重连无法消除 413，交由回合层进行有界压缩恢复。
     if is_request_too_large(&err) {
@@ -116,7 +132,7 @@ pub(crate) async fn handle_response_stream_error(
         return Err(err);
     }
     // 余额、认证及参数错误不会因重连或切换传输而恢复。
-    if !is_retryable_response_error(provider_name, &err) {
+    if !managed_gateway_timeout && !is_retryable_response_error(provider_name, &err) {
         return Err(err);
     }
     if matches!(request, ResponsesStreamRequest::Sampling)
@@ -140,7 +156,13 @@ pub(crate) async fn handle_response_stream_error(
         ResponsesStreamRequest::RemoteCompactionV2 => RetryOperation::RemoteCompactionV2,
     };
     let retry_count = retry_state.retries.saturating_add(1);
-    let Some(delay) = err.retry_delay(retry_count) else {
+    let retry_number = retries_for_limit.saturating_add(1);
+    let delay_attempt = if managed_gateway_timeout {
+        retry_number
+    } else {
+        retry_count
+    };
+    let Some(delay) = err.retry_delay(delay_attempt) else {
         return Err(err);
     };
     let retry_after = err.retry_after();
@@ -172,7 +194,8 @@ pub(crate) async fn handle_response_stream_error(
         return Ok(());
     }
 
-    if retry_state.retries >= max_retries
+    if !managed_gateway_timeout
+        && retry_state.retries >= max_retries
         && client_session.try_switch_fallback_transport(
             &turn_context.session_telemetry,
             turn_context.model_info(),
@@ -193,9 +216,20 @@ pub(crate) async fn handle_response_stream_error(
         return Ok(());
     }
 
-    if retry_state.retries < max_retries {
+    if retries_for_limit < max_retries {
         retry_state.retries = retry_count;
-        log_retry(request, turn_context, &err, retry_count, max_retries, delay);
+        if managed_gateway_timeout {
+            retry_state.managed_gateway_retries =
+                retry_state.managed_gateway_retries.saturating_add(1);
+        }
+        log_retry(
+            request,
+            turn_context,
+            &err,
+            retry_number,
+            max_retries,
+            delay,
+        );
 
         // In release builds, hide the first websocket retry notification to reduce noisy
         // transient reconnect messages. In debug builds, keep full visibility for diagnosis.
@@ -207,7 +241,7 @@ pub(crate) async fn handle_response_stream_error(
             // happening instead of staring at a seemingly frozen screen.
             sess.notify_stream_error(
                 turn_context,
-                format!("Reconnecting... {retry_count}/{max_retries}"),
+                format!("Reconnecting... {retry_number}/{max_retries}"),
                 err,
             )
             .await;
@@ -216,7 +250,7 @@ pub(crate) async fn handle_response_stream_error(
         let now = Instant::now();
         let retry_at = retry_after.map(RetryAfter::deadline).unwrap_or(now + delay);
         let delay = retry_at.saturating_duration_since(now);
-        codex_client::record_retry!(retry_count, delay, operation);
+        codex_client::record_retry!(retry_number, delay, operation);
         tokio::time::sleep_until(retry_at).await;
         return Ok(());
     }
@@ -230,7 +264,7 @@ pub(crate) async fn handle_response_stream_error(
     Err(err)
 }
 
-fn is_managed_gateway_timeout(provider_name: &str, err: &CodexErr) -> bool {
+pub(crate) fn is_managed_gateway_timeout(provider_name: &str, err: &CodexErr) -> bool {
     provider_name == MANAGED_GATEWAY_PROVIDER
         && matches!(err.details(), CodexErrorDetails::UnexpectedStatus(response)
             if response.status == http::StatusCode::GATEWAY_TIMEOUT)
