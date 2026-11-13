@@ -178,7 +178,7 @@ function persistQuery(query: SkillMarketQueryState): void {
     "page",
   ])
     params.delete(key)
-  if (query.view !== "market") params.set("view", query.view)
+  if (query.view !== "all") params.set("view", query.view)
   if (query.publisher !== "all") params.set("publisher", query.publisher)
   if (query.distribution !== "all")
     params.set("distribution", query.distribution)
@@ -192,7 +192,10 @@ function persistQuery(query: SkillMarketQueryState): void {
   window.history.replaceState(null, "", url)
 }
 
-export function useSkillMarket(targetSkillId?: string | null) {
+export function useSkillMarket(
+  targetSkillId?: string | null,
+  packageType: "skill" | "plugin" = "skill"
+) {
   const searchParams = useSearchParams()
   const perfParam = searchParams.get("perf")
   const perfCount = perfParam
@@ -211,12 +214,17 @@ export function useSkillMarket(targetSkillId?: string | null) {
   )
 
   const { list, setList, refresh, reset, pagination } = useSkillMarketList({
+    packageType,
     query,
     source,
     metric: recordSkillMarketMetric,
     initial: {
-      page: targetSkillId ? null : searchParams.get("page"),
-      pageSize: searchParams.get("pageSize"),
+      page:
+        targetSkillId || packageType === "plugin"
+          ? null
+          : searchParams.get("page"),
+      pageSize: packageType === "plugin" ? null : searchParams.get("pageSize"),
+      persist: packageType === "skill",
     },
   })
 
@@ -229,11 +237,11 @@ export function useSkillMarket(targetSkillId?: string | null) {
       setSelectedVersion(null)
       setQueryState((current) => {
         const next = { ...current, ...patch }
-        persistQuery(next)
+        if (packageType === "skill") persistQuery(next)
         return next
       })
     },
-    [reset]
+    [reset, packageType]
   )
   const [detailRetryKey, setDetailRetryKey] = useState(0)
   const retryDetail = useCallback(

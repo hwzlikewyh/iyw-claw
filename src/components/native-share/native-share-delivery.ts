@@ -12,7 +12,6 @@ import { buildFileUri } from "@/lib/reference-link"
 import {
   completeNativeShare,
   prepareNativeShare,
-  NATIVE_SHARE_OPENED,
   type SharePreview,
 } from "@/lib/native-share"
 import type { AgentType } from "@/lib/types"
@@ -98,7 +97,6 @@ export async function deliverNativeShare(
       .getState()
       .rawTabs.some((tab) => tab.id === receipt.tabId)
     if (!opened) throw new Error(conversationTabLimitMessage())
-    window.dispatchEvent(new Event(NATIVE_SHARE_OPENED))
   }
   await completeNativeShare(preview.id)
   console.info("[NativeShare] delivered new conversation draft", {

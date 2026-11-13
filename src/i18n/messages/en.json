@@ -31,6 +31,8 @@
     "invalidLimit": "Enter a whole number greater than or equal to 0.",
     "saveFailed": "Could not save the tab limit. Please try again.",
     "detach": "Move to new window",
+    "returnToWorkspace": "Return to workspace",
+    "dragBackHint": "Drag this title onto the original tab bar to return. Drag the empty title bar to move the window.",
     "moving": "Moving conversation to a new window…",
     "moveFailed": "Could not move conversation: {message}",
     "busyDraft": "Wait for attachments or sending to finish, and save message edits before moving the conversation."
@@ -190,6 +192,9 @@
     "cloudError": "Cloud plugins could not be loaded. Installed apps remain available.",
     "more": "More plugins",
     "open": "Open",
+    "openUnavailable": "This plugin app cannot be opened right now.",
+    "openNamed": "Open {name}",
+    "removeSelection": "Remove {name}",
     "install": "Install",
     "prepare": "Prepare",
     "prepareContext": "Use this conversation",
@@ -971,6 +976,7 @@
     "emptyTab": "No browser tab",
     "connecting": "Connecting to browser",
     "streamDisconnected": "Browser view disconnected",
+    "openOverview": "Open browser overview",
     "newTab": "New tab",
     "newTabTitle": "New tab",
     "newTabHint": "Enter a URL or search to start browsing",
@@ -7518,6 +7524,7 @@
     }
   },
   "MarketPagination": {
+    "automatic": "Auto ({count} items)",
     "loading": "Loading catalog…",
     "label": "Market pagination",
     "pageSize": "Per page",
@@ -8207,6 +8214,8 @@
   },
   "NativeShare": {
     "title": "WeChat chat records",
+    "systemSharing": "System sharing",
+    "platformSupport": "System sharing is supported on Windows 10 version 2004 and later and macOS 14 and later. Other platforms can import files.",
     "description": "In WeChat, select messages, merge forward, and choose this app. You can also import an exported ZIP or TXT file.",
     "pendingCount": "{count} WeChat imports waiting",
     "importFile": "Import file",

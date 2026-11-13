@@ -11,7 +11,11 @@ export function usePluginMarketNavigation() {
     },
     openSkillMarket: (slug: string) => {
       setOpen(false)
-      route.openSkillMarket(slug)
+      route.openSkillMarket(slug, "plugin")
+    },
+    openPlugin: (slug: string) => {
+      setOpen(false)
+      route.openSkillMarket(slug, "plugin")
     },
   }
 }

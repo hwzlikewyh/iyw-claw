@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { Loader2, RefreshCw, Search } from "lucide-react"
 import { toast } from "sonner"
@@ -22,19 +22,28 @@ import { useConnectorInstallTasks } from "./use-connector-install-tasks"
 import { ConnectorInstallTasks } from "./connector-install-tasks"
 import { connectorTaskActive } from "@/lib/connector-install-tasks"
 import { useIywAccount } from "@/contexts/iyw-account-context"
+import { useMarketPageFocus } from "./use-market-page-focus"
+import { ConnectorPublisherView } from "./connector-publisher-view"
+import { onTransportChange } from "@/lib/transport"
 
-export function ConnectorMarketView() {
+export function ConnectorMarketView({ action }: { action?: MarketViewAction }) {
   const { profile, status } = useIywAccount()
+  const [transportRevision, setTransportRevision] = useState(0)
+  useEffect(
+    () => onTransportChange(() => setTransportRevision((value) => value + 1)),
+    []
+  )
   const scope = JSON.stringify([
     status,
     profile?.user_id,
     profile?.org_code,
     profile?.workspace_pending,
+    transportRevision,
   ])
-  return <ConnectorMarketContent key={scope} />
+  return <ConnectorMarketContent key={scope} action={action} />
 }
 
-function ConnectorMarketContent() {
+function ConnectorMarketContent({ action }: { action?: MarketViewAction }) {
   const t = useTranslations("ConnectorMarket")
   const c = useTranslations("CapabilityMarket.catalog")
   const {
@@ -58,6 +67,35 @@ function ConnectorMarketContent() {
   } = useConnectorMarket(t("unavailable"))
   const [active, setActive] = useState<McpMarketplaceItem | null>(null)
   const [section, setSection] = useState("market")
+  const publisherCanLeave = useRef<() => boolean>(() => true)
+  const registerPublisherLeave = useCallback((canLeave: () => boolean) => {
+    publisherCanLeave.current = canLeave
+  }, [])
+  const root = useMarketPageFocus({
+    page,
+    loading,
+    error,
+    enabled: section === "market",
+  })
+  useMarketViewAction(action, (kind) => {
+    if (kind === "installed" || kind === "market") {
+      if (section === "publisher" && !publisherCanLeave.current()) return
+      setSection(kind)
+    } else setSection("publisher")
+  })
+  const pagination = {
+    automaticPageSize,
+    onAutoPageSizeChange: setAutoPageSize,
+    page: page + 1,
+    pageSize,
+    total: null,
+    itemCount: items.length,
+    hasMore,
+    loading,
+    unavailable: Boolean(error),
+    onPageChange: (value: number) => setPage(value - 1),
+    onPageSizeChange: setPageSize,
+  }
   const tasks = useConnectorInstallTasks()
   const settled = useRef<Set<string> | null>(null)
   useEffect(() => {
