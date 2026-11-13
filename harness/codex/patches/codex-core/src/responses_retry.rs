@@ -23,7 +23,7 @@ use tracing::warn;
 const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
 const MANAGED_GATEWAY_PROVIDER: &str = "iyw-claw";
-pub(crate) const MANAGED_GATEWAY_MAX_RETRIES: u64 = 1;
+pub(crate) const MANAGED_GATEWAY_MAX_RETRIES: u64 = 3;
 
 pub(crate) fn is_request_too_large(err: &CodexErr) -> bool {
     matches!(err.details(), CodexErrorDetails::UnexpectedStatus(response)
@@ -118,7 +118,7 @@ pub(crate) async fn handle_response_stream_error(
             provider = %provider_name,
             retry_count = retries_for_limit,
             max_retries,
-            action = if retries_for_limit < max_retries { "retry_once" } else { "stop" },
+            action = if retries_for_limit < max_retries { "retry" } else { "stop" },
             "managed gateway returned 504; applying bounded request retry"
         );
     }
