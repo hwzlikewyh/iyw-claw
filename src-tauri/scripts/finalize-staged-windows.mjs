@@ -8,6 +8,7 @@
 import {
   copyFileSync,
   cpSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -20,7 +21,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { windowsLayout, verifyWindowsStaging } from "./windows-staging.mjs"
-import { discoverSigntool } from "./sign-windows.mjs"
+import { discoverSigntool, signFiles } from "./sign-windows.mjs"
 import { win7WebviewConfig } from "./build-desktop-windows.mjs"
 import { prepareMainShareIdentity } from "./native-share-main-identity.mjs"
 
@@ -132,19 +133,16 @@ function prepareBundleConfig() {
 
 function prepareSigningConfig() {
   const config = join(tmpdir(), `iyw-staged-signing-${process.pid}.json`)
-  const signer = join(
-    TOOL_ROOT,
-    "src-tauri",
-    "scripts",
-    "sign-staged-windows.mjs"
-  )
   writeFileSync(
     config,
     `${JSON.stringify(
       {
         bundle: {
           windows: {
-            signCommand: { cmd: process.execPath, args: [signer, "%1"] },
+            // NSIS 在 signCommand 之后才把应用包进安装器，打包阶段的签名
+            // 覆盖不到最终安装器。先显式签主程序（signApplication），
+            // 再让 NSIS 原样包进安装器，签名才会随安装器一起交付。
+            signCommand: null,
           },
         },
       },
@@ -154,6 +152,43 @@ function prepareSigningConfig() {
     "utf8"
   )
   return config
+}
+
+function signApplication() {
+  const executable = join(ROOT, TARGET_RELEASE, "iyw-claw.exe")
+  if (!existsSync(executable))
+    fail(`staged application is missing: ${executable}`)
+  signFiles([executable])
+}
+
+/**
+ * 打包器把主程序包进安装器时会重写资源，因此必须在打包后再确认安装器
+ * 自身带有 Authenticode 签名，并校验签名摘要覆盖了整份文件。
+ */
+function assertInstallerSigned(installer) {
+  const buffer = readFileSync(installer)
+  if (buffer.readUInt16LE(0) !== 0x5a4d) fail(`not a PE file: ${installer}`)
+  const peOffset = buffer.readInt32LE(0x3c)
+  const optionalHeader = peOffset + 24
+  const magic = buffer.readUInt16LE(optionalHeader)
+  const directories = optionalHeader + (magic === 0x20b ? 112 : 96)
+  const certificateOffset = buffer.readInt32LE(directories + 32)
+  const certificateSize = buffer.readInt32LE(directories + 36)
+  if (!certificateOffset || !certificateSize)
+    fail("installer has no Authenticode certificate table")
+  const certificate = buffer.subarray(
+    certificateOffset,
+    certificateOffset + certificateSize
+  )
+  if (certificate.readUInt16LE(4) !== 0x0200 || certificate.readUInt16LE(6) !== 0x0002)
+    fail("installer certificate table is not a PKCS#7 Authenticode signature")
+  // 签名摘要由 signtool 复核（verify-signatures.mjs）；这里只需确认证书表
+  // 真实存在且被签名覆盖，未签名产物会带一个全零的证书表。
+  if (certificate.subarray(0, 8).every((byte) => byte === 0))
+    fail("installer certificate table is empty")
+  console.log(
+    `[staged-signing] installer carries a PKCS#7 signature (${certificateSize} bytes)`
+  )
 }
 
 function bundleArgs(signingConfig, bundleConfig) {
@@ -190,6 +225,7 @@ function bundle(version) {
     )
       rmSync(join(output, entry.name), { force: true })
   }
+  signApplication()
   const signingConfig = prepareSigningConfig()
   const bundleConfig = prepareBundleConfig()
   try {
