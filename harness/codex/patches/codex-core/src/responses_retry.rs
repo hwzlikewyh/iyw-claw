@@ -22,13 +22,17 @@ use tracing::warn;
 
 const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
+const MANAGED_GATEWAY_PROVIDER: &str = "iyw-claw";
 
 pub(crate) fn is_request_too_large(err: &CodexErr) -> bool {
     matches!(err.details(), CodexErrorDetails::UnexpectedStatus(response)
         if response.status == http::StatusCode::PAYLOAD_TOO_LARGE)
 }
 
-pub(crate) fn is_retryable_response_error(err: &CodexErr) -> bool {
+pub(crate) fn is_retryable_response_error(provider_name: &str, err: &CodexErr) -> bool {
+    if is_managed_gateway_timeout(provider_name, err) {
+        return false;
+    }
     if is_output_limit_stream_error(err) {
         return false;
     }
@@ -93,6 +97,15 @@ pub(crate) async fn handle_response_stream_error(
     request: ResponsesStreamRequest,
 ) -> Result<(), CodexErr> {
     let turn_context = &step_context.turn;
+    let provider_name = turn_context.provider.info().name.as_str();
+    if is_managed_gateway_timeout(provider_name, &err) {
+        warn!(
+            turn_id = %turn_context.sub_id,
+            provider = %provider_name,
+            "managed gateway returned 504 after upstream failover; skipping request replay"
+        );
+        return Err(err);
+    }
     // 请求体不变时重连无法消除 413，交由回合层进行有界压缩恢复。
     if is_request_too_large(&err) {
         warn!(
@@ -103,7 +116,7 @@ pub(crate) async fn handle_response_stream_error(
         return Err(err);
     }
     // 余额、认证及参数错误不会因重连或切换传输而恢复。
-    if !is_retryable_response_error(&err) {
+    if !is_retryable_response_error(provider_name, &err) {
         return Err(err);
     }
     if matches!(request, ResponsesStreamRequest::Sampling)
@@ -215,6 +228,12 @@ pub(crate) async fn handle_response_stream_error(
             retry_at: retry_after.map(RetryAfter::deadline),
         });
     Err(err)
+}
+
+fn is_managed_gateway_timeout(provider_name: &str, err: &CodexErr) -> bool {
+    provider_name == MANAGED_GATEWAY_PROVIDER
+        && matches!(err.details(), CodexErrorDetails::UnexpectedStatus(response)
+            if response.status == http::StatusCode::GATEWAY_TIMEOUT)
 }
 
 fn log_retry(

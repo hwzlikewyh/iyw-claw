@@ -387,8 +387,10 @@ async fn run_compact_task_inner_impl(
             }
             Err(e) => {
                 let elapsed = compaction_start.elapsed();
-                if crate::responses_retry::is_retryable_response_error(&e)
-                    && !crate::responses_retry::is_request_too_large(&e)
+                if crate::responses_retry::is_retryable_response_error(
+                    turn_context.provider.info().name.as_str(),
+                    &e,
+                ) && !crate::responses_retry::is_request_too_large(&e)
                     && !request_budget.is_exhausted()
                     && retries < max_retries
                 {

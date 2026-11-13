@@ -2043,9 +2043,15 @@ impl ResponsesHttpExecutor<'_> {
                 request.input = input;
             }
             inference_trace_attempt.record_started(&request);
+            let mut api_provider = client_setup.api_provider;
+            if api_provider.name == "iyw-claw" {
+                // Fusion already retries upstream candidates for streaming requests.
+                // Do not replay its final HTTP 5xx and repeat the entire generation.
+                api_provider.retry.retry_5xx = false;
+            }
             let client = ApiResponsesClient::new(
                 transport,
-                client_setup.api_provider,
+                api_provider,
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
