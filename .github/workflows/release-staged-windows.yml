@@ -220,6 +220,17 @@ jobs:
           clean: false
           fetch-depth: 1
 
+      - name: Checkout certificate reader repair
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .signing-tools
+          sparse-checkout: src-tauri/native-share/windows
+
+      - name: Apply certificate reader repair to signing source
+        shell: pwsh
+        run: Copy-Item -LiteralPath .signing-tools/src-tauri/native-share/windows/certificate-subject.ps1 -Destination src-tauri/native-share/windows/certificate-subject.ps1 -Force
+
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
