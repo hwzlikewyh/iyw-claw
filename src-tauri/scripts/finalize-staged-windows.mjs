@@ -271,7 +271,7 @@ function main() {
   restoreStaging(includesFrontend)
   preflightToken()
   signEnvironmentHelper()
-  // hosted 编译阶段没有发布证书，分享 EXE 的嵌入身份必须在签名阶段生成。
+  // 分享身份在主程序签名前写入；最终只交付主 EXE 和签名身份包。
   execFileSync(
     process.execPath,
     [

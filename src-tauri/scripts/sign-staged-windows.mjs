@@ -15,6 +15,7 @@ import {
 } from "./sign-windows.mjs"
 import { verifyStagedSignature } from "./staged-signature-verification.mjs"
 import { signWithToken } from "./sign-windows-token.mjs"
+import { prepareMainShareIdentity } from "./native-share-main-identity.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const SIGN_TIMEOUT_MS = 180_000
@@ -106,6 +107,7 @@ async function sign(file, env = process.env) {
       "CI signing requires IYW_CLAW_SAFENET_PIN; interactive signing is disabled"
     )
   const context = { signtool: discoverSigntool(env), file, env }
+  prepareMainShareIdentity({ file, signtool: context.signtool, env })
   const isPackage = /\.(msix|appx)$/i.test(file)
   if (isPackage) {
     if (verifyStagedSignature(context)) return

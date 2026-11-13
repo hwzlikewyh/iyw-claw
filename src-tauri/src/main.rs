@@ -1,11 +1,18 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(all(windows, not(target_vendor = "win7")))]
+mod native_share_receiver;
+
 fn main() {
     if iyw_claw_lib::computer::entry::dispatch_early() {
         return;
     }
     if iyw_claw_lib::internal_xinghe_worker::dispatch_early() {
+        return;
+    }
+    #[cfg(all(windows, not(target_vendor = "win7")))]
+    if native_share_receiver::dispatch_early() {
         return;
     }
     iyw_claw_lib::logging::emergency::install_panic_hook();

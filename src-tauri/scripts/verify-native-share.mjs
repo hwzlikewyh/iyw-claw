@@ -11,6 +11,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { discoverSigntool } from "./sign-windows.mjs"
 import { verifyArtifacts } from "./verify-signatures.mjs"
+import { assertMainShareReceiver } from "./native-share-main-identity.mjs"
 
 const SHARE_ROOT = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -35,16 +36,13 @@ function readConfig(root) {
   return config
 }
 
-function verifyWindowsPackage(root) {
+function verifyWindowsPackage(root, executable) {
   const directory = mkdtempSync(join(tmpdir(), "iyw-share-verify-"))
   try {
     const manifest = join(directory, "receiver.manifest")
     execFileSync(
       join(dirname(discoverSigntool()), "mt.exe"),
-      [
-        `-inputresource:${join(root, "iyw-share-target.exe")};#1`,
-        `-out:${manifest}`,
-      ],
+      [`-inputresource:${executable};#1`, `-out:${manifest}`],
       { stdio: "pipe", windowsHide: true }
     )
     execFileSync(
@@ -81,12 +79,17 @@ export function verifyWindowsShare({ root, version, requireSigned = false }) {
   if (config.packageVersion !== `${version}.0`)
     throw new Error("Native share package version does not match the app")
   for (const name of [
-    "iyw-share-target.exe",
     "register.ps1",
     "share-resources.ps1",
     "UPSTREAM-LICENSE",
   ])
     requireFile(join(root, name))
+  if (existsSync(join(root, "iyw-share-target.exe")))
+    throw new Error(
+      "Independent share receiver must not be included in the application"
+    )
+  if (config.receiver !== "main")
+    throw new Error("Native share must be built into the main application")
   if (!config.signed) {
     if (requireSigned)
       throw new Error(
@@ -101,11 +104,11 @@ export function verifyWindowsShare({ root, version, requireSigned = false }) {
     "Assets/Square150x150Logo.png",
   ])
     requireFile(join(root, name))
-  verifyWindowsPackage(root)
-  verifyArtifacts([
-    join(root, "iyw-share-target.exe"),
-    join(root, "IywAssistant.ShareTarget.msix"),
-  ])
+  const executable = resolve(root, "../iyw-claw.exe")
+  requireFile(executable)
+  assertMainShareReceiver(executable)
+  verifyWindowsPackage(root, executable)
+  verifyArtifacts([executable, join(root, "IywAssistant.ShareTarget.msix")])
 }
 
 export function verifyMacShare({ root, extension, version }) {
