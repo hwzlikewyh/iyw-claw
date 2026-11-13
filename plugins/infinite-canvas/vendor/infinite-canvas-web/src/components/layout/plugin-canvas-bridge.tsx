@@ -26,7 +26,8 @@ declare global { interface Window { __IYW_CANVAS_BRIDGE__?: BridgeServices } }
 const SYNC_CANVAS_ID = "main"
 const SYNC_INTERVAL_MS = 1200
 const SYNC_NAMESPACE = "canvas-agent-sync"
-type SyncReceipt = { revision: number; projectSignature: string }
+type SyncReceipt = { canvasId: string; revision: number; projectSignature: string }
+let legacyHydration: Promise<void> | undefined
 
 export function PluginCanvasBridge() {
   const location = useLocation()
@@ -68,13 +69,16 @@ class CanvasSyncController {
   }
 
   private async sync(): Promise<void> {
-    await hydrateLegacyMainScene({ app: this.app, assets: this.assets })
-    if (!this.projectId) return
+    if (!useCanvasStore.getState().hydrated) return
+    legacyHydration ??= hydrateLegacyMainScene({ app: this.app, assets: this.assets }).catch((error) => { legacyHydration = undefined; throw error })
+    await legacyHydration
+    if (this.stopped || !this.projectId) return
     const project = useCanvasStore.getState().projects.find((item) => item.id === this.projectId)
     if (!project) return
-    const signature = JSON.stringify(project)
-    const scene = await readScene(this.app)
+    const signature = projectSignature(project)
     if (!this.receipt) this.receipt = await readReceipt(this.app, project.id)
+    const scene = await readScene(this.app, this.receipt?.canvasId || project.id)
+    if (this.stopped) return
     this.receipt = await synchronizeProject({ app: this.app, assets: this.assets, project, scene, signature, receipt: this.receipt })
   }
 
@@ -84,7 +88,6 @@ class CanvasSyncController {
     this.errorMessage = text
   }
 }
-
 function projectId(pathname: string): string {
   const match = pathname.match(/^\/canvas\/([^/]+)/)
   return match ? decodeURIComponent(match[1] || "") : ""
@@ -92,36 +95,32 @@ function projectId(pathname: string): string {
 
 async function hydrateLegacyMainScene(services: BridgeServices): Promise<void> {
   const store = useCanvasStore.getState()
-  if (!store.hydrated || store.projects.length) return
-  const scene = await readScene(services.app)
+  if (store.projects.length || store.deletedProjects.length) return
+  const scene = await readScene(services.app, SYNC_CANVAS_ID)
   if (!scene.nodes.length) return
   const project = await sceneToProject(scene, services.assets, "main", "Infinite Canvas")
+  if (useCanvasStore.getState().projects.length || useCanvasStore.getState().deletedProjects.length) return
   const id = useCanvasStore.getState().importProject(project)
-  await writeReceipt(services.app, id, { revision: scene.revision, projectSignature: JSON.stringify(useCanvasStore.getState().projects.find((item) => item.id === id)) })
+  await writeReceipt(services.app, id, { canvasId: scene.canvasId, revision: scene.revision, projectSignature: projectSignature(project) })
 }
-
 async function readReceipt(app: BridgeHost, projectId: string): Promise<SyncReceipt | undefined> {
   const result = await callTool(app, "infinite_canvas_store_data", { operation: "get", namespace: SYNC_NAMESPACE, key: projectId })
-  return result.value && typeof result.value === "object" ? result.value as SyncReceipt : undefined
+  const receipt = result.value as SyncReceipt | undefined
+  return receipt && typeof receipt.canvasId === "string" ? receipt : undefined
 }
-
 async function writeReceipt(app: BridgeHost, projectId: string, receipt: SyncReceipt): Promise<void> {
   await callTool(app, "infinite_canvas_store_data", { operation: "set", namespace: SYNC_NAMESPACE, key: projectId, value: receipt })
 }
-
 function sameSceneContent(left: CanvasScene, right: CanvasScene): boolean {
   return JSON.stringify([left.nodes, left.connections, left.backgroundMode, left.showImageInfo, left.viewport]) ===
     JSON.stringify([right.nodes, right.connections, right.backgroundMode, right.showImageInfo, right.viewport])
 }
-
-async function readScene(app: BridgeHost): Promise<CanvasScene> {
-  return callTool(app, "get_infinite_canvas_state", { canvasId: SYNC_CANVAS_ID }) as Promise<CanvasScene>
+async function readScene(app: BridgeHost, canvasId: string): Promise<CanvasScene> {
+  return callTool(app, "get_infinite_canvas_state", { canvasId }) as Promise<CanvasScene>
 }
-
 async function saveScene(app: BridgeHost, scene: CanvasScene): Promise<CanvasScene> {
-  return callTool(app, "save_infinite_canvas_snapshot", { canvasId: SYNC_CANVAS_ID, baseRevision: scene.revision, scene }) as Promise<CanvasScene>
+  return callTool(app, "save_infinite_canvas_snapshot", { canvasId: scene.canvasId, baseRevision: scene.revision, scene }) as Promise<CanvasScene>
 }
-
 async function callTool(app: BridgeHost, name: string, arguments_: Record<string, unknown>): Promise<Record<string, unknown>> {
   const result = await app.callServerTool({ name, arguments: arguments_ })
   const text = result.content.find((item) => item.type === "text")?.text
@@ -140,29 +139,25 @@ async function synchronizeProject(input: {
   const { app, assets, project, scene, signature, receipt } = input
   if (!receipt) {
     const candidate = await projectToScene(project, scene, app)
-    if (!scene.nodes.length || project.id !== SYNC_CANVAS_ID) return persistProject(app, project.id, signature, await saveScene(app, candidate))
-    if (sameSceneContent(candidate, scene)) return storeReceipt(app, project.id, signature, scene.revision)
+    if (!scene.nodes.length) return storeReceipt(app, project.id, signature, await saveScene(app, candidate))
+    if (sameSceneContent(candidate, scene)) return storeReceipt(app, project.id, signature, scene)
     throw syncConflict()
   }
-  if (scene.revision !== receipt.revision && signature === receipt.projectSignature && scene.nodes.length) {
+  if (scene.revision !== receipt.revision && signature === receipt.projectSignature) {
     await applySceneToProject(scene, project, assets)
     const updated = useCanvasStore.getState().projects.find((item) => item.id === project.id)
-    return storeReceipt(app, project.id, JSON.stringify(updated), scene.revision)
+    return storeReceipt(app, project.id, projectSignature(updated!), scene)
   }
   if (signature !== receipt.projectSignature && scene.revision === receipt.revision) {
     const candidate = await projectToScene(project, scene, app)
-    return persistProject(app, project.id, signature, await saveScene(app, candidate))
+    return storeReceipt(app, project.id, signature, await saveScene(app, candidate))
   }
   if (scene.revision !== receipt.revision && signature !== receipt.projectSignature) throw syncConflict()
   return receipt
 }
 
-async function persistProject(app: BridgeHost, projectId: string, signature: string, scene: CanvasScene): Promise<SyncReceipt> {
-  return storeReceipt(app, projectId, signature, scene.revision)
-}
-
-async function storeReceipt(app: BridgeHost, projectId: string, projectSignature: string, revision: number): Promise<SyncReceipt> {
-  const receipt = { revision, projectSignature }
+async function storeReceipt(app: BridgeHost, projectId: string, projectSignature: string, scene: CanvasScene): Promise<SyncReceipt> {
+  const receipt = { canvasId: scene.canvasId, revision: scene.revision, projectSignature }
   await writeReceipt(app, projectId, receipt)
   return receipt
 }
@@ -200,7 +195,7 @@ async function projectToScene(project: CanvasProject, scene: CanvasScene, app: B
   }))
   return {
     schemaVersion: 1,
-    canvasId: SYNC_CANVAS_ID,
+    canvasId: scene.canvasId,
     revision: scene.revision,
     nodes,
     connections: project.connections.map((connection) => ({
@@ -288,6 +283,8 @@ function sanitizeMetadata(value: Record<string, unknown>): Record<string, unknow
 
 async function applySceneToProject(scene: CanvasScene, project: CanvasProject, assets: AssetClient): Promise<void> {
   const next = await sceneToProject(scene, assets, project.id, project.title)
+  const current = useCanvasStore.getState().projects.find((item) => item.id === project.id)
+  if (!current || projectSignature(current) !== projectSignature(project)) throw syncConflict()
   useCanvasStore.getState().updateProject(project.id, {
     nodes: next.nodes,
     connections: next.connections,
@@ -295,4 +292,9 @@ async function applySceneToProject(scene: CanvasScene, project: CanvasProject, a
     showImageInfo: next.showImageInfo,
     viewport: next.viewport,
   })
+}
+
+function projectSignature(project: CanvasProject): string {
+  const nodes = project.nodes.map((node) => ({ ...node, metadata: sanitizeMetadata(node.metadata || {}) }))
+  return JSON.stringify([nodes, project.connections, project.backgroundMode, project.showImageInfo, project.viewport])
 }

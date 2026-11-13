@@ -71,6 +71,28 @@ const scene = {
 }
 
 export const contracts = Object.freeze({
+  infinite_canvas_model_request: {
+    schemaPath: "contracts/infinite-canvas-model-request.schema.json",
+    description: "Call the host-authenticated local model gateway for text and image generation.",
+    readOnlyHint: false,
+    inputSchema: schema({
+      path: { enum: ["models", "chat/completions", "responses", "responses/compact", "images/generations", "images/edits"] },
+      method: { enum: ["GET", "POST"] },
+      query: { type: "object", additionalProperties: { type: "string" } },
+      body: { type: "object", additionalProperties: true },
+    }, ["path", "method"]),
+  },
+  infinite_canvas_store_data: {
+    schemaPath: "contracts/infinite-canvas-store-data.schema.json",
+    description: "Persist Infinite Canvas app data in the current workspace.",
+    readOnlyHint: false,
+    inputSchema: schema({
+      operation: { enum: ["get", "set", "delete", "list"] },
+      namespace: { type: "string", minLength: 1, maxLength: 160 },
+      key: { type: "string", minLength: 1, maxLength: 240 },
+      value: {},
+    }, ["operation", "namespace"]),
+  },
   render_infinite_canvas_widget: {
     schemaPath: "contracts/render-infinite-canvas-widget.schema.json",
     description: "Open the Infinite Canvas MCP App widget.",

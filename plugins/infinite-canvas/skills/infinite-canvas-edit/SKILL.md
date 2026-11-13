@@ -8,6 +8,12 @@ Use the iyw-claw capability gateway. Read state and selection before editing, th
 connection IDs, keep asset payloads out of scene JSON, and retry only after a revision conflict has
 been read and presented to the user. Persist a changed selection through the selection capability.
 
+Workbench projects have separate canvas IDs. Read `plugin.infinite-canvas.host.store-data.v1`
+with `operation: "get"`, `namespace: "infinite-canvas:app_state"`, and
+`key: "infinite-canvas:canvas_store"`; parse the returned JSON string and match the requested
+project in `state.projects`. Use its `id` unless its record in namespace `canvas-agent-sync`
+specifies a legacy `canvasId`. Never assume every project is `main` or overwrite another project.
+
 Do not write arbitrary workspace paths, bypass HostGateway, start a web service, or silently replay
 a failed operation. Preserve existing nodes and report stable error codes.
 

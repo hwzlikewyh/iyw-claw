@@ -24,6 +24,8 @@ export async function getStoredAssetReferences(app: CanvasHost, storageName: str
 export async function installPluginStorage(app: CanvasHost, assets: AssetClient): Promise<void> {
   await localforage.defineDriver(createStorageDriver(app, assets))
   await localforage.setDriver("iyw-infinite-canvas")
+  const createInstance = localforage.createInstance.bind(localforage)
+  localforage.createInstance = (options) => createInstance({ ...options, driver: "iyw-infinite-canvas" })
   const values = await readNamespace(app, "browser-local-storage")
   installLocalStorage(app, values)
 }

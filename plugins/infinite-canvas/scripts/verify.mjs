@@ -1,11 +1,14 @@
 import { lstat, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { isDeepStrictEqual } from "node:util"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { contracts } from "../shared/contracts-data.mjs"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const manifest = JSON.parse(await readFile(join(root, ".iyw-plugin.json"), "utf8"))
-if (manifest.schemaVersion !== 2 || manifest.name !== "infinite-canvas" || manifest.version !== "0.1.17" || JSON.stringify(manifest.targets) !== JSON.stringify(["iyw-claw"])) throw new Error("plugin manifest identity is invalid")
+if (manifest.schemaVersion !== 2 || manifest.name !== "infinite-canvas" || manifest.version !== "0.1.19" || JSON.stringify(manifest.targets) !== JSON.stringify(["iyw-claw"])) throw new Error("plugin manifest identity is invalid")
 if (manifest.minClientVersion !== "0.1.332") throw new Error("interactive plugin minimum client version is invalid")
 const upstream = JSON.parse(await readFile(join(root, "upstream.json"), "utf8"))
 if (upstream.license !== "MIT" || typeof upstream.commit !== "string" || !/^[a-f0-9]{40}$/.test(upstream.commit)) throw new Error("upstream license provenance is invalid")
@@ -16,10 +19,16 @@ for (const [name, value] of Object.entries(contracts)) {
   const actual = JSON.parse(await readFile(path, "utf8"))
   if (JSON.stringify(actual) !== JSON.stringify(value.inputSchema)) throw new Error(`schema drift: ${name}`)
 }
-if (schemaFiles.size !== 10) throw new Error(`expected 10 schemas, got ${schemaFiles.size}`)
+const capabilities = manifest.components.capabilities
+if (schemaFiles.size !== capabilities.length) throw new Error("manifest and runtime tool counts differ")
+for (const capability of capabilities) {
+  const contract = contracts[capability.toolName]
+  if (!contract || contract.schemaPath !== capability.schemaPath) throw new Error(`missing runtime contract: ${capability.toolName}`)
+}
 const widget = await stat(join(root, "widget/dist/infinite-canvas-widget.html"))
 if (widget.size > 8 * 1024 * 1024) throw new Error("widget exceeds 8 MiB")
 await stat(join(root, "runtime/dist/infinite-canvas-mcp.mjs"))
+await verifyRuntime()
 const licenseReport = await buildLicenseReport()
 const creativeSource = await readFile(join(root, "widget/src/creative-request.ts"), "utf8")
 for (const action of ["image.generate", "image.annotation-edit", "html.generate", "html.edit", "slides.generate", "slides.annotation-edit"]) if (!creativeSource.includes(action)) throw new Error(`missing creative action: ${action}`)
@@ -40,6 +49,21 @@ await mkdir(join(root, "dist"), { recursive: true })
 await writeFile(join(root, "dist/license-report.json"), `${JSON.stringify(licenseReport, null, 2)}\n`, "utf8")
 await writeFile(join(root, "dist/verify-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`, "utf8")
 console.log(JSON.stringify(receipt, null, 2))
+
+async function verifyRuntime() {
+  const client = new Client({ name: "infinite-canvas-package-verifier", version: manifest.version })
+  const transport = new StdioClientTransport({ command: process.execPath, args: [join(root, "runtime/dist/infinite-canvas-mcp.mjs")] })
+  try {
+    await client.connect(transport)
+    if (client.getServerVersion()?.version !== manifest.version) throw new Error("runtime version differs from manifest")
+    const { tools } = await client.listTools()
+    if (tools.length !== capabilities.length) throw new Error("runtime tool count differs from manifest")
+    for (const capability of capabilities) {
+      const tool = tools.find((entry) => entry.name === capability.toolName)
+      if (!tool || !isDeepStrictEqual(tool.inputSchema, contracts[capability.toolName].inputSchema)) throw new Error(`runtime tool contract mismatch: ${capability.toolName}`)
+    }
+  } finally { await client.close() }
+}
 
 async function walk(directory) {
   const result = []

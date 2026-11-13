@@ -8,6 +8,22 @@ import {
 import { usePluginCatalog } from "./use-plugin-catalog"
 import type { PluginCatalogView } from "./plugin-market-toolbar"
 
+function matchesPluginSearch(
+  item: ReturnType<typeof usePluginCatalog>["items"][number],
+  needle: string
+) {
+  return [
+    item.displayName,
+    item.summary,
+    item.category,
+    item.organizationName ?? "",
+    ...item.tags,
+  ]
+    .join(" ")
+    .toLocaleLowerCase()
+    .includes(needle)
+}
+
 export function usePluginCatalogPage() {
   const [automaticPageSize, setAutomaticPageSize] = useState(true)
   const [search, setSearch] = useState({
@@ -25,10 +41,7 @@ export function usePluginCatalogPage() {
     return catalog.items.filter(
       (item) =>
         (search.publisher === "all" || item.publisher === search.publisher) &&
-        [item.displayName, item.slug, item.summary, ...item.tags]
-          .join(" ")
-          .toLocaleLowerCase()
-          .includes(needle)
+        matchesPluginSearch(item, needle)
     )
   }, [catalog.items, search.query, search.publisher])
   const page = Math.min(

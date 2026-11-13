@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "operation": { "enum": ["get", "set", "delete", "list"] },
+    "namespace": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "key": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "value": {}
+  },
+  "required": ["operation", "namespace"],
+  "additionalProperties": false
+}
