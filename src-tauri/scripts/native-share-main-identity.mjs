@@ -56,6 +56,30 @@ function embedIdentity({ file, signtool, root, directory, publisher }) {
   const manifest = join(directory, "main.manifest")
   const options = { windowsHide: true, stdio: "pipe", timeout: 30_000 }
   execFileSync(mt, [`-inputresource:${file};#1`, `-out:${original}`], options)
+  const status = prepareIdentityManifest({
+    root,
+    original,
+    manifest,
+    publisher,
+    options,
+  })
+  if (status === "identity-unchanged") {
+    console.log("[native-share] verified existing main application share identity")
+    return
+  }
+  if (status !== "identity-updated")
+    throw new Error("Unexpected main application identity preparation result")
+  execFileSync(
+    mt,
+    ["-manifest", manifest, `-outputresource:${file};#1`],
+    options
+  )
+  console.log(
+    "[native-share] embedded share identity into the main application before signing"
+  )
+}
+
+function prepareIdentityManifest({ root, original, manifest, publisher, options }) {
   const systemRoot = process.env.SystemRoot
   if (!systemRoot) throw new Error("Windows system directory is missing")
   const powershell = join(
@@ -67,7 +91,7 @@ function embedIdentity({ file, signtool, root, directory, publisher }) {
       ([name]) => name.toUpperCase() !== "PSMODULEPATH"
     )
   )
-  execFileSync(
+  return execFileSync(
     powershell,
     [
       "-NoProfile",
@@ -84,13 +108,5 @@ function embedIdentity({ file, signtool, root, directory, publisher }) {
       manifest,
     ],
     { ...options, env }
-  )
-  execFileSync(
-    mt,
-    ["-manifest", manifest, `-outputresource:${file};#1`],
-    options
-  )
-  console.log(
-    "[native-share] embedded share identity into the main application before signing"
-  )
+  ).toString("utf8").trim()
 }

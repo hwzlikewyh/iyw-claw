@@ -234,6 +234,8 @@ jobs:
         run: |
           Copy-Item -LiteralPath .signing-tools/src-tauri/native-share/windows/certificate-subject.ps1 -Destination src-tauri/native-share/windows/certificate-subject.ps1 -Force
           Copy-Item -LiteralPath .signing-tools/src-tauri/scripts/finalize-staged-windows.mjs -Destination src-tauri/scripts/finalize-staged-windows.mjs -Force
+          Copy-Item -LiteralPath .signing-tools/src-tauri/scripts/native-share-main-identity.mjs -Destination src-tauri/scripts/native-share-main-identity.mjs -Force
+          Copy-Item -LiteralPath .signing-tools/src-tauri/native-share/windows/prepare-main-manifest.ps1 -Destination src-tauri/native-share/windows/prepare-main-manifest.ps1 -Force
 
       - uses: pnpm/action-setup@v4
         with:
