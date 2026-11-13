@@ -29,7 +29,7 @@ fn gateway_url(
     path: &str,
     method: &str,
 ) -> Result<String, crate::plugin_runtime::types::PluginInvokeError> {
-    if !MODEL_PATHS.contains(&path.as_str()) || !matches!(method.as_str(), "GET" | "POST") {
+    if !MODEL_PATHS.contains(&path) || !matches!(method, "GET" | "POST") {
         return Err(rejected(
             "model endpoint is not available through the plugin gateway",
         ));

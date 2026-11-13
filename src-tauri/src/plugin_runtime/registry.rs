@@ -189,7 +189,7 @@ pub fn market_skill_state_global(market_skill_id: i64) -> Option<(bool, bool)> {
 }
 
 fn descriptor(
-    record: PluginInstallationRecord,
+    mut record: PluginInstallationRecord,
     scope: Option<&str>,
 ) -> Result<(String, PluginDescriptor), AppCommandError> {
     let manifest: SkillPluginManifest = serde_json::from_str(&record.installation.manifest_json)
