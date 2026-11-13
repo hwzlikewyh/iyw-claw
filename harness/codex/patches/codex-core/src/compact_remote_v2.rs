@@ -356,6 +356,23 @@ async fn run_remote_compaction_request_v2(
         match result {
             Ok(compaction_output) => return Ok(compaction_output),
             Err(err)
+                if crate::responses_retry::is_managed_gateway_timeout(
+                    step_context.turn.provider.info().name.as_str(),
+                    &err,
+                ) =>
+            {
+                handle_response_stream_error(
+                    &mut retry_state,
+                    max_retries,
+                    err,
+                    client_session,
+                    sess,
+                    step_context,
+                    ResponsesStreamRequest::RemoteCompactionV2,
+                )
+                .await?;
+            }
+            Err(err)
                 if !crate::responses_retry::is_retryable_response_error(
                     step_context.turn.provider.info().name.as_str(),
                     &err,
