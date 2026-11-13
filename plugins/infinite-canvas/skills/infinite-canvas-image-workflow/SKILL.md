@@ -3,6 +3,14 @@ name: infinite-canvas-image-workflow
 description: Import generated image assets into an Infinite Canvas scene.
 ---
 
+When the host conversation receives a Canvas generation request ID, read the full schema of
+`plugin.infinite-canvas.host.model-job.v1`, then call its `read` operation. Only execute a pending
+request. Preserve its prompt, references, selected image model and options; use the host's authorized
+image-generation tools and save outputs under `canvas/infinite-canvas/generated` in the workspace.
+Finish with `complete`, passing workspace-relative `sourcePath` and `mimeType` for each output;
+use `fail` with the real error when generation cannot complete. A chat reply alone does not deliver
+the result to the workbench. Never rerun a completed/cancelled job or read account credentials.
+
 Use the iyw-claw capability gateway and the `write-asset` capability for generated files. Upload
 128 KiB-or-smaller chunks with the expected byte count and SHA-256, then apply a node operation that
 references `asset://<sha256>`. Keep the prompt and pending node when generation or billing fails;

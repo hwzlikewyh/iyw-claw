@@ -1,17 +1,21 @@
 import axios, { AxiosError, AxiosHeaders, type AxiosRequestConfig } from "axios"
 import type { App } from "@modelcontextprotocol/ext-apps"
+import { runLegacyModel } from "./legacy-model.js"
 
 const GATEWAY_ORIGIN = "http://iyw-canvas.local"
+const MODEL_REQUEST_TIMEOUT_MS = 900_000
 const allowedPaths = new Set(["models", "chat/completions", "responses", "responses/compact", "images/generations", "images/edits"])
 
-type GatewayResult = { status: number; contentType: string; body: { text?: string; base64?: string } }
+export type GatewayResult = { status: number; contentType: string; body: { text?: string; base64?: string } }
+type CanvasHost = Pick<App, "callServerTool" | "sendMessage">
+type GatewayRequest = { pathname: string; method: string; body: unknown; query: Record<string, string>; signal?: { readonly aborted: boolean } }
 
-export function installModelGatewayAdapter(app: Pick<App, "callServerTool">): void {
+export function installModelGatewayAdapter(app: CanvasHost): void {
   const fallback = axios.getAdapter(axios.defaults.adapter)
   axios.defaults.adapter = async (config) => {
     const url = resolveUrl(config)
     if (!url || url.origin !== GATEWAY_ORIGIN) return fallback(config)
-    const result = await request(app, url, config.method || "get", config.data, config.signal)
+    const result = await request(app, { url, method: config.method || "get", rawBody: config.data, signal: config.signal })
     const data = decodeResponse(result, config.responseType)
     const response = { data, status: result.status, statusText: statusText(result.status), headers: new AxiosHeaders({ "content-type": result.contentType }), config, request: {} }
     const validate = config.validateStatus || ((status: number) => status >= 200 && status < 300)
@@ -21,7 +25,7 @@ export function installModelGatewayAdapter(app: Pick<App, "callServerTool">): vo
   installFetchAdapter(app)
 }
 
-function installFetchAdapter(app: Pick<App, "callServerTool">): void {
+function installFetchAdapter(app: CanvasHost): void {
   const original = window.fetch.bind(window)
   window.fetch = async (input, init) => {
     const request = input instanceof Request ? input : undefined
@@ -30,7 +34,7 @@ function installFetchAdapter(app: Pick<App, "callServerTool">): void {
     const method = (init?.method || request?.method || "GET").toUpperCase()
     const body = await readFetchBody(request, init)
     const query = Object.fromEntries(url.searchParams.entries())
-    const result = await callGateway(app, url.pathname, method, body, query)
+    const result = await callGateway(app, { pathname: url.pathname, method, body, query, signal: init?.signal ?? request?.signal })
     return toFetchResponse(result)
   }
 }
@@ -45,13 +49,8 @@ function resolveUrl(config: AxiosRequestConfig): URL | undefined {
   try { return new URL(axios.getUri(config), window.location.href) } catch { return undefined }
 }
 
-async function request(
-  app: Pick<App, "callServerTool">,
-  url: URL,
-  method: string,
-  rawBody: unknown,
-  signal?: { readonly aborted: boolean },
-): Promise<GatewayResult> {
+async function request(app: CanvasHost, input: { url: URL; method: string; rawBody: unknown; signal?: { readonly aborted: boolean } }): Promise<GatewayResult> {
+  const { url, method, rawBody, signal } = input
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
   const path = normalizePath(url.pathname)
   if (path.startsWith("videos") || path === "audio/speech") {
@@ -59,7 +58,7 @@ async function request(
   }
   if (!allowedPaths.has(path)) throw new Error("This local gateway endpoint is not supported")
   const body = await normalizeBody(path, rawBody)
-  const result = await callGateway(app, url.pathname, method.toUpperCase(), body, Object.fromEntries(url.searchParams.entries()))
+  const result = await callGateway(app, { pathname: url.pathname, method: method.toUpperCase(), body, query: Object.fromEntries(url.searchParams.entries()), signal })
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
   if (result.status < 200 || result.status >= 300) throw new Error(errorMessage(result))
   return result
@@ -95,20 +94,15 @@ async function blobDataUrl(blob: Blob): Promise<string> {
   return `data:${blob.type || "application/octet-stream"};base64,${btoa(binary)}`
 }
 
-async function callGateway(
-  app: Pick<App, "callServerTool">,
-  pathname: string,
-  method: string,
-  body: unknown,
-  query: Record<string, string>,
-): Promise<GatewayResult> {
+async function callGateway(app: CanvasHost, request: GatewayRequest): Promise<GatewayResult> {
+  const { pathname, method, body, query, signal } = request
   const path = normalizePath(pathname)
   if (!allowedPaths.has(path)) throw new Error("This local gateway endpoint is not supported")
   if (path === "models" ? method !== "GET" : method !== "POST") throw new Error("This local gateway method is not supported")
   const response = await app.callServerTool({
     name: "infinite_canvas_model_request",
     arguments: { path, method, ...(body === undefined ? {} : { body }), ...(Object.keys(query).length ? { query } : {}) },
-  })
+  }, { timeout: MODEL_REQUEST_TIMEOUT_MS })
   const text = response.content.find((item) => item.type === "text")?.text
   if (!text) throw new Error("The local model gateway is unavailable")
   if (response.isError) {
@@ -116,7 +110,9 @@ async function callGateway(
     try { message = (JSON.parse(text) as { message?: string }).message || text } catch { /* 保留宿主的原始错误 */ }
     throw new Error(message)
   }
-  return JSON.parse(text) as GatewayResult
+  const result = JSON.parse(text) as GatewayResult & { delegated?: boolean; requestId?: string }
+  if (result.delegated && result.requestId) return runLegacyModel(app, result.requestId, { path, body, signal })
+  return result
 }
 
 function decodeResponse(result: GatewayResult, responseType?: string): unknown {

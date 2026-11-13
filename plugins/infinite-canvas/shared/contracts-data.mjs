@@ -71,6 +71,18 @@ const scene = {
 }
 
 export const contracts = Object.freeze({
+  infinite_canvas_model_job: {
+    schemaPath: "contracts/infinite-canvas-model-job.schema.json",
+    description: "Read and complete a user-requested Canvas generation job through the current assistant conversation. Read first; do not regenerate completed or cancelled jobs. Return generated workspace files, text or a protocol response; never credentials.",
+    readOnlyHint: false,
+    inputSchema: schema({
+      operation: { enum: ["read", "status", "complete", "fail", "cancel"] },
+      requestId: { type: "string", pattern: "^[a-f0-9-]{36}$" },
+      response: { type: "object", additionalProperties: true },
+      images: { type: "array", minItems: 1, maxItems: 16, items: { type: "object", properties: { sourcePath: { type: "string", minLength: 1 }, mimeType: { enum: ["image/png", "image/jpeg", "image/webp", "image/gif"] } }, required: ["sourcePath", "mimeType"], additionalProperties: false } },
+      error: { type: "string", maxLength: 2000 },
+    }, ["operation", "requestId"]),
+  },
   infinite_canvas_model_request: {
     schemaPath: "contracts/infinite-canvas-model-request.schema.json",
     description: "Call the host-authenticated local model gateway for text and image generation.",
