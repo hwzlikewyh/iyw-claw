@@ -171,6 +171,7 @@ function bundleArgs(signingConfig, bundleConfig) {
     signingConfig,
     "--config",
     bundleConfig,
+    "--verbose",
   ]
   if (LAYOUT.overlay) args.splice(10, 0, "--config", LAYOUT.overlay)
   return args

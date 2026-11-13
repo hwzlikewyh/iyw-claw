@@ -220,16 +220,20 @@ jobs:
           clean: false
           fetch-depth: 1
 
-      - name: Checkout certificate reader repair
+      - name: Checkout signing compatibility scripts
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           path: .signing-tools
-          sparse-checkout: src-tauri/native-share/windows
+          sparse-checkout: |
+            src-tauri/native-share/windows
+            src-tauri/scripts
 
-      - name: Apply certificate reader repair to signing source
+      - name: Apply signing compatibility scripts
         shell: pwsh
-        run: Copy-Item -LiteralPath .signing-tools/src-tauri/native-share/windows/certificate-subject.ps1 -Destination src-tauri/native-share/windows/certificate-subject.ps1 -Force
+        run: |
+          Copy-Item -LiteralPath .signing-tools/src-tauri/native-share/windows/certificate-subject.ps1 -Destination src-tauri/native-share/windows/certificate-subject.ps1 -Force
+          Copy-Item -LiteralPath .signing-tools/src-tauri/scripts/finalize-staged-windows.mjs -Destination src-tauri/scripts/finalize-staged-windows.mjs -Force
 
       - uses: pnpm/action-setup@v4
         with:
