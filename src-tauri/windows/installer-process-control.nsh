@@ -6,6 +6,7 @@ Var IywClawProcessError
 
 !include "${__FILEDIR__}\installer-node-process.nsh"
 !include "${__FILEDIR__}\installer-process-diagnostics.nsh"
+!include "${__FILEDIR__}\installer-process-query.nsh"
 
 !macro IywClawDefineProcessFunctions Prefix
 Function ${Prefix}IywClawIssueKnownProcessKills
@@ -34,6 +35,7 @@ FunctionEnd
 Function ${Prefix}IywClawWriteKnownProcessScript
   InitPluginsDir
   File /oname=$PLUGINSDIR\iyw-restart-manager.cs "${__FILEDIR__}\installer-restart-manager.cs"
+  File /oname=$PLUGINSDIR\iyw-native-process.cs "${__FILEDIR__}\installer-native-process.cs"
   ClearErrors
   FileOpen $R0 "$PLUGINSDIR\iyw-claw-process-control.ps1" w
   IfErrors known_process_script_write_failed 0
@@ -43,6 +45,8 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   ; Restart Manager reports processes that hold app DLL/EXE handles even when
   ; their executable lives outside the install directory (for example WebView2).
   FileWriteUTF16LE $R0 `  Add-Type -Path (Join-Path $$PSScriptRoot 'iyw-restart-manager.cs')$\r$\n`
+  FileWriteUTF16LE $R0 `  Add-Type -Path (Join-Path $$PSScriptRoot 'iyw-native-process.cs')$\r$\n`
+  !insertmacro IywClawWriteProcessQuery
   FileWriteUTF16LE $R0 `  function Normalize-Directory([string]$$Path) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$full = [IO.Path]::GetFullPath($$Path)$\r$\n`
   FileWriteUTF16LE $R0 `    $$root = [IO.Path]::GetPathRoot($$full)$\r$\n`
@@ -76,8 +80,14 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   ; 根目录和本安装实例的入口脚本。
   !insertmacro IywClawWriteNodeProcessScope
   FileWriteUTF16LE $R0 `  function Get-ProcessIdentity([object]$$CimProcess) {$\r$\n`
-  FileWriteUTF16LE $R0 `    $$owner = Invoke-CimMethod -InputObject $$CimProcess -MethodName GetOwnerSid -ErrorAction Stop$\r$\n`
-  FileWriteUTF16LE $R0 `    if ($$owner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($$owner.Sid)) { throw 'Unable to resolve process owner SID' }$\r$\n`
+  FileWriteUTF16LE $R0 `    if ($$CimProcess -is [IywNativeProcessRecord]) {$\r$\n`
+  FileWriteUTF16LE $R0 `      if (-not [string]::IsNullOrWhiteSpace($$CimProcess.QueryError)) { throw $$CimProcess.QueryError }$\r$\n`
+  FileWriteUTF16LE $R0 `      $$ownerSid = $$CimProcess.OwnerSid$\r$\n`
+  FileWriteUTF16LE $R0 `    } else {$\r$\n`
+  FileWriteUTF16LE $R0 `      $$owner = Invoke-CimMethod -InputObject $$CimProcess -MethodName GetOwnerSid -ErrorAction Stop$\r$\n`
+  FileWriteUTF16LE $R0 `      if ($$owner.ReturnValue -ne 0) { throw 'Unable to resolve process owner SID' }; $$ownerSid = $$owner.Sid$\r$\n`
+  FileWriteUTF16LE $R0 `    }$\r$\n`
+  FileWriteUTF16LE $R0 `    if ([string]::IsNullOrWhiteSpace($$ownerSid)) { throw 'Process owner SID is unavailable' }$\r$\n`
   FileWriteUTF16LE $R0 `    if ([string]::IsNullOrWhiteSpace($$CimProcess.ExecutablePath)) { throw 'Process executable path is unavailable' }$\r$\n`
   FileWriteUTF16LE $R0 `    $$processId = [int]$$CimProcess.ProcessId$\r$\n`
   ; uv 的解释器别名是 Junction；进程身份按句柄解析，之后仍校验真实路径归属。
@@ -100,14 +110,14 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    $$leaf = [IO.Path]::GetFileName($$cimPath)$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not [string]::Equals($$leaf, $$CimProcess.Name, [StringComparison]::OrdinalIgnoreCase)) { throw 'Process executable name mismatch' }$\r$\n`
   FileWriteUTF16LE $R0 `    $$scriptPath = Get-ManagedNodeScript $$CimProcess$\r$\n`
-  FileWriteUTF16LE $R0 `    return [PSCustomObject]@{ ProcessId = $$processId; StartTimeUtcTicks = $$startTicks; OwnerSid = $$owner.Sid; ExecutablePath = $$cimPath; ParentPath = $$parent; Name = $$CimProcess.Name; ScriptPath = $$scriptPath; RuntimeProcess = $$runtime }$\r$\n`
+  FileWriteUTF16LE $R0 `    return [PSCustomObject]@{ ProcessId = $$processId; StartTimeUtcTicks = $$startTicks; OwnerSid = $$ownerSid; ExecutablePath = $$cimPath; ParentPath = $$parent; Name = $$CimProcess.Name; ScriptPath = $$scriptPath; RuntimeProcess = $$runtime }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  function Confirm-ProcessIdentity([object]$$Expected, [string]$$Target, [string]$$CurrentSid) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$processId = [int]$$Expected.ProcessId$\r$\n`
-  FileWriteUTF16LE $R0 `    $$records = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$processId" -ErrorAction Stop)$\r$\n`
+  FileWriteUTF16LE $R0 `    $$records = @(Get-InstallerProcesses $$processId)$\r$\n`
   FileWriteUTF16LE $R0 `    if ($$records.Count -eq 0) { return $$null }$\r$\n`
   FileWriteUTF16LE $R0 `    if ($$records.Count -ne 1) { throw "PID $$processId returned multiple process records" }$\r$\n`
-  FileWriteUTF16LE $R0 `    try { $$actual = Get-ProcessIdentity $$records[0] } catch { $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$processId" -ErrorAction Stop); if ($$stillThere.Count -eq 0) { return $$null }; throw }$\r$\n`
+  FileWriteUTF16LE $R0 `    try { $$actual = Get-ProcessIdentity $$records[0] } catch { $$stillThere = @(Get-InstallerProcesses $$processId); if ($$stillThere.Count -eq 0) { return $$null }; throw }$\r$\n`
   FileWriteUTF16LE $R0 `    $$changed = $$actual.ProcessId -ne $$Expected.ProcessId -or $$actual.StartTimeUtcTicks -ne $$Expected.StartTimeUtcTicks -or -not [string]::Equals($$actual.OwnerSid, $$Expected.OwnerSid, [StringComparison]::OrdinalIgnoreCase) -or -not [string]::Equals($$actual.ExecutablePath, $$Expected.ExecutablePath, [StringComparison]::OrdinalIgnoreCase) -or -not [string]::Equals($$actual.ParentPath, $$Expected.ParentPath, [StringComparison]::OrdinalIgnoreCase) -or -not [string]::Equals($$actual.Name, $$Expected.Name, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    $$changed = $$changed -or -not [string]::Equals($$actual.ScriptPath, $$Expected.ScriptPath, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    if ($$changed) { throw "Process identity changed before stop for PID $$processId" }$\r$\n`
@@ -162,14 +172,14 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  $$managedRoots = @($$normalizedManagedRoots | Select-Object -Unique)$\r$\n`
   FileWriteUTF16LE $R0 `  $$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; if ([string]::IsNullOrWhiteSpace($$currentSid)) { throw 'Current user SID is unavailable' }$\r$\n`
-  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return (($$resourcePids -contains [int]$$Process.ProcessId) -and $$Process.Name -ine 'explorer.exe') -or $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
+  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return (($$resourcePids -contains [int]$$Process.ProcessId) -and $$Process.Name -ine 'explorer.exe') -or $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or ($$Process -is [IywNativeProcessRecord] -and $$Process.Name -ieq 'node.exe' -and -not [string]::IsNullOrWhiteSpace($$Process.QueryError)) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
   FileWriteUTF16LE $R0 `  $$processSnapshots = @()$\r$\n`
-  FileWriteUTF16LE $R0 `  Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object {$\r$\n`
+  FileWriteUTF16LE $R0 `  Get-InstallerProcesses | ForEach-Object {$\r$\n`
   FileWriteUTF16LE $R0 `    if ([int]$$_.ProcessId -eq $$InstallerProcessId) { return }$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not (& $$isCandidate $$_)) { return }$\r$\n`
   FileWriteUTF16LE $R0 `    $$candidate = $$_; $$candidatePid = [int]$$candidate.ProcessId$\r$\n`
   FileWriteUTF16LE $R0 `    try { $$identity = Get-ProcessIdentity $$candidate } catch {$\r$\n`
-  FileWriteUTF16LE $R0 `      $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$candidatePid" -ErrorAction Stop)$\r$\n`
+  FileWriteUTF16LE $R0 `      $$stillThere = @(Get-InstallerProcesses $$candidatePid)$\r$\n`
   FileWriteUTF16LE $R0 `      if ($$stillThere.Count -eq 0) { return }$\r$\n`
   FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$resourcePids -contains $$candidatePid -or $$candidate.Name -ieq 'iyw-claw.exe' -or $$candidate.Name -ieq 'node.exe' -or (Test-ManagedProcessPath $$candidate.ExecutablePath)) { throw ('Unable to verify installer-scoped process: pid={0}; error={1}' -f $$candidatePid, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `      Write-Warning ('Skipping auxiliary process {0} (PID {1}): {2}' -f $$candidate.Name, $$candidatePid, $$_)$\r$\n`
@@ -192,7 +202,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `      if ($$null -eq $$liveProcess) { continue }$\r$\n`
   FileWriteUTF16LE $R0 `      $$snapshotPid = [int]$$snapshot.ProcessId$\r$\n`
   FileWriteUTF16LE $R0 `      Write-Output ('Stopping installer-scoped process: name={0}; pid={1}' -f $$snapshot.Name, $$snapshotPid)$\r$\n`
-  FileWriteUTF16LE $R0 `      try { Stop-Process -InputObject $$liveProcess -Force -ErrorAction Stop; if (-not $$liveProcess.WaitForExit(${IYW_CLAW_PROCESS_EXIT_WAIT_MS})) { throw "Process did not exit after stop: PID $$snapshotPid" }; Start-Sleep -Milliseconds 100 } catch { $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$snapshotPid" -ErrorAction Stop); if ($$stillThere.Count -gt 0) { throw } }$\r$\n`
+  FileWriteUTF16LE $R0 `      try { Stop-Process -InputObject $$liveProcess -Force -ErrorAction Stop; if (-not $$liveProcess.WaitForExit(${IYW_CLAW_PROCESS_EXIT_WAIT_MS})) { throw "Process did not exit after stop: PID $$snapshotPid" }; Start-Sleep -Milliseconds 100 } catch { $$stillThere = @(Get-InstallerProcesses $$snapshotPid); if ($$stillThere.Count -gt 0) { throw } }$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    exit 0$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
@@ -201,7 +211,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `} catch {$\r$\n`
   ; 完整异常独立写盘，避免 nsExec 的字符串长度上限截断根因。
   FileWriteUTF16LE $R0 `  $$failure = $$_$\r$\n`
-  FileWriteUTF16LE $R0 `  try { @($$failure.Exception.ToString(), $$failure.InvocationInfo.PositionMessage, ($$failure | Out-String -Width 240)) | Out-File -LiteralPath (Join-Path $$PSScriptRoot 'iyw-claw-process-control.log') -Encoding UTF8 -Width 240 -ErrorAction Stop } catch { Write-Warning ('Unable to save process diagnostics: {0}' -f $$_.Exception.Message) }$\r$\n`
+  FileWriteUTF16LE $R0 `  try { @($$failure.Exception.ToString(), $$failure.InvocationInfo.PositionMessage, ($$failure | Out-String -Width 240)) | Out-File -LiteralPath (Join-Path $$PSScriptRoot 'iyw-claw-process-control.log') -Append -Encoding UTF8 -Width 240 -ErrorAction Stop } catch { Write-Warning ('Unable to save process diagnostics: {0}' -f $$_.Exception.Message) }$\r$\n`
   FileWriteUTF16LE $R0 `  Write-Error $$failure -ErrorAction Continue$\r$\n`
   FileWriteUTF16LE $R0 `  exit 2$\r$\n`
   FileWriteUTF16LE $R0 `}$\r$\n`

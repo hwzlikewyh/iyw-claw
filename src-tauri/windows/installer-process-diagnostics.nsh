@@ -9,22 +9,30 @@ Function ${Prefix}IywClawRunKnownProcessCommandAt
 
   known_process_script_ready:
   System::Call 'kernel32::GetCurrentProcessId() i.R7'
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-claw-process-control.ps1" -Action "$R8" -InstallDir "$R9" -InstallerProcessId $R7'
+  StrCpy $R6 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+  IfFileExists "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" 0 +2
+    StrCpy $R6 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+  nsExec::ExecToStack '"$R6" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-claw-process-control.ps1" -Action "$R8" -InstallDir "$R9" -InstallerProcessId $R7'
   Pop $R0
   Pop $R1
-  StrCmp $R0 "0" known_process_command_cleanup
-  StrCmp $R0 "1" known_process_command_cleanup
+  StrCmp $R0 "0" known_process_command_diagnostics
+  StrCmp $R0 "1" known_process_command_diagnostics
   StrCpy $IywClawProcessError "action=$R8; exit=$R0; output=$R1"
   !if "${Prefix}" == ""
   StrCmp $IywClawRoot "" known_process_command_cleanup
   Push "process command failed: action=$R8; exit=$R0; install_dir=$R9; output=$R1"
   Call IywClawAppendInstallerLog
+  !endif
+  known_process_command_diagnostics:
+  !if "${Prefix}" == ""
+  StrCmp $IywClawRoot "" known_process_command_cleanup
   CreateDirectory "$IywClawRoot\logs"
   CopyFiles /SILENT "$PLUGINSDIR\iyw-claw-process-control.log" "$IywClawRoot\logs\installer-process-control.log"
   !endif
   known_process_command_cleanup:
   Delete "$PLUGINSDIR\iyw-claw-process-control.ps1"
   Delete "$PLUGINSDIR\iyw-restart-manager.cs"
+  Delete "$PLUGINSDIR\iyw-native-process.cs"
   Delete "$PLUGINSDIR\iyw-claw-process-control.log"
   StrCmp $R0 "0" known_process_command_result_ready 0
   StrCmp $R0 "1" known_process_command_result_ready 0
@@ -39,6 +47,7 @@ Function ${Prefix}IywClawRunKnownProcessCommandAt
     StrCpy $IywClawProcessError "无法写入进程检查脚本：$PLUGINSDIR\iyw-claw-process-control.ps1"
     Delete "$PLUGINSDIR\iyw-claw-process-control.ps1"
     Delete "$PLUGINSDIR\iyw-restart-manager.cs"
+    Delete "$PLUGINSDIR\iyw-native-process.cs"
     Push "2"
 FunctionEnd
 !macroend

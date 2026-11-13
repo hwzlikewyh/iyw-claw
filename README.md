@@ -37,6 +37,8 @@ Rust 官方预编译标准库，需要在构建机上按 Rust 的 Win7 target �
 MSVC/Windows SDK。普通 Windows 构建目标仍为 `x86_64-pc-windows-msvc`。
 安装目标机还需 Windows PowerShell 5.1（WMF 5.1 及其 .NET 前置组件），
 因为现有安装事务使用 PowerShell 5 的构造语法和 CIM；Win7 自带 PowerShell 2 不满足要求。
+安装器优先使用 CIM 查询进程，CIM 不可用时回退到 Windows 原生进程接口，
+并继续校验进程归属、路径和启动时间，见 [WMI 兼容处理](docs/windows-installer-wmi-compatibility.md)。
 
 Windows 7 没有 ConPTY。应用会使用管道终端运行 cmd、PowerShell 和外部命令，终端尺寸
 调整不可用；Windows 10 1809 及更新版本继续使用 ConPTY。Microsoft Edge/WebView2
