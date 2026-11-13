@@ -59,11 +59,12 @@ jobs:
         shell: pwsh
         working-directory: installer
         run: |
-          python scripts/fetch-deps.py
+          $uv = (Get-Command uv -ErrorAction Stop).Source
+          & $uv run --python 3.12 --no-project python scripts/fetch-deps.py
           if ($LASTEXITCODE -ne 0) { throw 'dependency preparation failed' }
           ./scripts/build.ps1 -WxSource .cache/wxWidgets-3.2.12
           if ($LASTEXITCODE -ne 0) { throw 'installer build failed' }
-          python scripts/package.py windows
+          & $uv run --python 3.12 --no-project python scripts/package.py windows
           if ($LASTEXITCODE -ne 0) { throw 'installer packaging failed' }
 
       - name: Sign and verify Windows files
