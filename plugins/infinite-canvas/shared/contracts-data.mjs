@@ -71,6 +71,12 @@ const scene = {
 }
 
 export const contracts = Object.freeze({
+  download_infinite_canvas_image: {
+    schemaPath: "contracts/download-infinite-canvas-image.schema.json",
+    description: "Download an already-generated image from the authorized image storage into workspace assets. This never generates another image; repeated calls reuse the saved asset.",
+    readOnlyHint: false,
+    inputSchema: schema({ url: { type: "string", minLength: 1, maxLength: 8192 } }, ["url"]),
+  },
   infinite_canvas_host_context: {
     schemaPath: "contracts/infinite-canvas-host-context.schema.json",
     description: "Read the current Yuan Assistant window binding and selected model. Available only through the authorized host app bridge.",

@@ -29,6 +29,10 @@ export class AssetClient {
     return this.call("write_infinite_canvas_asset", { sourcePath, name, mimeType }) as Promise<AssetReference>
   }
 
+  async importUrl(url: string): Promise<AssetReference> {
+    return this.call("download_infinite_canvas_image", { url }) as Promise<AssetReference>
+  }
+
   async getUrl(reference: AssetReference): Promise<string> {
     const read: AssetReader = (sha256, offset, length) => this.call("read_infinite_canvas_asset", { sha256, offset, length }) as Promise<{ dataBase64: string; bytes: number }>
     return this.urls.getOrCreate(reference.sha256, reference.bytes, reference.mimeType, read)

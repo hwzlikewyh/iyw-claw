@@ -3,14 +3,14 @@ import { Alert, Button } from "antd"
 import { useTranslation } from "react-i18next"
 import { encodeChannelModel, isIywGatewayBaseUrl, modelOptionsFromChannels, useConfigStore, type ChannelModel, type ModelCapability } from "@/stores/use-config-store"
 import { hostModelsReady, setHostModelsReady } from "@/lib/host-model-state"
-import { readCurrentWindow } from "../../../../../widget/src/upstream/host-bridge"
+import { readCurrentWindow, supportsCurrentWindow } from "../../../../../widget/src/upstream/host-bridge"
 
 let loading: Promise<ChannelModel[]> | undefined
 
 async function loadModels(): Promise<ChannelModel[]> {
   const bridge = window.__IYW_CANVAS_BRIDGE__
   if (!bridge) throw new Error("hostAgent.unsupported")
-  bridge.currentWindow = await readCurrentWindow(bridge.app)
+  if (supportsCurrentWindow(bridge.app)) bridge.currentWindow = await readCurrentWindow(bridge.app)
   const response = await fetch("http://iyw-canvas.local/v1/models?model_type=all")
   if (!response.ok) throw new Error("hostAgent.modelsFailed")
   const payload = await response.json() as { data?: unknown }

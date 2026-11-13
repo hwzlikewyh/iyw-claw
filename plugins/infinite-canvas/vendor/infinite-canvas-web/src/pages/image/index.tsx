@@ -21,6 +21,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import type { ReferenceImage } from "@/types/image";
 import i18n from "@/i18n";
+import { ImageDownloadError, imageRecovery } from "@/services/image-download-error";
 
 type GeneratedImage = {
     id: string;
@@ -38,6 +39,7 @@ type GenerationResult = {
     status: "pending" | "success" | "failed";
     image?: GeneratedImage;
     error?: string;
+    recoverySourceUrl?: string;
 };
 
 type GenerationLog = {
@@ -57,6 +59,7 @@ type GenerationLog = {
     quality: string;
     status: "success" | "failed";
     images: GeneratedImage[];
+    recoverable?: Array<{ sourceUrl: string; error: string }>;
 };
 
 type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count">;
@@ -68,6 +71,7 @@ const RESULT_ACTION_BUTTON_CLASS = "min-w-0 px-1.5 [&_.ant-btn-icon]:shrink-0 [&
 const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_generation_logs" });
 
 export default function ImagePage() {
+    const retryingSlots = useRef(new Set<number>());
     const { message } = App.useApp();
     const { t } = useTranslation();
     useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision);
@@ -189,7 +193,7 @@ export default function ImagePage() {
 
         try {
             saveLog(
-                buildLog({
+                { ...buildLog({
                     prompt: text,
                     model,
                     config: { ...snapshot.config, count: String(generationCount) },
@@ -199,7 +203,7 @@ export default function ImagePage() {
                     failCount,
                     status: successCount ? "success" : "failed",
                     images: successImages,
-                }),
+                }), recoverable: result.flatMap((item) => item.status === "rejected" && item.reason instanceof ImageDownloadError ? [{ sourceUrl: item.reason.sourceUrl, error: item.reason.message }] : []) },
             );
             successCount ? message.success(t("imageWorkbench.generated")) : message.error(failed?.reason instanceof Error ? failed.reason.message : t("workbench.generationFailed"));
         } finally {
@@ -301,7 +305,7 @@ export default function ImagePage() {
         if (log.config.quality) updateConfig("quality", log.config.quality);
         if (log.config.size) updateConfig("size", log.config.size);
         if (log.config.count) updateConfig("count", log.config.count);
-        setResults(log.images.map((image) => ({ id: image.id, status: "success", image })));
+        setResults([...log.images.map((image): GenerationResult => ({ id: image.id, status: "success", image })), ...(log.recoverable || []).map((item): GenerationResult => ({ id: nanoid(), status: "failed", recoverySourceUrl: item.sourceUrl, error: item.error }))]);
     };
 
     const buildRequestSnapshot = () => {
@@ -318,30 +322,33 @@ export default function ImagePage() {
         return { text, config: { ...effectiveConfig, model, count: "1" }, references: [...references] };
     };
 
-    const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }) => {
+    const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }, recoverySourceUrl?: string) => {
         const itemStartedAt = performance.now();
         try {
-            const result = snapshot.references.length ? await requestEdit(snapshot.config, snapshot.text, snapshot.references) : await requestGeneration(snapshot.config, snapshot.text);
+            const result = recoverySourceUrl ? [{ id: nanoid(), dataUrl: recoverySourceUrl }] : snapshot.references.length ? await requestEdit(snapshot.config, snapshot.text, snapshot.references) : await requestGeneration(snapshot.config, snapshot.text);
             const image = result[0];
             if (!image) throw new Error(t("imageWorkbench.missingResult"));
             const stored = await uploadImage(image.dataUrl);
             const nextImage: GeneratedImage = { id: image.id, dataUrl: stored.url, ...(stored.storageKey ? { storageKey: stored.storageKey } : {}), durationMs: performance.now() - itemStartedAt, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
-            setResults((value) => updateResultAt(value, index, { status: "success", image: nextImage }));
+            setResults((value) => updateResultAt(value, index, { status: "success", image: nextImage, recoverySourceUrl: undefined }));
             return nextImage;
         } catch (error) {
-            setResults((value) => updateResultAt(value, index, { status: "failed", error: error instanceof Error ? error.message : t("workbench.generationFailed") }));
+            setResults((value) => updateResultAt(value, index, { status: "failed", error: error instanceof Error ? error.message : t("workbench.generationFailed"), ...imageRecovery(error) }));
             throw error;
         }
     };
 
     const retryResult = async (index: number) => {
-        const snapshot = buildRequestSnapshot();
+        if (retryingSlots.current.has(index)) return;
+        const recoverySourceUrl = results[index]?.recoverySourceUrl;
+        const snapshot = recoverySourceUrl ? { text: prompt, config: { ...effectiveConfig, model, count: "1" }, references: [...references] } : buildRequestSnapshot();
         if (!snapshot) return;
+        retryingSlots.current.add(index);
         setPreviewLog(null);
         setResults((value) => updateResultAt(value, index, { status: "pending", error: undefined, image: undefined }));
         const retryStartedAt = performance.now();
         try {
-            const image = await runGenerationSlot(index, snapshot);
+            const image = await runGenerationSlot(index, snapshot, recoverySourceUrl);
             saveLog(
                 buildLog({
                     prompt: snapshot.text,
@@ -358,7 +365,7 @@ export default function ImagePage() {
             message.success(t("workbench.retrySuccess"));
         } catch {
             // runGenerationSlot has already marked the result as failed.
-        }
+        } finally { retryingSlots.current.delete(index); }
     };
 
     return (
@@ -503,7 +510,7 @@ export default function ImagePage() {
                                     result.status === "success" && result.image ? (
                                         <ResultImageCard key={result.id} image={result.image} index={index} onEdit={addResultToReferences} onDownload={downloadImage} onSaveAsset={saveResultToAssets} />
                                     ) : result.status === "failed" ? (
-                                        <FailedImageCard key={result.id} error={result.error || t("workbench.generationFailed")} onRetry={() => retryResult(index)} />
+                                        <FailedImageCard key={result.id} error={result.error || t("workbench.generationFailed")} downloadOnly={Boolean(result.recoverySourceUrl)} onRetry={() => retryResult(index)} />
                                     ) : (
                                         <PendingImageCard key={result.id} />
                                     ),
@@ -638,19 +645,19 @@ function PendingImageCard() {
     );
 }
 
-function FailedImageCard({ error, onRetry }: { error: string; onRetry: () => void }) {
+function FailedImageCard({ error, downloadOnly, onRetry }: { error: string; downloadOnly?: boolean; onRetry: () => void }) {
     const { t } = useTranslation();
     return (
         <div className="overflow-hidden rounded-lg border border-red-200 bg-red-50 dark:border-red-950 dark:bg-red-950/20">
             <div className="flex aspect-square flex-col items-center justify-center gap-3 p-5 text-center">
-                <div className="text-sm font-medium text-red-600 dark:text-red-300">{t("workbench.failed")}</div>
+                <div className="text-sm font-medium text-red-600 dark:text-red-300">{t(downloadOnly ? "imageDownload.title" : "workbench.failed")}</div>
                 <Typography.Paragraph ellipsis={{ rows: 4 }} className="!mb-0 !text-xs !text-red-500 dark:!text-red-300">
                     {error}
                 </Typography.Paragraph>
             </div>
             <div className="flex justify-end border-t border-red-200 p-3 dark:border-red-950">
                 <Button size="small" danger onClick={onRetry}>
-                    {t("workbench.retry")}
+                    {t(downloadOnly ? "imageDownload.retry" : "workbench.retry")}
                 </Button>
             </div>
         </div>
@@ -814,6 +821,7 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
         quality: log.quality || config.quality || "",
         status: log.status || "success",
         images,
+        recoverable: log.recoverable,
     };
 }
 

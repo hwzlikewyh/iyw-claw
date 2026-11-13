@@ -11,6 +11,7 @@ import { listCowartPages, readCowartPage } from "./migration/cowart-reader.js"
 import { mapCowartPage } from "./migration/cowart-mapper.js"
 import { writeMigrationReport } from "./migration/cowart-report.js"
 import { appStorage } from "./app-storage.js"
+import { downloadImage } from "./image-download.js"
 import { modelJob } from "./model-jobs.js"
 
 type JsonObject = Record<string, unknown>
@@ -20,6 +21,7 @@ export function createToolHandlers(sceneStore = new SceneStore(), assetStore = n
   return {
     async call(name: string, args: JsonObject): Promise<ToolResult> {
       switch (name) {
+        case "download_infinite_canvas_image": return { data: await downloadImage(stringArg(args, "url"), assetStore) }
         case "infinite_canvas_store_data": return { data: await appStorage(args) }
         case "infinite_canvas_host_context":
         case "infinite_canvas_model_request": throw new CanvasRuntimeError("runtime_unavailable", "当前客户端尚未提供窗口模型桥接；画布与素材仍可使用。")
