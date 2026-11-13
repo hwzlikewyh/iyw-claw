@@ -4,7 +4,6 @@ mod availability_snapshot;
 pub(crate) mod client;
 mod download_ticket;
 mod install;
-mod download_ticket;
 mod install_plan;
 mod office_skills;
 pub(crate) mod plugin_client_version;
@@ -14,7 +13,6 @@ pub(crate) mod plugin_history;
 mod plugin_install;
 mod plugin_install_commit;
 mod plugin_install_context;
-mod plugin_install_commit;
 mod plugin_uninstall;
 pub(crate) mod plugin_remove;
 mod plugin_install_data;
@@ -24,13 +22,11 @@ mod plugin_manifest;
 mod plugin_manifest_v2;
 pub(crate) mod plugin_platforms;
 mod plugin_receipt;
-pub(crate) mod plugin_remove;
 pub(crate) mod plugin_setup;
 mod plugin_storage;
 mod plugin_storage_io;
 mod plugin_storage_removal;
 mod plugin_types;
-mod plugin_uninstall;
 mod routing_description;
 mod types;
 
@@ -48,7 +44,6 @@ pub use plugin_types::{
     SkillPluginBinding, SkillPluginComponent, SkillPluginManifest, SkillPluginPermissions,
 };
 pub(crate) use types::parse_value;
-pub(crate) use plugin_manifest::validate_plugin_package as validate_installed_plugin_package;
 use types::{parse_id, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,

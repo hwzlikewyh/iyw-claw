@@ -143,7 +143,7 @@ pub(super) async fn route_app_tool(
             )
         })?;
     if matches!(
-        name.as_str(),
+        name,
         "infinite_canvas_model_request" | "infinite_canvas_store_data"
     ) {
         return route_local_app_tool(db, &instance, &name, &arguments).await;

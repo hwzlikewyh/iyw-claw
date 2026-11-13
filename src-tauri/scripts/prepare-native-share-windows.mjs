@@ -57,29 +57,6 @@ function sdkTool(name) {
   return tool
 }
 
-function buildReceiver({ target, root, subject, output }) {
-  run(
-    "cargo",
-    [
-      "build",
-      "--release",
-      "--locked",
-      "--manifest-path",
-      join(root, "../share-target/Cargo.toml"),
-      "--target",
-      target,
-    ],
-    { env: { ...process.env, IYW_SHARE_PUBLISHER: subject } }
-  )
-  const executable = join(output, "iyw-share-target.exe")
-  copyFileSync(
-    join(root, `../share-target/target/${target}/release/iyw-share-target.exe`),
-    executable
-  )
-  copyFileSync(join(root, "windows/register.ps1"), join(output, "register.ps1"))
-  copyFileSync(join(root, "windows/share-resources.ps1"), join(output, "share-resources.ps1"))
-}
-
 function preparePackageFiles({ root, output, stage, subject, version }) {
   if (resolve(stage) !== resolve(root, "build/msix"))
     throw new Error("Unexpected MSIX staging directory")
@@ -124,7 +101,7 @@ function createResourceIndex({ root, stage, output }) {
     "/of",
     join(stage, "resources.pri"),
     "/in",
-    "IywAssistant.ShareTarget",
+    "IywAssistant.Desktop",
     "/o",
   ])
   for (const name of readdirSync(stage).filter((name) => name.endsWith(".pri")))
@@ -150,10 +127,15 @@ export function prepareWindowsShare(target, root) {
   const output = join(root, "resources")
   const stage = join(root, "build/msix")
   const context = { target, root, subject, output, stage, version }
-  buildReceiver(context)
   writeFileSync(
     join(output, "config.json"),
-    JSON.stringify({ schemaVersion: 1, signed, packageVersion: version })
+    JSON.stringify({
+      schemaVersion: 1,
+      signed,
+      packageVersion: version,
+      receiver: "main",
+      publisher: subject,
+    })
   )
   if (!signed) {
     console.log(
@@ -161,7 +143,14 @@ export function prepareWindowsShare(target, root) {
     )
     return
   }
-  signFiles([join(output, "iyw-share-target.exe")])
-  signFiles([packWindowsShare(context)])
-  console.log(`[native-share] signed Share Target prepared for ${target}`)
+  const packageFile = packWindowsShare(context)
+  if ((process.env.IYW_CLAW_SAFENET_PIN ?? "").trim())
+    run(process.execPath, [
+      join(root, "../scripts/sign-staged-windows.mjs"),
+      packageFile,
+    ])
+  else signFiles([packageFile])
+  console.log(
+    `[native-share] signed identity package for the main application prepared for ${target}`
+  )
 }

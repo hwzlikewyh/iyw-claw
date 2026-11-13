@@ -37,6 +37,7 @@ import { existsSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
+import { prepareMainShareIdentity } from "./native-share-main-identity.mjs"
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "..", "..")
@@ -258,6 +259,7 @@ export function signFiles(files, env = process.env) {
       console.log(`[sign-windows] preserving pinned vendor sidecar ${file}`)
       continue
     }
+    prepareMainShareIdentity({ file, signtool, env })
     signFile(signtool, mode, file, env)
     console.log(`[sign-windows] signed ${file}`)
   }

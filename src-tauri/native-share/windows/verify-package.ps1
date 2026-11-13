@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Directory, [Parameter(Mandatory=$true)][string]$ExecutableManifest)
+﻿param([Parameter(Mandatory=$true)][string]$Directory, [Parameter(Mandatory=$true)][string]$ExecutableManifest)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 . (Join-Path $PSScriptRoot 'share-resources.ps1')
@@ -9,9 +9,9 @@ try {
     try { [xml]$package = $reader.ReadToEnd() } finally { $reader.Dispose() }
     [xml]$executable = Get-Content -LiteralPath $ExecutableManifest -Encoding UTF8 -Raw
     $identity = $package.Package.Identity; $application = $package.Package.Applications.Application; $msix = $executable.assembly.msix
-    if ($identity.Name -ne 'IywAssistant.ShareTarget' -or $application.Id -ne 'Share.Hub' -or $msix.packageName -ne $identity.Name -or $msix.publisher -ne $identity.Publisher -or $msix.applicationId -ne $application.Id -or $application.Executable -ne 'iyw-share-target.exe') { throw 'Share receiver EXE identity does not match the MSIX manifest' }
+    if ($identity.Name -ne 'IywAssistant.Desktop' -or $application.Id -ne 'Share.Hub' -or $msix.packageName -ne $identity.Name -or $msix.publisher -ne $identity.Publisher -or $msix.applicationId -ne $application.Id -or $application.Executable -ne 'iyw-claw.exe') { throw 'Main application identity does not match the MSIX manifest' }
     $config = Get-Content -LiteralPath (Join-Path $Directory 'config.json') -Encoding UTF8 -Raw | ConvertFrom-Json
-    if ($identity.Version -ne $config.packageVersion) { throw 'Share package version mismatch' }
+    if ($identity.Version -ne $config.packageVersion -or $config.receiver -ne 'main' -or $config.publisher -ne $identity.Publisher) { throw 'Share package version or main receiver identity mismatch' }
     $namespaces = New-Object Xml.XmlNamespaceManager($package.NameTable); $namespaces.AddNamespace('uap', 'http://schemas.microsoft.com/appx/manifest/uap/windows10')
     $shareTarget = $application.SelectSingleNode('./*[local-name()="Extensions"]/uap:Extension[@Category="windows.shareTarget"]/uap:ShareTarget', $namespaces)
     if (-not $shareTarget -or -not $shareTarget.SelectSingleNode('uap:SupportedFileTypes/uap:SupportsAnyFileType', $namespaces)) { throw 'Share package must accept any file type for host enumeration' }

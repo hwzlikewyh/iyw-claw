@@ -8,6 +8,8 @@ use super::plugin_manifest::validate_plugin_summary;
 use super::types::{parse_id, SkillInstallPlan, SkillInstallPlanItem, SkillPackageType};
 
 const MAX_INSTALL_PLAN_ITEMS: usize = 64;
+pub(super) const MAX_PACKAGE_BYTES: u64 = 30 * 1024 * 1024;
+const MAX_INSTALL_PLAN_BYTES: u64 = 256 * 1024 * 1024;
 
 pub(super) fn validate_install_plan(
     plan: &SkillInstallPlan,
