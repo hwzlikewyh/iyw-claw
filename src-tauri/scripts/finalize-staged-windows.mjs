@@ -162,6 +162,29 @@ function signApplication() {
 }
 
 /**
+ * NSIS 安装器由打包器单独产出，打包阶段的 signCommand 覆盖不到它，
+ * 因此在这里对最终安装器单独签名并校验证书。
+ */
+function signInstaller(installer) {
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
+      installer,
+    ],
+    {
+      cwd: ROOT,
+      stdio: "inherit",
+      windowsHide: false,
+      timeout: PREFLIGHT_TIMEOUT_MS,
+    }
+  )
+  if (result.error) throw result.error
+  if (result.status !== 0)
+    fail(`installer signing failed with exit code ${result.status}`)
+}
+
+/**
  * 打包器把主程序包进安装器时会重写资源，因此必须在打包后再确认安装器
  * 自身带有 Authenticode 签名，并校验签名摘要覆盖了整份文件。
  */
@@ -264,7 +287,7 @@ function bundle(version) {
 function verify(installer) {
   const result = spawnSync(
     process.execPath,
-    [join(ROOT, "src-tauri", "scripts", "verify-signatures.mjs"), installer],
+    [join(TOOL_ROOT, "src-tauri", "scripts", "verify-signatures.mjs"), installer],
     {
       cwd: ROOT,
       stdio: "inherit",
@@ -330,7 +353,10 @@ function main() {
     signtool: discoverSigntool(process.env),
     env: { ...process.env, IYW_CLAW_BUILD_ROOT: ROOT },
   })
-  verify(bundle(version))
+  const installer = bundle(version)
+  signInstaller(installer)
+  assertInstallerSigned(installer)
+  verify(installer)
 }
 
 try {
