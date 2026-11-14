@@ -15,11 +15,13 @@ export function PluginPanelFrame({
   visible,
   sync,
   refresh,
+  moving,
 }: {
   tab: PluginPanelTab
   visible: boolean
   sync?: PluginPanelSyncState
   refresh?: () => void
+  moving?: boolean
 }) {
   const t = useTranslations("PluginPanels"),
     [fullscreen, setFullscreen] = useState(false)
@@ -31,6 +33,7 @@ export function PluginPanelFrame({
     <dialog
       ref={dialog}
       aria-label={tab.label}
+      inert={moving || undefined}
       onCancel={(event) => {
         event.preventDefault()
         event.stopPropagation()

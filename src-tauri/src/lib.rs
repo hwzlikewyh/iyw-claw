@@ -349,6 +349,7 @@ mod tauri_app {
             .manage(crate::webview_memory::MainWebviewMemoryController::default())
             .manage(windows::SettingsWindowState::new())
             .manage(windows::conversation_window::ConversationWindowState::default())
+            .manage(windows::plugin_window::PluginWindowState::default())
             .manage(windows::CommitWindowState::new())
             .manage(windows::MergeWindowState::new())
             .manage(web::WebServerState::new())
@@ -1598,6 +1599,8 @@ mod tauri_app {
                 windows::conversation_window::ready_conversation_window,
                 windows::conversation_window::commit_conversation_window,
                 windows::conversation_window::finish_conversation_window,
+                windows::plugin_window::open_plugin_panel_window,
+                windows::plugin_window::plugin_panel_window_ready,
                 windows::open_merge_window,
                 windows::open_stash_window,
                 windows::open_push_window,

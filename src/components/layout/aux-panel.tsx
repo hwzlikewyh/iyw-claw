@@ -63,6 +63,7 @@ function AuxWorkspace() {
           visible={isOpen && activeApp?.id === tab.id}
           sync={panels.updates.states[tab.id]}
           refresh={panels.updates.refresh}
+          moving={panels.detachingId === tab.id}
         />
       ))}
     </aside>

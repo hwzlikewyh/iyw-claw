@@ -23,6 +23,7 @@ import {
 } from "@/lib/skill-market-source"
 import { recordSkillMarketMetric } from "@/hooks/use-skill-market"
 import type { AgentType } from "@/lib/types"
+import { notifySkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
 
 const INITIAL_SESSION: SkillMarketInstallSession = {
   status: "idle",
@@ -135,6 +136,7 @@ function useInstallStart({
           plan.targetVersion,
           agentTypes
         )
+        notifySkillMarketInstallationsChanged()
         setSession((current) => ({
           ...current,
           status: "done",

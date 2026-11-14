@@ -27,12 +27,10 @@ export function PreparationSummary({ state, contextError }: SummaryProps) {
                   : "loading"
         )}
       </p>
-      {state.view ? (
+      {state.view?.workspaceName ? (
         <>
           <p className="text-[13px] text-muted-foreground">
-            {state.view.workspaceName
-              ? t("workspace", { name: state.view.workspaceName })
-              : t("chooseConversation")}
+            {t("workspace", { name: state.view.workspaceName })}
           </p>
           <PluginDependencyRows view={state.view} />
         </>

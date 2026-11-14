@@ -5,6 +5,7 @@
   "windows": [
     "main",
     "conversation-*",
+    "plugin-*",
     "computer-indicator",
     "computer-marker",
     "browser-*",

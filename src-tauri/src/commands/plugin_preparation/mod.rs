@@ -115,7 +115,7 @@ fn preparation_issues(
     if !plugin.available {
         issues.push("plugin_unavailable".into());
     }
-    if workspace
+    if plugin.manifest.components.iter().any(|item| item.kind == "connector") && workspace
         .is_some_and(|value| !crate::acp::connection::agent_supports_builtin_mcp(value.agent))
     {
         issues.push("agent_unsupported".into());

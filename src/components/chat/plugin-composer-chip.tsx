@@ -23,6 +23,7 @@ export function PluginComposerChip({ tabId }: { tabId?: string | null }) {
           label={app.label}
           className="min-h-8 max-sm:min-h-11"
           onClick={() => {
+            if (!app.appKey) return
             if (!requestPluginApplicationOpen(app))
               toast.error(t("openUnavailable"))
           }}

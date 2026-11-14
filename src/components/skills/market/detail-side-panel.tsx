@@ -58,7 +58,10 @@ export function DetailSidePanel(props: DetailSidePanelProps) {
           onVersionChanged={props.onVersionChanged}
         />
       ) : null}
-      <section className="border-b pb-4">
+      <section
+        hidden={props.detail.packageType === "plugin"}
+        className="border-b pb-4"
+      >
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-xs font-semibold">
             {t("detail.activation.targets")}

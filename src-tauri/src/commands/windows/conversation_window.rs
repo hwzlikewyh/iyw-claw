@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Manager, WebviewWindow};
 use tokio::sync::Mutex;
 
-mod appearance;
+pub(crate) mod appearance;
 
 #[derive(Default)]
 pub struct ConversationWindowState(Mutex<HashMap<String, Transfer>>);
@@ -150,6 +150,7 @@ pub async fn commit_conversation_window(
     transfer.payload["tab"] = snapshot["tab"].clone();
     transfer.payload["runtime"] = snapshot["runtime"].clone();
     transfer.payload["draft"] = snapshot["draft"].clone();
+    transfer.payload["sidebar"] = snapshot["sidebar"].clone();
     tracing::info!(
         source = window.label(),
         target = label,

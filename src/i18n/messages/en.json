@@ -187,7 +187,7 @@
     "refresh": "Refresh",
     "loading": "Loading installed apps…",
     "loadingCloud": "Loading cloud plugins…",
-    "empty": "No app plugins installed. Choose a plugin from the cloud market.",
+    "empty": "No app plugins installed. Install one from the plugin market first.",
     "cloudHint": "Cloud plugins are downloaded only when you choose to install them.",
     "cloudError": "Cloud plugins could not be loaded. Installed apps remain available.",
     "more": "More plugins",
@@ -206,6 +206,10 @@
     "restore": "Restore to sidebar",
     "newTab": "New tab",
     "closeApp": "Close {name}",
+    "detachApp": "Move to new window",
+    "openingWindow": "Opening new window…",
+    "use": "Use",
+    "moveFailed": "Could not move the plugin. The original page is still open. Save and retry.",
     "closeConfirm": "Close this plugin page? Save any changes first. Unsaved content may be lost.",
     "closeFailed": "The plugin has not finished saving or closing. This page has been kept open. Check its save status and retry.",
     "state": {
@@ -343,11 +347,11 @@
     "state": {
       "blocked": "Plugin or dependencies need attention",
       "legacy": "Legacy plugin: manage its connectors",
-      "context_required": "Choose a conversation project",
+      "context_required": "Preparing this conversation automatically…",
       "configuration_required": "Plugin parameters required",
       "permission_required": "Project authorization required",
       "disabled": "Disabled in this project",
-      "unchecked": "Authorized, connection not checked"
+      "unchecked": "Ready to use"
     },
     "snapshotMissing": "The installation dependency snapshot cannot be verified. Reinstall this version to repair it.",
     "noDependencies": "This installed version declares no external dependencies",

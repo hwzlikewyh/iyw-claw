@@ -21,6 +21,8 @@ export type PluginAppHostProps = {
   onDisplayModeRequest?: (mode: DisplayMode) => DisplayMode
   fill?: boolean
   toolUpdate?: PluginPanelUpdate
+  onReady?: () => void
+  onFailure?: () => void
 }
 
 export function PluginAppHost(props: PluginAppHostProps) {

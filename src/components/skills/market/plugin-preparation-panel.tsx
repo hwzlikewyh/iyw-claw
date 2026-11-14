@@ -1,14 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useTabStore } from "@/contexts/tab-context"
 import { onTransportChange } from "@/lib/transport"
-import type { PluginPreparation } from "@/lib/plugin-preparation"
 import { usePluginPreparation } from "./use-plugin-preparation"
 import { usePluginWorkspace } from "./use-plugin-workspace"
-import { PluginPermissionReview } from "./plugin-preparation-details"
 import { PreparationActions } from "./plugin-preparation-actions"
 import { PreparationSummary } from "./plugin-preparation-summary"
 import { PluginConnectorPreparationList } from "./plugin-connector-preparation"
@@ -66,10 +64,8 @@ function PreparationContent(props: ContextProps) {
   const [recovering, setRecovering] = useState(false)
   const [versionsOpen, setVersionsOpen] = useState(false)
   const versionText = useTranslations("PluginVersions")
-  const [review, setReview] = useState<{
-    view: PluginPreparation
-    enabled: boolean
-  } | null>(null)
+  usePreparationWorkspace(state, context, props.tabId)
+  if (!needsPreparationPanel(state)) return null
   return (
     <section className="space-y-3 border-b pb-4">
       <h3 className="text-sm font-semibold">{t("title")}</h3>
@@ -84,10 +80,6 @@ function PreparationContent(props: ContextProps) {
         onRepair={() => setRecovering(true)}
         state={state}
         contextBusy={context.busy}
-        onBind={() => void context.bind()}
-        onReview={(enabled) => {
-          if (state.view) setReview({ view: state.view, enabled })
-        }}
       />
       <Button
         size="sm"
@@ -116,20 +108,38 @@ function PreparationContent(props: ContextProps) {
           onReinstall={props.onRepair}
         />
       ) : null}
-      {review ? (
-        <PluginPermissionReview
-          view={review.view}
-          enabled={review.enabled}
-          busy={state.busy}
-          error={state.error}
-          onClose={() => setReview(null)}
-          onConfirm={() =>
-            void state.mutate(review.view, review.enabled).then((success) => {
-              if (success) setReview(null)
-            })
-          }
-        />
-      ) : null}
     </section>
+  )
+}
+
+function usePreparationWorkspace(
+  state: ReturnType<typeof usePluginPreparation>,
+  context: ReturnType<typeof usePluginWorkspace>,
+  tabId: string | null
+) {
+  const attempted = useRef(false)
+  useEffect(() => {
+    if (
+      attempted.current ||
+      !tabId ||
+      state.view?.state !== "context_required" ||
+      !needsPreparationPanel(state)
+    )
+      return
+    attempted.current = true
+    void context.bind()
+  }, [context, state, tabId])
+}
+
+function needsPreparationPanel(state: ReturnType<typeof usePluginPreparation>) {
+  if (state.error) return true
+  if (!state.view) return false
+  if (
+    ["blocked", "legacy", "configuration_required"].includes(state.view.state)
+  )
+    return true
+  return state.view.connectors.some(
+    (connector) =>
+      connector.parameters.length > 0 || connector.hasAuthentication
   )
 }

@@ -14,6 +14,8 @@ import {
   savePersistedPanelState,
 } from "@/lib/panel-state-storage"
 import { useActiveFolder } from "@/contexts/active-folder-context"
+import { isDetachedConversationWindow } from "@/lib/conversation-window-state"
+import { peekConversationPanels } from "@/lib/conversation-window-panels"
 
 export type AuxPanelTab = "home" | "file_tree" | "artifacts" | `app:${string}`
 
@@ -96,10 +98,16 @@ export function AuxPanelProvider({ children }: AuxPanelProviderProps) {
 
   useEffect(() => {
     const stored = loadPersistedPanelState(storageKey)
-    // 启动进入新草稿，只恢复宽度；右侧由本次会话的显式操作打开。
+    // 普通新草稿只恢复宽度；独立会话窗口默认带上右侧工具栏。
+    const incoming = peekConversationPanels()
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsOpen(DEFAULT_IS_OPEN)
-    setWidthState(clampWidth(stored?.width ?? DEFAULT_WIDTH))
+    setIsOpen(incoming?.isOpen ?? isDetachedConversationWindow())
+    setWidthState(clampWidth(incoming?.width ?? stored?.width ?? DEFAULT_WIDTH))
+    if (
+      incoming &&
+      ["home", "file_tree", "artifacts"].includes(incoming.activeTab)
+    )
+      setActiveTab(incoming.activeTab as AuxPanelTab)
     setRestored(true)
   }, [storageKey])
 

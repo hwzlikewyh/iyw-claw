@@ -8,7 +8,12 @@ import {
 } from "react"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { getTransport } from "@/lib/transport"
-import { launchPluginPanel, type PluginPanelChoice } from "@/lib/plugin-panel"
+import {
+  launchPluginPanel,
+  readPluginPanels,
+  type PluginPanelChoice,
+} from "@/lib/plugin-panel"
+import { openPluginPanelWindow } from "@/lib/plugin-panel-window"
 import type { PluginAppOpenResponse } from "@/lib/api"
 import { requestPluginAppTeardown } from "@/lib/plugin-app-teardown"
 import { pluginPanelError } from "./use-plugin-panel-choices"
@@ -30,6 +35,8 @@ export function usePluginPanelTabs(
   conversations: string
 ) {
   const [tabs, setTabs] = useState<PluginPanelTab[]>([])
+  const [detachingId, setDetachingId] = useState<string | null>(null)
+  const detaching = useRef(false)
   const [busyConversation, setBusyConversation] = useState<number | null>(null),
     [error, setError] = useState("")
   const [transport] = useState(getTransport)
@@ -48,14 +55,18 @@ export function usePluginPanelTabs(
     )
     return () => clearTimeout(timer)
   }, [conversations])
-  const open = (app: PluginPanelChoice) =>
+  const open = (
+    app: PluginPanelChoice,
+    targetConversationId = conversationId
+  ) =>
     openPanel({
       app,
-      conversationId,
+      conversationId: targetConversationId,
       tabs,
       transport,
       lifecycle: lifecycle.current,
-      setBusy: (value) => setBusyConversation(value ? conversationId : null),
+      setBusy: (value) =>
+        setBusyConversation(value ? targetConversationId : null),
       setError,
       commit: (tab) => {
         setTabs((values) => [...values, tab])
@@ -64,11 +75,41 @@ export function usePluginPanelTabs(
       },
       select: (id) => openTab(`app:${id}`),
     })
+  const detach = async (tab: PluginPanelTab) => {
+    if (detaching.current) return false
+    detaching.current = true
+    setDetachingId(tab.id)
+    try {
+      const apps = await readPluginPanels(tab.conversationId, transport)
+      const app = apps.find(
+        (item) =>
+          item.pluginSlug === tab.pluginSlug && item.appKey === tab.appKey
+      )
+      if (!app || app.state !== "available")
+        throw Error("插件状态已变化，请重新打开")
+      if (!(await requestPluginAppTeardown(tab.id)))
+        throw Error("插件尚未完成保存，原页面已保留")
+      if (getTransport() !== transport)
+        throw Error("工作区已变化，请重新打开插件")
+      await openPluginPanelWindow(app, tab.conversationId)
+      setTabs((values) => values.filter((item) => item.id !== tab.id))
+      if (panel.activeTab === `app:${tab.id}`) panel.openTab("home")
+      return true
+    } catch (cause) {
+      setError(pluginPanelError(cause))
+      return false
+    } finally {
+      detaching.current = false
+      setDetachingId(null)
+    }
+  }
   return {
     tabs,
+    detachingId,
     busy: busyConversation !== null && busyConversation === conversationId,
     error,
     open,
+    detach,
     close,
     transport,
   }

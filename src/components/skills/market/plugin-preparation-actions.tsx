@@ -6,22 +6,12 @@ import type { PluginPreparationController } from "./use-plugin-preparation"
 
 interface ActionProps {
   state: PluginPreparationController
-  tabId: string | null
   contextBusy: boolean
-  onBind: () => void
-  onReview: (enabled: boolean) => void
   onRepair: () => void
   onOpenConnectors: () => void
 }
 interface Action {
-  label:
-    | "refresh"
-    | "useContext"
-    | "reviewApprove"
-    | "check"
-    | "disable"
-    | "manageConnectors"
-    | "repair"
+  label: "refresh" | "check" | "manageConnectors" | "repair"
   disabled: boolean
   primary?: boolean
   run: () => void
@@ -52,32 +42,12 @@ function actions(props: ActionProps): Action[] {
   const result: Action[] = [
     { label: "refresh", disabled: busy, run: props.state.refresh },
   ]
-  if (view?.state === "context_required")
-    result.push({
-      label: "useContext",
-      disabled: disabled || !props.tabId,
-      primary: true,
-      run: props.onBind,
-    })
-  if (view && ["permission_required", "disabled"].includes(view.state))
-    result.push({
-      label: "reviewApprove",
-      disabled,
-      primary: true,
-      run: () => props.onReview(true),
-    })
   if (view?.state === "unchecked")
     result.push({
       label: "check",
       disabled,
       primary: true,
       run: () => void props.state.mutate(view, null),
-    })
-  if (view?.permissionGranted)
-    result.push({
-      label: "disable",
-      disabled,
-      run: () => props.onReview(false),
     })
   if (view?.state === "legacy")
     result.push({

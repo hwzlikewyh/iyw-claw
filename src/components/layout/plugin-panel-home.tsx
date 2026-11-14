@@ -2,27 +2,17 @@
 
 import { AppWindow, ChevronRight, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useTabStore } from "@/contexts/tab-context"
-import { usePluginWorkspace } from "@/components/skills/market/use-plugin-workspace"
 import { Button } from "@/components/ui/button"
 import type { PluginPanelChoice } from "@/lib/plugin-panel"
 import type { usePluginPanels } from "./use-plugin-panels"
 import { usePluginMarketNavigation } from "./use-plugin-market-navigation"
-import { CloudPlugins } from "./plugin-panel-cloud"
+import { InstalledPluginTools } from "./installed-plugin-tools"
 
 type Panels = ReturnType<typeof usePluginPanels>
 
 export function PluginPanelHome({ panels }: { panels: Panels }) {
   const t = useTranslations("PluginPanels")
-  const route = usePluginMarketNavigation()
-  const tabId = useTabStore((store) => store.activeTabId)
-  const workspace = usePluginWorkspace(tabId)
-  const open = (app: PluginPanelChoice) => {
-    if (app.state === "context_required") void workspace.bind()
-    else if (app.state !== "available")
-      route.openSkillMarket(app.pluginSlug, "plugin")
-    else void panels.open(app)
-  }
+  const open = (app: PluginPanelChoice) => void panels.open(app)
   return (
     <section className="px-3 pb-4 pt-2">
       <PluginListHeading refresh={panels.refresh} />
@@ -31,32 +21,22 @@ export function PluginPanelHome({ panels }: { panels: Panels }) {
           {t("loading")}
         </p>
       )}
-      {(panels.error || workspace.error) && (
+      {panels.error && (
         <p role="alert" className="break-words py-2 text-sm text-destructive">
-          {panels.error === "PluginPanels.limit"
-            ? t("limit")
-            : panels.error || workspace.error}
+          {panels.error === "PluginPanels.limit" ? t("limit") : panels.error}
         </p>
-      )}
-      {!panels.loading && !panels.choices.length && (
-        <p className="py-2 text-sm text-muted-foreground">{t("empty")}</p>
       )}
       <ul className="grid grid-cols-1 gap-x-4 gap-y-1 @min-[480px]:grid-cols-2">
         {panels.choices.map((app) => (
           <InstalledApp
             key={`${app.pluginSlug}:${app.appKey}`}
             app={app}
-            busy={panels.busy || workspace.busy}
+            busy={panels.busy}
             open={() => open(app)}
           />
         ))}
       </ul>
-      <CloudPlugins
-        installed={panels.choices.flatMap((app) => [
-          app.pluginId,
-          app.pluginSlug,
-        ])}
-      />
+      <InstalledPluginTools panels={panels} />
     </section>
   )
 }
@@ -93,12 +73,6 @@ function InstalledApp({
   open: () => void
 }) {
   const t = useTranslations("PluginPanels")
-  const action =
-    app.state === "available"
-      ? "open"
-      : app.state === "context_required"
-        ? "prepareContext"
-        : "prepare"
   return (
     <li className="flex min-h-16 min-w-0 items-center gap-3">
       <AppWindow className="size-5 shrink-0 text-muted-foreground" />
@@ -107,11 +81,11 @@ function InstalledApp({
           {app.label}
         </p>
         <p className="truncate text-xs text-muted-foreground">
-          {t(`state.${app.state}`)}
+          {t("installedVersion", { version: app.version })}
         </p>
       </div>
       <Button size="xs" variant="outline" disabled={busy} onClick={open}>
-        {t(action)}
+        {t("open")}
       </Button>
     </li>
   )

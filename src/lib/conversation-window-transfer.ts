@@ -12,6 +12,16 @@ import {
   restoreTab as appendRestoredTab,
 } from "./conversation-window-restoration"
 import {
+  captureConversationPanels,
+  saveConversationPanels,
+  seedConversationPanels,
+} from "./conversation-window-panels"
+import {
+  usePluginComposerContext,
+  selectComposerPlugin,
+  preparePluginDraft,
+} from "./plugin-composer-context"
+import {
   buildConversationDraftStorageKey,
   buildNewConversationDraftStorageKey,
 } from "./message-input-draft"
@@ -71,6 +81,14 @@ function capturePayload(tabId: string, connections: ConnectionStoreApi) {
     .allFolders.find((item) => item.id === tab.folderId)
   return {
     tab: { ...tab, workingDir: tab.workingDir ?? folder?.path, isPinned: true },
+    sidebar: {
+      isOpen: false,
+      width: 320,
+      activeTab: "home",
+      apps: [],
+      ...captureConversationPanels(tab.conversationId ?? null),
+      ...usePluginComposerContext.getState().entries[tabId],
+    },
     connection: connection?.status === "disconnected" ? null : connection,
     runtime,
     draft: captureConversationWindowDraft(
@@ -111,13 +129,19 @@ async function commitPreparedWindow(
   options.actions.setWindowConnectionViewer(options.tabId, true)
   await getShellTransport().call("commit_conversation_window", {
     label,
-    snapshot: { tab: latest.tab, runtime: latest.runtime, draft: latest.draft },
+    snapshot: {
+      tab: latest.tab,
+      runtime: latest.runtime,
+      draft: latest.draft,
+      sidebar: latest.sidebar,
+    },
   })
 }
 
 export async function moveConversationWindow(options: MoveOptions) {
   const { tabId, connections, actions } = options
   const payload = capturePayload(tabId, connections)
+  await saveConversationPanels(payload.sidebar ?? null)
   actions.touchActivity(tabId)
   let label: string | null = null
   let committed = false
@@ -261,6 +285,11 @@ export async function restoreConversationWindow(
   )
   if (append) appendRestoredTab(restored, true)
   else restoreTab(restored)
+  seedConversationPanels(restored.sidebar ?? null)
+  if (restored.sidebar?.selected)
+    selectComposerPlugin(restored.tab.id, restored.sidebar.selected)
+  if (restored.sidebar?.preparedConversationId)
+    preparePluginDraft(restored.tab.id, restored.sidebar.preparedConversationId)
   markConversationWindowInitialized()
   await finishRestoration(label, restored.tab.id)
 }

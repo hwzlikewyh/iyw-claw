@@ -17,6 +17,21 @@ type WindowEntry = {
 const entries = new Map<string, WindowEntry>()
 const listeners = new Set<() => void>()
 let windowId: string | undefined
+let detached: {
+  context: () => PluginWindowContext | null
+  send: (expected: PluginWindowContext, draft: PromptDraft) => Promise<void>
+} | null = null
+
+export function registerDetachedPluginContext(
+  entry: NonNullable<typeof detached>
+) {
+  detached = entry
+  notifyPluginWindowContext()
+  return () => {
+    if (detached === entry) detached = null
+    notifyPluginWindowContext()
+  }
+}
 
 export function notifyPluginWindowContext() {
   for (const listener of listeners) listener()
@@ -33,6 +48,10 @@ export function registerPluginWindow(tabId: string, entry: WindowEntry) {
 }
 
 export function readPluginWindowContext(conversationId: number) {
+  if (detached) {
+    const context = detached.context()
+    return context?.conversationId === conversationId ? context : null
+  }
   const store = useTabStore.getState()
   const tab = store.rawTabs.find((item) => item.id === store.activeTabId)
   if (!tab || tab.conversationId !== conversationId) return null
@@ -54,6 +73,7 @@ export async function sendPluginWindowMessage(
   )
     throw new Error("当前原助理窗口已切换，请在目标会话重新打开插件")
   const entry = entries.get(current.tabId)
+  if (detached) return detached.send(expected, draft)
   if (!entry) throw new Error("当前窗口尚未准备好接收消息")
   const accepted = await entry.send(draft)
   if (accepted === false) throw new Error("当前窗口未接受消息，请检查会话状态")

@@ -8,6 +8,8 @@ import {
   Plus,
   X,
   AppWindow,
+  SquareArrowOutUpRight,
+  Loader2,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import {
@@ -16,7 +18,16 @@ import {
 } from "@/contexts/aux-panel-context"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import type { usePluginPanels, PluginPanelTab } from "./use-plugin-panels"
+import { usePluginTabDrag } from "./use-plugin-tab-drag"
+import { isDesktop } from "@/lib/transport"
+import { toast } from "sonner"
 
 export function AuxPanelNavigation({
   label,
@@ -46,7 +57,13 @@ export function AuxPanelNavigation({
         {panels.tabs
           .filter((tab) => tab.conversationId === panels.conversationId)
           .map((tab) => (
-            <AppTab key={tab.id} tab={tab} close={panels.close} />
+            <AppTab
+              key={tab.id}
+              tab={tab}
+              close={panels.close}
+              detach={panels.detach}
+              moving={panels.detachingId === tab.id}
+            />
           ))}
       </div>
       <Button
@@ -54,7 +71,10 @@ export function AuxPanelNavigation({
         size="icon-xs"
         title={pluginText("newTab")}
         aria-label={pluginText("newTab")}
-        onClick={() => setActiveTab("home")}
+        onClick={() => {
+          setActiveTab("home")
+          panels.refresh()
+        }}
       >
         <Plus className="size-3.5" />
       </Button>
@@ -101,41 +121,74 @@ function StandardTab({
 function AppTab({
   tab,
   close,
+  detach,
+  moving,
 }: {
   tab: PluginPanelTab
   close: (id: string) => Promise<boolean>
+  detach: (tab: PluginPanelTab) => Promise<boolean>
+  moving: boolean
 }) {
   const { activeTab, setActiveTab } = useAuxPanelContext()
   const pluginText = useTranslations("PluginPanels")
   const { closing, closePanel } = useAppTabClose(tab.id, close)
+  const move = () => {
+    if (!closing && !moving)
+      void detach(tab).then((success) => {
+        if (!success) toast.error(pluginText("moveFailed"))
+      })
+  }
+  const { consumeDrag, ...drag } = usePluginTabDrag(move)
   return (
-    <div
-      key={tab.id}
-      className={cn(
-        "flex h-8 shrink-0 items-center rounded-md",
-        activeTab === `app:${tab.id}` && "bg-background"
-      )}
-    >
-      <button
-        type="button"
-        className="flex max-w-36 items-center gap-1.5 truncate px-2 text-xs"
-        aria-current={activeTab === `app:${tab.id}` ? "page" : undefined}
-        onClick={() => setActiveTab(`app:${tab.id}`)}
-      >
-        <AppWindow className="size-3.5 shrink-0" />
-        <span className="truncate">{tab.label}</span>
-      </button>
-      <button
-        type="button"
-        disabled={closing}
-        aria-busy={closing}
-        className="p-1 hover:text-destructive"
-        aria-label={pluginText("closeApp", { name: tab.label })}
-        onClick={() => void closePanel()}
-      >
-        <X className="size-3" />
-      </button>
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          key={tab.id}
+          className={cn(
+            "flex h-8 shrink-0 items-center rounded-md",
+            activeTab === `app:${tab.id}` && "bg-background"
+          )}
+        >
+          <button
+            {...drag}
+            disabled={moving || closing}
+            type="button"
+            className="flex max-w-36 items-center gap-1.5 truncate px-2 text-xs"
+            aria-current={activeTab === `app:${tab.id}` ? "page" : undefined}
+            onClick={() => {
+              if (!consumeDrag()) setActiveTab(`app:${tab.id}`)
+            }}
+          >
+            {moving ? (
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
+            ) : (
+              <AppWindow className="size-3.5 shrink-0" />
+            )}
+            <span className="truncate">
+              {moving ? pluginText("openingWindow") : tab.label}
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={closing || moving}
+            aria-busy={closing}
+            className="p-1 hover:text-destructive"
+            aria-label={pluginText("closeApp", { name: tab.label })}
+            onClick={() => void closePanel()}
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {isDesktop() && (
+          <ContextMenuItem disabled={closing || moving} onSelect={move}>
+            <SquareArrowOutUpRight className="size-3.5" />
+            {pluginText("detachApp")}
+          </ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 

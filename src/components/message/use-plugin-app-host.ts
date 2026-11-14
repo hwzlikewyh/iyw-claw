@@ -23,6 +23,14 @@ export function usePluginAppHost(input: {
     new TextEncoder().encode(props.html).byteLength > MAX_APP_HTML_BYTES
   const transport = usePluginAppLease(props.launch)
   const status = usePluginAppInitialization(props.launch.instanceId, !oversized)
+  const callbacks = useRef({ ready: props.onReady, failure: props.onFailure })
+  useEffect(() => {
+    callbacks.current = { ready: props.onReady, failure: props.onFailure }
+  })
+  useEffect(() => {
+    if (status.initialized) callbacks.current.ready?.()
+    else if (status.failed || oversized) callbacks.current.failure?.()
+  }, [status.initialized, status.failed, oversized])
   const values = useHostValues(props, bridge)
   useBridgeConnection({
     props,

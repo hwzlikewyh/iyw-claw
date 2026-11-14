@@ -8,6 +8,8 @@ use std::collections::BTreeSet;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CatalogRequest {
     pub conversation_id: Option<i64>,
+    #[serde(default)]
+    pub include_plugins: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -41,7 +43,27 @@ pub async fn catalog_core(
         None => None,
     };
     let snapshot = registry::global_snapshot().ok_or_else(|| invalid("插件目录未初始化"))?;
-    let apps = collect_apps(&snapshot, workspace.as_ref())?;
+    let mut apps = collect_apps(&snapshot, workspace.as_ref())?;
+    if request.include_plugins {
+        for plugin in snapshot.plugins.values() {
+            if apps.iter().any(|app| app.plugin_slug == plugin.slug) {
+                continue;
+            }
+            apps.push(AppChoice {
+                plugin_id: plugin.market_skill_id.to_string(),
+                plugin_slug: plugin.slug.clone(),
+                version: plugin.version.clone(),
+                app_key: String::new(),
+                label: plugin.manifest.name.clone(),
+                state: if plugin.available {
+                    "context_required"
+                } else {
+                    "unavailable"
+                }
+                .into(),
+            });
+        }
+    }
     if crate::commands::mcp_cli_config::account_scope(&db.conn).await? != scope {
         return Err(AppCommandError::permission_denied(
             "账号范围已变化，请刷新应用列表",

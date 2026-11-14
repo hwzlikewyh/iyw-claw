@@ -3,12 +3,14 @@ import type { TabItem } from "@/stores/tab-store"
 import type { ConversationRuntimeSession } from "@/stores/conversation-runtime-store"
 import type { ConversationWindowDraft } from "./conversation-window-draft"
 import { isDesktop } from "./transport"
+import type { ConversationWindowPanels } from "./conversation-window-panels"
 
 export interface ConversationWindowPayload {
   tab: TabItem
   connection: ConnectionState | null
   runtime: ConversationRuntimeSession | null
   draft: ConversationWindowDraft | null
+  sidebar?: ConversationWindowPanels | null
 }
 
 export const MOVE_CONVERSATION_WINDOW_EVENT =

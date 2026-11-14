@@ -34,6 +34,12 @@ export const readPluginPanels = (
   transport.call<PluginPanelChoice[]>("plugin_app_catalog", {
     request: { conversationId },
   })
+
+// 包含没有独立页面的技能、工具插件；应用启动仍只使用 readPluginPanels。
+export const readInstalledPlugins = (transport = getTransport()) =>
+  transport.call<PluginPanelChoice[]>("plugin_app_catalog", {
+    request: { conversationId: null, includePlugins: true },
+  })
 export const launchPluginPanel = (
   conversationId: number,
   app: PluginPanelChoice,

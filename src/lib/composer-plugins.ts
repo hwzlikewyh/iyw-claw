@@ -7,6 +7,7 @@ import type {
 } from "@/lib/types"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import { getSkillMarketSource } from "@/lib/skill-market-source"
+import { readInstalledPlugins } from "@/lib/plugin-panel"
 
 export interface ComposerPluginChoice {
   id: string
@@ -21,13 +22,14 @@ export async function loadComposerPluginInventory(
   transport: Transport,
   context: { agentType: AgentType; workspacePath: string | null }
 ) {
+  const apps = await readInstalledPlugins(transport)
   const [inventory, agent] = await Promise.all([
     transport.call<SkillInventorySnapshot>("skill_inventory_list", {
       workspacePath: context.workspacePath,
     }),
     transport.call<AgentSkillsListResult>("acp_list_agent_skills", context),
   ])
-  return { inventory, agent }
+  return { inventory, agent, apps }
 }
 
 export function inventoryPluginChoices(
@@ -70,6 +72,17 @@ export function inventoryPluginChoices(
     }
     groups.set(id, group)
   }
+  for (const app of data.apps) {
+    if (groups.has(app.pluginId)) continue
+    groups.set(app.pluginId, {
+      id: app.pluginId,
+      slug: app.pluginSlug,
+      label: app.label,
+      version: app.version,
+      skills: [],
+      blocked: app.state === "unavailable",
+    })
+  }
   return [...groups.values()]
 }
 
@@ -85,26 +98,13 @@ export function enrichPluginChoices(
       if (existing.slug === item.slug) existing.label = item.displayName
       continue
     }
-    const manifest = item.currentVersion.plugin
-    const connectorOnly =
-      item.currentVersion.version === item.installedVersion &&
-      manifest?.components.some((part) => part.type === "connector") &&
-      !manifest.components.some((part) => part.type === "skill")
-    choices.set(item.id, {
-      id: item.id,
-      slug: item.slug,
-      label: item.displayName,
-      version: item.installedVersion,
-      skills: [],
-      blocked: !connectorOnly,
-    })
   }
   return [...choices.values()].sort((left, right) =>
     left.label.localeCompare(right.label)
   )
 }
 
-// 市场仅补充名称及无技能的插件；离线时本地安装库存仍可选用。
+// 市场只补充显示名称；列表和版本以本地安装库存为准。
 export async function loadComposerPluginCatalog() {
   const result = await getSkillMarketSource().list({
     view: "installed",

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { getTransport, onTransportChange } from "@/lib/transport"
+import { onSkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
 import { toErrorMessage } from "@/lib/app-error"
 import {
   enrichPluginChoices,
@@ -41,6 +42,15 @@ export function useComposerPlugins(input: {
     () => onTransportChange(() => setRevision((value) => value + 1)),
     []
   )
+  useEffect(() => {
+    const refresh = () => setRevision((value) => value + 1)
+    window.addEventListener("focus", refresh)
+    const unsubscribe = onSkillMarketInstallationsChanged(refresh)
+    return () => {
+      window.removeEventListener("focus", refresh)
+      unsubscribe()
+    }
+  }, [])
   useEffect(() => {
     if (!input.open || !input.agentType) return
     let alive = true
@@ -92,8 +102,13 @@ export function useComposerPlugins(input: {
         : { choices: [] as ComposerPluginChoice[], loading: true, error: "" }
     return {
       ...current,
-      scopeKey: key,
+      scopeKey: JSON.stringify([
+        input.agentType,
+        profile?.user_id,
+        profile?.org_code,
+        status,
+      ]),
       refresh: () => setRevision((value) => value + 1),
     }
-  }, [key, state])
+  }, [key, state, input.agentType, profile?.user_id, profile?.org_code, status])
 }

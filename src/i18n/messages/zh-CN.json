@@ -187,7 +187,7 @@
     "refresh": "刷新",
     "loading": "正在读取已安装应用…",
     "loadingCloud": "正在读取云端插件…",
-    "empty": "尚未安装应用插件，可从云端市场选择。",
+    "empty": "尚未安装应用插件，请先从插件市场安装。",
     "cloudHint": "云端插件仅在你选择安装后下载。",
     "cloudError": "暂时无法读取云端插件，已安装应用仍可使用。",
     "more": "更多插件",
@@ -206,6 +206,10 @@
     "restore": "还原到右侧栏",
     "newTab": "新标签页",
     "closeApp": "关闭{name}",
+    "detachApp": "移到新窗口",
+    "openingWindow": "正在打开新窗口…",
+    "use": "使用",
+    "moveFailed": "未能移到新窗口，原页面已保留。请确认插件已保存后重试。",
     "closeConfirm": "关闭这个插件页面？请先保存修改，未保存的内容可能丢失。",
     "closeFailed": "插件尚未完成保存或关闭。已保留当前页面，请检查保存状态后重试。",
     "state": {
@@ -343,11 +347,11 @@
     "state": {
       "blocked": "插件或依赖需要处理",
       "legacy": "旧版插件，请管理所含连接器",
-      "context_required": "请选择要使用插件的对话项目",
+      "context_required": "正在自动准备当前对话…",
       "configuration_required": "需要配置插件参数",
       "permission_required": "需要当前项目授权",
       "disabled": "当前项目已停用",
-      "unchecked": "已授权，等待检查连接"
+      "unchecked": "已准备，可直接使用"
     },
     "snapshotMissing": "尚无可核对的安装依赖快照，请重新安装对应版本以修复。",
     "noDependencies": "此安装版本未声明外部依赖",
@@ -550,8 +554,8 @@
     "noResults": "没有匹配的插件",
     "retry": "重试",
     "manage": "管理插件…",
-    "manageRequired": "需要启用或修复，点击管理",
-    "prepareRequired": "请先完成此插件的配置与授权，再返回对话选用",
+    "manageRequired": "点击使用",
+    "prepareRequired": "插件尚未就绪，请查看具体原因后重试",
     "skills": "{count} 个技能",
     "tools": "使用插件工具",
     "usePrompt": "使用插件「{name}」完成此任务。"
@@ -582,8 +586,8 @@
     "noResults": "没有匹配的插件",
     "retry": "重试",
     "manage": "管理插件…",
-    "manageRequired": "需要启用或修复，点击管理",
-    "prepareRequired": "请先完成此插件的配置与授权，再返回对话选用",
+    "manageRequired": "点击使用",
+    "prepareRequired": "插件尚未就绪，请查看具体原因后重试",
     "skills": "{count} 个技能",
     "tools": "使用插件工具",
     "usePrompt": "使用插件「{name}」完成此任务。"

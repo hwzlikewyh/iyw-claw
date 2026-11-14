@@ -9,7 +9,7 @@ const WINDOW_HEIGHT: f64 = 760.0;
 const MIN_WINDOW_WIDTH: f64 = 640.0;
 const MIN_WINDOW_HEIGHT: f64 = 480.0;
 
-pub(super) fn build_window(
+pub(crate) fn build_window(
     app: &AppHandle,
     label: &str,
     route_context: (String, Option<&str>),
