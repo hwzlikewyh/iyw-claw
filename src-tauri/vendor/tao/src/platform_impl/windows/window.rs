@@ -1332,8 +1332,10 @@ unsafe fn init<T: 'static>(
     .insert(win.id(), KeyEventBuilder::default());
 
   let _ = win.set_skip_taskbar(pl_attribs.skip_taskbar);
-  win.set_window_icon(attributes.window_icon);
-  win.set_taskbar_icon(pl_attribs.taskbar_icon);
+  // 任务栏使用独立的 ICON_BIG；未指定时沿用窗口图标，避免按钮空白。
+  let window_icon = attributes.window_icon;
+  win.set_window_icon(window_icon.clone());
+  win.set_taskbar_icon(pl_attribs.taskbar_icon.or(window_icon));
 
   if attributes.fullscreen.is_some() {
     win.set_fullscreen(attributes.fullscreen);
