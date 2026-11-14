@@ -7,7 +7,6 @@ import {
   PanelRightClose,
   Plus,
   X,
-  AppWindow,
   SquareArrowOutUpRight,
   Loader2,
 } from "lucide-react"
@@ -28,6 +27,7 @@ import type { usePluginPanels, PluginPanelTab } from "./use-plugin-panels"
 import { usePluginTabDrag } from "./use-plugin-tab-drag"
 import { isDesktop } from "@/lib/transport"
 import { toast } from "sonner"
+import { PluginIcon } from "./plugin-icon"
 
 export function AuxPanelNavigation({
   label,
@@ -162,7 +162,11 @@ function AppTab({
             {moving ? (
               <Loader2 className="size-3.5 shrink-0 animate-spin" />
             ) : (
-              <AppWindow className="size-3.5 shrink-0" />
+              <PluginIcon
+                slug={tab.pluginSlug}
+                label={tab.label}
+                className="size-5"
+              />
             )}
             <span className="truncate">
               {moving ? pluginText("openingWindow") : tab.label}

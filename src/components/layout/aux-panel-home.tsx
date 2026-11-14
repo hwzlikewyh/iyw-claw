@@ -28,7 +28,7 @@ export function AuxPanelHome({
   const isChatMode = useIsActiveChatMode()
   const hasWorkspace = !!activeFolder && !isChatMode
   return (
-    <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div className="@container flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
       <h1 className="shrink-0 px-5 pt-5 text-base font-semibold">
         {pluginText("newTab")}
       </h1>

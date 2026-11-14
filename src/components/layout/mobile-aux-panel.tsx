@@ -8,9 +8,11 @@ import { AuxPanelSurface } from "./aux-panel-surface"
 export function MobileAuxPanel({
   mobile,
   desktopSlot,
+  railSlot,
 }: {
   mobile: boolean
   desktopSlot: HTMLElement | null
+  railSlot: HTMLElement | null
 }) {
   const { isOpen, restored, setOpen } = useAuxPanelContext()
   const t = useTranslations("Folder.auxPanel.tabs")
@@ -22,7 +24,7 @@ export function MobileAuxPanel({
       title={t("label")}
       onOpenChange={setOpen}
     >
-      <AuxPanel />
+      <AuxPanel railSlot={mobile ? null : railSlot} />
     </AuxPanelSurface>
   )
 }
