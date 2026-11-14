@@ -6937,6 +6937,15 @@
     "openSettings": "设置"
   },
   "UsagePoints": {
+    "breakdown": "消费明细",
+    "modelUsage": "模型对话",
+    "imageUsage": "生图 / 图片编辑",
+    "imageGenerationUsage": "图片生成",
+    "imageEditingUsage": "图片编辑",
+    "toolUsage": "工具调用",
+    "imageAnalysisUsage": "图片识别",
+    "compactionUsage": "上下文压缩",
+    "otherUsage": "其他消费",
     "turn": "本轮消费",
     "session": "会话累计消费",
     "partialValue": "{points} 点",

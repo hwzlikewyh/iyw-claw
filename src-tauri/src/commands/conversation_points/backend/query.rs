@@ -13,6 +13,8 @@ const SETTLEMENT_QUERY_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Deserialize, Serialize)]
 pub(super) struct Record {
+    #[serde(default)]
+    pub(super) model_display_name: String,
     pub(super) request_id: String,
     pub(super) stage_key: String,
     pub(super) actual_points: Option<String>,

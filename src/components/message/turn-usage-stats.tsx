@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/popover"
 import type { TurnUsage } from "@/lib/types"
 import { UsagePointsValue } from "./usage-points"
+import { ConsumptionBreakdown } from "./consumption-breakdown"
 
 function useUsagePopover() {
   const [open, setOpen] = useState(false)
@@ -127,6 +128,9 @@ function UsageDetails({
           />
         </div>
       </div>
+      <div className="mb-4 empty:hidden">
+        <ConsumptionBreakdown consumption={usage?.confirmed_points} />
+      </div>
       <div className="mb-3 flex justify-between text-xs text-muted-foreground">
         <span>{t("tokenDetails")}</span>
         <span>tokens</span>
@@ -158,7 +162,7 @@ function UsagePanel(props: UsagePopoverProps) {
       align="end"
       sideOffset={8}
       aria-labelledby={titleId}
-      className="w-72 max-w-[calc(100vw-1.5rem)] gap-0 rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg ring-0 motion-reduce:animate-none"
+      className="max-h-[var(--radix-popover-content-available-height)] w-72 max-w-[calc(100vw-1.5rem)] gap-0 overflow-y-auto rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg ring-0 motion-reduce:animate-none"
       onOpenAutoFocus={(event) => {
         restoreFocusRef.current = pinnedRef.current
         if (!pinnedRef.current) event.preventDefault()

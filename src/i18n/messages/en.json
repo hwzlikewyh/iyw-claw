@@ -6937,6 +6937,15 @@
     "openSettings": "Settings"
   },
   "UsagePoints": {
+    "breakdown": "Consumption breakdown",
+    "modelUsage": "Model conversation",
+    "imageUsage": "Image generation / editing",
+    "imageGenerationUsage": "Image generation",
+    "imageEditingUsage": "Image editing",
+    "toolUsage": "Tool calls",
+    "imageAnalysisUsage": "Image analysis",
+    "compactionUsage": "Context compaction",
+    "otherUsage": "Other usage",
     "turn": "Turn consumption",
     "session": "Session consumption",
     "partialValue": "{points} points",

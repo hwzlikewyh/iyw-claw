@@ -155,7 +155,7 @@ interface OutputStatsViewProps {
   isStreaming: boolean
 }
 
-function hasUsagePoints(usage?: TurnUsage | null): usage is TurnUsage {
+function hasUsagePoints(usage?: TurnUsage | null): boolean {
   return (
     usage != null &&
     resolveUsagePoints(
@@ -185,7 +185,9 @@ function OutputStatsView({
       </span>
     ),
     ...timingStats,
-    (livePoints != null || hasUsagePoints(usage)) && (
+    (livePoints != null ||
+      hasUsagePoints(usage) ||
+      Boolean(usage?.confirmed_points?.records?.length)) && (
       <TurnUsageStats
         key="usage"
         usage={usage}

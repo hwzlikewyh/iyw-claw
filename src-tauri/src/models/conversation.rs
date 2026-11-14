@@ -140,6 +140,10 @@ pub struct ConfirmedConsumption {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsumptionStage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub request_id: String,
     pub stage_key: String,
     pub actual_points: Option<String>,
