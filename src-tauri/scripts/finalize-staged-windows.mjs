@@ -146,10 +146,12 @@ function prepareSigningConfig() {
       {
         bundle: {
           windows: {
-            // NSIS 在 signCommand 之后才把应用包进安装器，打包阶段的签名
-            // 覆盖不到最终安装器。先显式签主程序（signApplication），
-            // 再让 NSIS 原样包进安装器，签名才会随安装器一起交付。
-            signCommand: null,
+            // Tauri 将 UNK 改为 NSS 后才调用此回调；必须签改写后的副本。
+            // 原始 EXE 会在 bundle 后恢复，继续作为直接 ZIP 的签名输入。
+            signCommand: {
+              cmd: process.execPath,
+              args: [join(TOOL_ROOT, "src-tauri/scripts/sign-staged-windows.mjs"), "%1"],
+            },
           },
         },
       },
