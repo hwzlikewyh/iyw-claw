@@ -31,9 +31,7 @@ export function applyBackendConsumption(
   return {
     ...detail,
     turns: detail.turns.map((turn) => {
-      const confirmed = turn.fork_message_id
-        ? points.turns[turn.fork_message_id]
-        : undefined
+      const confirmed = points.turns[turn.fork_message_id ?? turn.id]
       return confirmed
         ? {
             ...turn,

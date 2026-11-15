@@ -11,6 +11,7 @@ use super::{failure, RemoteAccount, RemoteContext};
 const DIRECTORY_TIMEOUT: Duration = Duration::from_secs(10);
 const INVOKE_TIMEOUT: Duration = Duration::from_secs(120);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_BILLING_CALL_ID_BYTES: usize = 64;
 
 pub(super) struct RemoteRequest<'a> {
     pub name: &'a str,
@@ -148,13 +149,38 @@ async fn receive(
         })?
         .map_err(|error| service_error(error, request.execution))?;
     match response {
-        ServerResult::CallToolResult(result) => Ok(result),
+        ServerResult::CallToolResult(mut result) => {
+            preserve_billing_receipt(&mut result);
+            Ok(result)
+        }
         _ => Err(failure(
             "remote_response_invalid",
             "Remote server returned an unexpected response",
             request.execution,
         )),
     }
+}
+
+fn preserve_billing_receipt(result: &mut CallToolResult) {
+    let Some(receipt) = result.meta.as_ref().and_then(|meta| meta.get("billing")) else {
+        return;
+    };
+    let Some(call_id) = receipt.get("call_id").and_then(Value::as_str) else {
+        return;
+    };
+    if call_id.is_empty()
+        || call_id.len() > MAX_BILLING_CALL_ID_BYTES
+        || call_id.chars().any(char::is_control)
+    {
+        return;
+    }
+    // 部分 SDK 历史只保存 content；保留最小回执供按当前账户核对，绝不复制金额或凭证。
+    let value = serde_json::json!({"_meta": {"billing": {
+        "call_id": call_id, "status": receipt.get("status"), "outcome": receipt.get("outcome"),
+    }}});
+    result
+        .content
+        .push(rmcp::model::Content::text(value.to_string()));
 }
 
 pub(super) fn service_error(error: ServiceError, execution: bool) -> ErrorData {

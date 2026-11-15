@@ -10,7 +10,7 @@ export function usePluginPanelChoices(
   transport: ReturnType<typeof getTransport>
 ) {
   const [choices, setChoices] = useState<PluginPanelChoice[]>([])
-  const [loading, setLoading] = useState(false),
+  const [loading, setLoading] = useState(true),
     [error, setError] = useState("")
   const [revision, setRevision] = useState(0)
   const { isOpen } = useAuxPanelContext()

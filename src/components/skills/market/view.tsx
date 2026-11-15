@@ -180,6 +180,7 @@ export function SkillMarketView({
       setManageBusy(true)
       try {
         await market.updateMetadata(request)
+        notifySkillMarketInstallationsChanged()
       } finally {
         setManageBusy(false)
       }

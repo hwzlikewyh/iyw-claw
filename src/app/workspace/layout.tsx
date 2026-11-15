@@ -893,7 +893,7 @@ function FolderWorkspaceShell({
   return (
     <div
       ref={shellContainerRef}
-      className="flex flex-1 min-h-0 overflow-hidden"
+      className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
     >
       <ResizablePanelGroup
         id={FOLDER_SHELL_GROUP_ID}
@@ -1007,6 +1007,7 @@ function FolderWorkspaceShell({
 function FolderLayoutShell({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile()
   const [auxSlot, setAuxSlot] = useState<HTMLDivElement | null>(null)
+  const [auxRailSlot, setAuxRailSlot] = useState<HTMLDivElement | null>(null)
   useNewConversationBrowser()
 
   return (
@@ -1020,11 +1021,18 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
       {isMobile ? (
         <MobileFolderWorkspaceShell>{children}</MobileFolderWorkspaceShell>
       ) : (
-        <FolderWorkspaceShell auxSlotRef={setAuxSlot}>
-          {children}
-        </FolderWorkspaceShell>
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <FolderWorkspaceShell auxSlotRef={setAuxSlot}>
+            {children}
+          </FolderWorkspaceShell>
+          <div ref={setAuxRailSlot} className="shrink-0" />
+        </div>
       )}
-      <MobileAuxPanel mobile={isMobile} desktopSlot={auxSlot} />
+      <MobileAuxPanel
+        mobile={isMobile}
+        desktopSlot={auxSlot}
+        railSlot={auxRailSlot}
+      />
       <AppToaster
         position="bottom-right"
         duration={TOAST_DURATION_MS}

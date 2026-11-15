@@ -18,8 +18,26 @@ struct Totals {
 }
 
 impl Totals {
+    fn pending(&mut self, receipt: &Receipt) {
+        self.stages
+            .push(crate::models::conversation::ConsumptionStage {
+                purpose: Some(receipt.purpose.clone()),
+                display_name: None,
+                request_id: receipt.request_id.clone(),
+                stage_key: if receipt.purpose == "tool" {
+                    "tool"
+                } else {
+                    "main"
+                }
+                .into(),
+                actual_points: None,
+                charged_points: None,
+                settlement_status: "pending".into(),
+            });
+    }
+
     fn add(&mut self, row: &super::query::Record, purpose: &str) -> bool {
-        self.record_stage(row);
+        self.record_stage(row, purpose);
         let Some(value) = row.actual_points.as_deref() else {
             return false;
         };
@@ -40,7 +58,7 @@ impl Totals {
         true
     }
 
-    fn record_stage(&mut self, row: &super::query::Record) {
+    fn record_stage(&mut self, row: &super::query::Record, purpose: &str) {
         *self
             .settlements
             .entry(row.settlement_status.clone())
@@ -51,6 +69,18 @@ impl Totals {
             .is_some_and(|value| self.charged.add(value).is_some());
         self.stages
             .push(crate::models::conversation::ConsumptionStage {
+                purpose: Some(
+                    if row.stage_key.starts_with("vision_") {
+                        "image_analysis"
+                    } else if row.stage_key == "tool" {
+                        "tool"
+                    } else {
+                        purpose
+                    }
+                    .into(),
+                ),
+                display_name: (!row.model_display_name.is_empty())
+                    .then(|| row.model_display_name.clone()),
                 request_id: row.request_id.clone(),
                 stage_key: row.stage_key.clone(),
                 actual_points: row.actual_points.clone(),
@@ -105,9 +135,13 @@ fn consumption(
     for receipt in requests {
         let Some(rows) = records.get(&receipt.request_id) else {
             pending = true;
+            totals.pending(receipt);
             continue;
         };
         pending |= rows.pending;
+        if rows.items.is_empty() {
+            totals.pending(receipt);
+        }
         for row in &rows.items {
             if !seen.insert((&row.request_id, &row.stage_key)) {
                 continue;
@@ -153,7 +187,7 @@ pub(super) fn summarize(detail: &DbConversationDetail, source: Source<'_>) -> Ba
         let correlated: Vec<_> = requests
             .iter()
             .filter(|receipt| {
-                receipt.purpose == "generation"
+                receipt.purpose != "compaction"
                     && format!("{}:{}", receipt.thread_id, receipt.turn_id) == native
             })
             .collect();
@@ -187,19 +221,14 @@ fn last_display_turns(
         .iter()
         .filter(|turn| matches!(turn.role, TurnRole::Assistant))
     {
-        let Some(native_turn) = turn
-            .fork_message_id
-            .as_ref()
-            .and_then(|id| messages.get(id))
-        else {
+        let display = turn.fork_message_id.as_ref().unwrap_or(&turn.id);
+        let Some(native_turn) = messages.get(display) else {
             unverified |= turn.usage.is_some() || turn.blocks.iter().any(|block| {
                 matches!(block, crate::models::ContentBlock::Text { text } if !text.is_empty())
             });
             continue;
         };
-        if let Some(message_id) = &turn.fork_message_id {
-            last_turns.insert(native_turn.clone(), message_id.clone());
-        }
+        last_turns.insert(native_turn.clone(), display.clone());
     }
     (last_turns, unverified)
 }

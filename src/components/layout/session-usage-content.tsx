@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl"
 import { ChevronRight, X } from "lucide-react"
 import { UsagePointsValue } from "@/components/message/usage-points"
+import { ConsumptionBreakdown } from "@/components/message/consumption-breakdown"
 import { formatContextWindowPercent } from "@/lib/context-window"
 import { formatTokenCount, formatTokenThousands } from "@/lib/token-format"
 import { tokenValue, type SessionUsageData } from "@/lib/session-usage-display"
@@ -199,6 +200,7 @@ export function SessionUsageContent({
       </div>
       <ContextUsage data={data} />
       <SessionPointsSummary data={data} />
+      <ConsumptionBreakdown consumption={data.consumption} />
       <Collapsible>
         <CollapsibleTrigger className="group inline-flex items-center gap-1 rounded-sm text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
           <ChevronRight className="size-3 group-data-[state=open]:rotate-90" />

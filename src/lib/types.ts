@@ -566,6 +566,8 @@ export interface ConfirmedConsumption {
 }
 
 export interface ConsumptionStage {
+  purpose?: string | null
+  display_name?: string | null
   request_id: string
   stage_key: string
   actual_points: string | null

@@ -4,6 +4,8 @@ mod confirmed_cache;
 mod query;
 mod sources;
 mod summary;
+mod tool_results;
+mod tool_sources;
 use query::query;
 use summary::{summarize, Source};
 
@@ -15,7 +17,8 @@ pub(super) async fn enrich(conn: &sea_orm::DatabaseConnection, detail: &mut DbCo
         return;
     }
     detail.backend_consumption = None;
-    let source = sources::collect(conn, detail).await;
+    let mut source = sources::collect(conn, detail).await;
+    tool_sources::collect(detail, &mut source);
     let requests = &source.requests;
     if requests.is_empty() {
         return;
