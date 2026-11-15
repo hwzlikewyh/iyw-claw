@@ -44,9 +44,11 @@ jobs:
         run: |
           if ($env:INSTALLER_SOURCE -notmatch '^[a-fA-F0-9]{40}$') { throw 'Use an exact installer commit' }
           if ($env:INSTALLER_TAG -notmatch '^v0\.2\.\d+$') { throw 'This workflow signs the direct installer 0.2 release line' }
-          $release = gh api "repos/hwzlikewyh/iyw-claw-installer/releases/tags/$env:INSTALLER_TAG" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or -not $release.draft) { throw 'Sign a draft release; published installers are immutable' }
-          if ($release.target_commitish -ne $env:INSTALLER_SOURCE) { throw 'Draft release is bound to a different installer commit' }
+          $json = gh release view $env:INSTALLER_TAG --repo hwzlikewyh/iyw-claw-installer --json isDraft,targetCommitish
+          if ($LASTEXITCODE -ne 0) { throw 'Installer draft lookup failed' }
+          $release = $json | ConvertFrom-Json
+          if (-not $release.isDraft) { throw 'Sign a draft release; published installers are immutable' }
+          if ($release.targetCommitish -ne $env:INSTALLER_SOURCE) { throw 'Draft release is bound to a different installer commit' }
       - name: Checkout installer source
         uses: actions/checkout@v4
         with:
