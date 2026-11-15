@@ -1,3 +1,4 @@
+param([switch]$FreshOnly)
 $ErrorActionPreference='Stop'
 if($env:RUNNER_ENVIRONMENT -ne 'github-hosted'){throw 'Direct installation verification requires a disposable hosted runner'}
 $version=(Get-Content package.json -Raw|ConvertFrom-Json).version
@@ -8,6 +9,7 @@ $signature=[IO.File]::ReadAllText("$payload.sig").Trim()
 $digest=(Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash.ToLowerInvariant()
 $bytes=(Get-Item -LiteralPath $payload).Length
 $environment=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw'
+if($FreshOnly -and (Test-Path -LiteralPath $environment)){throw 'Fresh verification refuses an existing user environment'}
 $url='https://gateway.iyw.cn/iyw-fusion-api/app-updates/artifacts/1/download'
 
 function Stop-OwnedApp([string]$Root){
@@ -44,6 +46,12 @@ $fresh=Join-Path $env:RUNNER_TEMP 'iyw-direct-fresh'
 if(Test-Path -LiteralPath $fresh){throw 'Fresh direct root already exists'}
 Run-Direct $fresh
 Write-Output 'PASS signed direct fresh application deployment with existing healthy environment'
+if($FreshOnly){
+    & (Join-Path $fresh 'app/iyw-environment.exe') diagnose --json
+    if($LASTEXITCODE -ne 0){throw 'Fresh direct environment integrity verification failed'}
+    Write-Output 'PASS clean direct installation including managed environment bootstrap'
+    exit 0
+}
 $legacy=Join-Path $env:RUNNER_TEMP 'iyw-environment-live-install'
 if(-not(Test-Path -LiteralPath (Join-Path $legacy 'app/iyw-claw.exe'))){throw 'Missing legacy installation verification input'}
 $marker=Join-Path $legacy 'direct-user-data-sentinel.txt'

@@ -11,6 +11,26 @@ on:
         type: string
 
 jobs:
+  verify-direct-fresh:
+    name: Verify clean direct Windows installation
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-verification-x86_64-pc-windows-msvc
+          path: src-tauri
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+      - name: Install signed payload with no previous application or managed environment
+        shell: pwsh
+        run: ./.github/scripts/release/verify-direct-installer.ps1 -FreshOnly
   verify:
     name: Verify installed ${{ matrix.target }}
     runs-on: windows-2022

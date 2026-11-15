@@ -89,8 +89,15 @@ pub fn blocker(app: &AppHandle) -> Option<&'static str> {
 }
 
 pub async fn task_blocker(app: &AppHandle) -> Result<Option<&'static str>, String> {
+    task_blocker_with_idle_delay(app, IDLE_DELAY).await
+}
+
+pub(super) async fn task_blocker_with_idle_delay(
+    app: &AppHandle,
+    idle: Duration,
+) -> Result<Option<&'static str>, String> {
     let manager = app.state::<crate::acp::manager::ConnectionManager>();
-    if !manager.is_globally_idle(IDLE_DELAY).await {
+    if !manager.is_globally_idle(idle).await {
         return Ok(Some("agent_operation_active"));
     }
     let db = app.state::<crate::db::AppDatabase>();

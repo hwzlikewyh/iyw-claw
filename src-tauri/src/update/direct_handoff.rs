@@ -1,5 +1,6 @@
 use super::{desktop::Task, desktop_cache, direct_installer, preferences, release, silent_safety};
 use std::{path::Path, time::Duration};
+use tauri::Manager;
 use tauri_plugin_updater::Update;
 use tokio::process::{Child, Command};
 
@@ -32,7 +33,15 @@ async fn verify_capability(path: &Path) -> Result<(), String> {
 }
 
 async fn recheck(task: &Task, update: &Update, silent: bool) -> Result<(), String> {
-    if silent_safety::task_blocker(&task.app).await?.is_some() {
+    let idle = if silent {
+        silent_safety::IDLE_DELAY
+    } else {
+        Duration::ZERO
+    };
+    if silent_safety::task_blocker_with_idle_delay(&task.app, idle)
+        .await?
+        .is_some()
+    {
         return Err("Active tasks must finish before updating".into());
     }
     let settings = preferences::load(&task.conn)
@@ -124,21 +133,40 @@ pub(super) async fn launch(task: &Task, update: &Update, silent: bool) -> Result
         "--update-mode"
     });
     arguments(&mut command, task, update)?;
-    command
-        .arg("--update-parent-pid")
-        .arg(std::process::id().to_string())
-        .arg("--update-ready-file")
-        .arg(&ready)
-        .kill_on_drop(true)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let mut child = spawn_installer(&mut command, &ready)?;
     wait_ready(&mut child, &ready).await?;
+    let _manual_relaunch = if silent {
+        None
+    } else {
+        Some(
+            task.app
+                .state::<crate::acp::manager::ConnectionManager>()
+                .claim_relaunch()
+                .await
+                .map_err(|e| e.to_string())?,
+        )
+    };
     // 下载、校验及准备期间用户可能恢复操作；退出前再次检查。
     recheck(task, update, silent).await?;
     directory.close().map_err(|e| e.to_string())?;
     tracing::info!(version=%update.version, "[app-update] verified installer ready; shutting down normally");
+    shutdown(task).await
+}
+
+fn spawn_installer(command: &mut Command, ready: &Path) -> Result<Child, String> {
+    command
+        .arg("--update-parent-pid")
+        .arg(std::process::id().to_string())
+        .arg("--update-ready-file")
+        .arg(ready)
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    command.spawn().map_err(|e| e.to_string())
+}
+
+async fn shutdown(task: &Task) -> Result<(), String> {
     let app = task.app.clone();
     tokio::task::spawn_blocking(move || {
         crate::desktop_shutdown::shutdown_blocking(
