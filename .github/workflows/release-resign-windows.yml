@@ -19,6 +19,7 @@ concurrency:
 jobs:
   resolve:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
     outputs:
       source: ${{ steps.inputs.outputs.source }}
       release: ${{ steps.inputs.outputs.release }}
@@ -41,10 +42,19 @@ jobs:
             if(!release)throw new Error('Existing unpublished draft required');
             const run=(await github.rest.actions.getWorkflowRun({...context.repo,run_id:runId})).data;
             if(run.path!=='.github/workflows/release.yml'||run.display_title!==`Release ${tag}`)throw new Error('Original release run mismatch');
-            const jobs=await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id:runId,per_page:100});
-            if(!jobs.some(job=>job.name==='build-windows (x86_64-pc-windows-msvc) / build'&&job.conclusion==='success'))throw new Error('Original Windows build has not succeeded');
+            for(;;){
+              const jobs=await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id:runId,per_page:100});
+              const build=jobs.find(job=>job.name==='build-windows (x86_64-pc-windows-msvc) / build');
+              if(build?.conclusion==='success')break;
+              if(build?.status==='completed')throw new Error('Original Windows build failed');
+              const current=(await github.rest.actions.getWorkflowRun({...context.repo,run_id:runId})).data;
+              if(current.status==='completed')throw new Error('Original release did not produce a Windows build');
+              core.info('Waiting for the existing Windows build; no new compilation is started');
+              await new Promise(resolve=>setTimeout(resolve,30000));
+            }
+            const ready=(await github.rest.repos.getRelease({...context.repo,release_id:release.id})).data;
             const prefix=`iyw-staging-${runId}-`;
-            const assets=release.assets.filter(asset=>asset.name.startsWith(prefix)&&asset.name.endsWith('-x86_64-pc-windows-msvc.zip'));
+            const assets=ready.assets.filter(asset=>asset.name.startsWith(prefix)&&asset.name.endsWith('-x86_64-pc-windows-msvc.zip'));
             if(assets.length!==1||!/^sha256:[a-f0-9]{64}$/.test(assets[0].digest||''))throw new Error('Exactly one verified staging asset required');
             core.setOutput('source',source);core.setOutput('release',release.id);
             core.setOutput('asset',assets[0].id);core.setOutput('sha256',assets[0].digest.slice(7));
