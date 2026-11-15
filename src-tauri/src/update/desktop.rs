@@ -62,6 +62,14 @@ pub(super) async fn install_silently(task: &Task, identity: &Identity) -> Result
         return Ok(false);
     }
     tracing::info!(version = %identity.version, "[app-update] silent installation started");
+    #[cfg(target_os = "windows")]
+    if super::direct_payload::selected(&update) {
+        drop(bytes);
+        if let Err(error) = super::direct_handoff::launch(task, &update, true).await {
+            task.fail(error);
+        }
+        return Ok(true);
+    }
     if let Err(error) = update
         .install(bytes)
         .map_err(|error| error.to_string())
@@ -188,6 +196,11 @@ async fn install_impl(task: &Task, identity: &Identity) -> Result<(), String> {
     }
     state::set_installing(&task.handle, &task.emitter());
     tracing::info!(version = %update.version, "[app-update] installing cached update after user request");
+    #[cfg(target_os = "windows")]
+    if super::direct_payload::selected(&update) {
+        drop(bytes);
+        return super::direct_handoff::launch(task, &update, false).await;
+    }
     update.install(bytes).map_err(|error| error.to_string())?;
     finish_install(task, update.version)
 }

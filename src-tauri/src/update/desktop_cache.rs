@@ -9,7 +9,7 @@ use tokio::io::AsyncWriteExt;
 
 use super::{release, verify};
 
-fn cache_path(app: &tauri::AppHandle, update: &Update) -> Result<PathBuf, String> {
+pub(super) fn cache_path(app: &tauri::AppHandle, update: &Update) -> Result<PathBuf, String> {
     let extensions = release::extensions(update).map_err(|error| error.to_string())?;
     let identity = serde_json::to_vec(&(
         &update.version,

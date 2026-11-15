@@ -8,7 +8,6 @@ use crate::model::{EnvironmentSnapshot, PreparedComponent, PreparedState};
 use crate::paths::{from_slash, safe_segment, Layout};
 
 struct ActivatedComponent {
-    destination: PathBuf,
     backup: Option<PathBuf>,
 }
 
@@ -17,16 +16,20 @@ pub fn commit(
     state: &PreparedState,
     snapshot: &EnvironmentSnapshot,
 ) -> Result<()> {
+    crate::activation_journal::begin(layout, &state.transaction_id)?;
     let mut activated = Vec::new();
     let result = activate_and_publish(layout, state, snapshot, &mut activated);
     if let Err(error) = result {
-        if let Err(rollback_error) = rollback(activated) {
+        if let Err(rollback_error) =
+            crate::activation_journal::recover(layout, Some(&state.transaction_id))
+        {
             return Err(error).context(format!(
                 "environment rollback also failed: {rollback_error:#}"
             ));
         }
         return Err(error);
     }
+    crate::activation_journal::finish(layout)?;
     cleanup(layout, state, activated);
     let retired = layout.runtime.join("open-computer-use");
     if retired.is_dir() {
@@ -46,6 +49,7 @@ fn activate_and_publish(
 ) -> Result<()> {
     for prepared in &state.components {
         if prepared.staged {
+            crate::activation_journal::record(layout, &state.transaction_id, prepared)?;
             activated.push(activate_component(layout, state, prepared)?);
         }
         check_activated_component(layout, prepared)?;
@@ -55,15 +59,8 @@ fn activate_and_publish(
         .join("environments")
         .join(format!("{}.json", snapshot.generation));
     inventory::write_json(&generation, snapshot)?;
-    let receipt = layout
-        .inventory
-        .join("transactions")
-        .join(format!("{}.json", snapshot.generation));
-    inventory::write_json(
-        &receipt,
-        &serde_json::json!({"generation":snapshot.generation,"state":"committed"}),
-    )?;
-    inventory::write_json(&layout.current_snapshot(), snapshot)
+    inventory::write_json(&layout.current_snapshot(), snapshot)?;
+    crate::activation_journal::mark_committed(layout, &snapshot.generation)
 }
 
 fn check_activated_component(layout: &Layout, prepared: &PreparedComponent) -> Result<()> {
@@ -107,10 +104,7 @@ fn activate_component(
         }
         return Err(error);
     }
-    Ok(ActivatedComponent {
-        destination,
-        backup,
-    })
+    Ok(ActivatedComponent { backup })
 }
 
 fn move_existing_to_backup(
@@ -139,20 +133,6 @@ fn move_existing_to_backup(
         fs::rename(destination, &backup)
     })?;
     Ok(Some(backup))
-}
-
-fn rollback(activated: Vec<ActivatedComponent>) -> Result<()> {
-    for item in activated.into_iter().rev() {
-        if item.destination.exists() {
-            crate::retry::file(
-                "remove failed component activation",
-                &item.destination,
-                || fs::remove_dir_all(&item.destination),
-            )?;
-        }
-        restore_backup(&item.destination, item.backup.as_ref())?;
-    }
-    Ok(())
 }
 
 fn restore_backup(destination: &PathBuf, backup: Option<&PathBuf>) -> Result<()> {

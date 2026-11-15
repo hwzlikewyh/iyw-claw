@@ -1,11 +1,12 @@
 mod activation;
-mod browser_selection;
-mod computer_driver;
+mod activation_journal;
 mod archive;
+mod browser_selection;
 mod client;
-mod download;
+mod computer_driver;
 #[path = "../../distribution-platform.rs"]
 mod distribution_platform;
+mod download;
 mod failure;
 mod install;
 mod inventory;
@@ -71,17 +72,24 @@ fn run() -> Result<u8> {
             install::commit(Some(&transaction))?;
             Ok(0)
         }
-        "remove-computer-driver" => { computer_driver::remove()?; Ok(0) }
+        "remove-computer-driver" => {
+            computer_driver::remove()?;
+            Ok(0)
+        }
         "--version" | "-V" => {
             println!("iyw-environment {}", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
         "--identity" => {
-            println!("{}", serde_json::json!({
-                "version": env!("CARGO_PKG_VERSION"),
-                "target": env!("IYW_ENVIRONMENT_TARGET_TRIPLE"),
-                "distributionTarget": distribution_platform::TARGET,
-            }));
+            println!(
+                "{}",
+                serde_json::json!({
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "target": env!("IYW_ENVIRONMENT_TARGET_TRIPLE"),
+                    "distributionTarget": distribution_platform::TARGET,
+                    "installerProtocol": 2,
+                })
+            );
             Ok(0)
         }
         _ => bail!("unsupported command: {command}"),
@@ -93,11 +101,20 @@ fn run_install(args: &[String]) -> Result<u8> {
     match phase.as_str() {
         "prepare" => {
             let version = option(args, "--app-version").context("--app-version is required")?;
-            install::prepare(&version)?;
+            if args.iter().any(|arg| arg == "--initialize-defaults") {
+                let transaction = install::prepare_defaults(&version)?;
+                println!("prepared-transaction:{transaction}");
+            } else {
+                install::prepare(&version)?;
+            }
             Ok(0)
         }
         "commit" => {
             install::commit(option(args, "--transaction-id").as_deref())?;
+            Ok(0)
+        }
+        "recover" => {
+            install::recover(option(args, "--transaction-id").as_deref())?;
             Ok(0)
         }
         _ => bail!("unsupported install phase: {phase}"),
@@ -112,7 +129,9 @@ fn run_repair(args: &[String]) -> Result<u8> {
         .map(|value| value.split(',').map(str::to_string).collect::<Vec<_>>());
     if let Some(components) = &components {
         if components.is_empty()
-            || components.iter().any(|id| paths::safe_segment(id, "component").is_err())
+            || components
+                .iter()
+                .any(|id| paths::safe_segment(id, "component").is_err())
         {
             bail!("repair component selection is invalid")
         }

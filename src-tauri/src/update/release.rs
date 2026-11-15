@@ -37,6 +37,10 @@ impl CheckReason {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ReleaseExtensions {
+    #[serde(default)]
+    pub app_payload: Option<DirectArtifact>,
+    #[serde(default)]
+    pub bootstrapper: Option<DirectArtifact>,
     #[serde(default, alias = "releaseId")]
     pub release_id: Option<String>,
     #[serde(default)]
@@ -51,6 +55,20 @@ pub struct ReleaseExtensions {
     pub size: Option<u64>,
     #[serde(default)]
     pub sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DirectArtifact {
+    pub schema_version: u8,
+    pub package_kind: String,
+    pub artifact_id: String,
+    pub release_id: String,
+    pub target: String,
+    pub arch: String,
+    pub url: String,
+    pub signature: String,
+    pub size: u64,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -174,7 +192,10 @@ pub async fn check_desktop_update(
         return Ok(None);
     };
     let extensions = validated_extensions(&update, request.preferences)?;
-    let info = update_info(&update, &extensions, request.preferences.channel);
+    #[cfg(target_os = "windows")]
+    let update = super::direct_payload::select(update, &extensions)
+        .map_err(|error| AppCommandError::configuration_invalid(error))?;
+    let info = update_info(&update, &self::extensions(&update)?, request.preferences.channel);
     Ok(Some((info, update)))
 }
 

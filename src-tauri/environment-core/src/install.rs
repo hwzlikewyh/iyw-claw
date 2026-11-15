@@ -18,6 +18,16 @@ pub fn prepare(app_version: &str) -> Result<String> {
     prepare_selected(app_version, PrepareOptions::default())
 }
 
+pub fn prepare_defaults(app_version: &str) -> Result<String> {
+    prepare_selected(
+        app_version,
+        PrepareOptions {
+            initialize_defaults: true,
+            ..Default::default()
+        },
+    )
+}
+
 pub fn prepare_repair(app_version: &str, components: Option<&[String]>) -> Result<String> {
     prepare_selected(
         app_version,
@@ -43,6 +53,7 @@ pub fn prepare_computer_driver(app_version: &str) -> Result<String> {
 
 #[derive(Default)]
 struct PrepareOptions<'a> {
+    initialize_defaults: bool,
     full_check: bool,
     computer_driver: bool,
     repair: bool,
@@ -81,6 +92,7 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
     let layout = Layout::resolve()?;
     layout.ensure()?;
     let _lock = environment_lock(&layout)?;
+    crate::activation_journal::recover(&layout, None)?;
     crate::progress::phase("checking");
     let current = if options.repair {
         inventory::load_current_for_repair(&layout)?
@@ -105,12 +117,14 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
     };
     let client = FusionClient::new()?;
     let mut plan = client.resolve(&request)?;
-    crate::browser_selection::apply(
-        &mut plan,
-        &layout,
-        current.as_ref(),
-        options.repair_components,
-    )?;
+    if !options.initialize_defaults {
+        crate::browser_selection::apply(
+            &mut plan,
+            &layout,
+            current.as_ref(),
+            options.repair_components,
+        )?;
+    }
     options.validate_driver(&plan)?;
     crate::progress::phase("planning");
     validate_plan(&plan, app_version, &target, &arch)?;
@@ -243,6 +257,12 @@ pub fn commit(transaction: Option<&str>) -> Result<()> {
     }
     emit("environment", "committed", 0, 0);
     Ok(())
+}
+
+pub fn recover(transaction: Option<&str>) -> Result<()> {
+    let layout = Layout::resolve()?;
+    let _lock = environment_lock(&layout)?;
+    crate::activation_journal::recover(&layout, transaction)
 }
 
 fn prepare_shared_python(layout: &Layout, snapshot: &EnvironmentSnapshot) -> Result<()> {

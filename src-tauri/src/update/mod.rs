@@ -15,6 +15,14 @@
 pub mod desktop;
 #[cfg(feature = "tauri-runtime")]
 mod desktop_cache;
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+mod direct_payload;
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+mod direct_handoff;
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+mod direct_installer;
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+mod direct_trust;
 pub mod digest;
 pub mod install;
 pub mod offer;

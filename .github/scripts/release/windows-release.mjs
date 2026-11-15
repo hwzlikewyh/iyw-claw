@@ -8,6 +8,7 @@ import {
 import { execFileSync } from "node:child_process"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { publishWindowsPayload } from "./windows-payload-release.mjs"
 import { isWin7Target } from "../../../src-tauri/scripts/build-desktop-windows.mjs"
 import {
   windowsLayout,
@@ -133,6 +134,8 @@ async function finalize() {
   copyFileSync(`${installer}.sig`, join(assets, `${name}.sig`))
   await uploadDraftFile(context, join(assets, name))
   await uploadDraftFile(context, join(assets, `${name}.sig`))
+  if (TARGET === "x86_64-pc-windows-msvc")
+    await publishWindowsPayload({ root: ROOT, version: version(), sourceCommit: source(), context, assets })
 }
 
 const commands = { prepare, upload, download, finalize }

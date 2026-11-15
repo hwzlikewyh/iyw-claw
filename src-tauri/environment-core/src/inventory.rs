@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -265,11 +266,13 @@ pub fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
         fs::create_dir_all(parent)
     })?;
     let temporary = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4().simple()));
-    let result = fs::write(&temporary, serde_json::to_vec_pretty(value)?)
-        .with_context(|| format!("write inventory: {}", temporary.display()))
-        .and_then(|_| {
-            crate::retry::file("publish inventory", path, || replace_file(&temporary, path))
-        });
+    let result = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&temporary)?;
+        file.write_all(&serde_json::to_vec_pretty(value)?)?;
+        file.sync_all()
+    })()
+    .with_context(|| format!("write inventory: {}", temporary.display()))
+    .and_then(|_| crate::retry::file("publish inventory", path, || replace_file(&temporary, path)));
     if result.is_err() && temporary.exists() {
         if let Err(error) = fs::remove_file(&temporary) {
             eprintln!(

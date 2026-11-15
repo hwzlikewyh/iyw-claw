@@ -40,7 +40,7 @@ jobs:
           name: windows-installer-verification-${{ matrix.target }}
           path: src-tauri
           github-token: ${{ github.token }}
-          run-id: ${{ github.run_id }}
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
 
       - name: Verify installed NSIS sidecars
         env:
@@ -74,3 +74,7 @@ jobs:
           foreach ($component in @('node','git','uv')) {
             if ($component -notin $snapshot.components.componentId) { throw "Missing required component: $component" }
           }
+      - name: Verify direct deployment and legacy installation migration
+        timeout-minutes: 25
+        shell: pwsh
+        run: ./.github/scripts/release/verify-direct-installer.ps1

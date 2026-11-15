@@ -270,6 +270,18 @@ jobs:
           ARCHIVE: ${{ steps.download.outputs.archive }}
         run: Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:IYW_CLAW_STAGING_DIR
       - name: Sign, bundle, verify and upload
+        if: ${{ inputs.target != 'x86_64-pc-windows-msvc' }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node .release-tools/.github/scripts/release/windows-release.mjs finalize
+      - name: Prepare signed direct installer
+        if: inputs.target == 'x86_64-pc-windows-msvc'
+        env:
+          GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.0
+      - name: Sign legacy package and direct app payload
+        if: inputs.target == 'x86_64-pc-windows-msvc'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -282,6 +294,7 @@ jobs:
           path: |
             src-tauri/target/${{ inputs.target }}/release/iyw-claw.exe
             src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*_${{ env.RELEASE_VERSION }}_${{ startsWith(inputs.target, 'i686-') && 'x86' || 'x64' }}-setup.exe
+            src-tauri/target/${{ inputs.target }}/release/bundle/direct/*
             src-tauri/resources/xinghe-worker/*
             src-tauri/binaries/iyw-environment-${{ inputs.target }}.exe
           compression-level: 1

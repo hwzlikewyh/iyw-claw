@@ -4,14 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       installer_ref:
-        description: Installer repository commit, branch, or tag
+        description: Exact 40-character installer source commit
         required: true
-        default: main
         type: string
       release_tag:
         description: Existing installer release tag to update
         required: true
-        default: v0.1.0
+        default: v0.2.0
         type: string
 
 permissions:
@@ -25,9 +24,14 @@ jobs:
   build-sign-upload:
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 60
+    concurrency:
+      group: windows-signing-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
+      INSTALLER_TAG: ${{ inputs.release_tag }}
+      INSTALLER_SOURCE: ${{ inputs.installer_ref }}
       GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
@@ -35,6 +39,14 @@ jobs:
       IYW_CLAW_SIGN_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGN_TIMESTAMP_URL }}
       IYW_CLAW_SAFENET_PIN: ${{ secrets.IYW_CLAW_SAFENET_PIN }}
     steps:
+      - name: Validate immutable installer inputs
+        shell: pwsh
+        run: |
+          if ($env:INSTALLER_SOURCE -notmatch '^[a-fA-F0-9]{40}$') { throw 'Use an exact installer commit' }
+          if ($env:INSTALLER_TAG -notmatch '^v0\.2\.\d+$') { throw 'This workflow signs the direct installer 0.2 release line' }
+          $release = gh api "repos/hwzlikewyh/iyw-claw-installer/releases/tags/$env:INSTALLER_TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $release.draft) { throw 'Sign a draft release; published installers are immutable' }
+          if ($release.target_commitish -ne $env:INSTALLER_SOURCE) { throw 'Draft release is bound to a different installer commit' }
       - name: Checkout installer source
         uses: actions/checkout@v4
         with:
@@ -42,6 +54,7 @@ jobs:
           token: ${{ secrets.INSTALLER_REPO_TOKEN }}
           ref: ${{ inputs.installer_ref }}
           path: installer
+          clean: true
 
       - name: Checkout signing tools
         uses: actions/checkout@v4
@@ -60,6 +73,8 @@ jobs:
         working-directory: installer
         run: |
           $uv = (Get-Command uv -ErrorAction Stop).Source
+          if ((git rev-parse HEAD).Trim() -ne $env:INSTALLER_SOURCE) { throw 'Installer source mismatch' }
+          if (-not (Select-String -LiteralPath CMakeLists.txt -SimpleMatch "VERSION $($env:INSTALLER_TAG.Substring(1)) ")) { throw 'Installer version does not match draft tag' }
           & $uv run --python 3.12 --no-project python scripts/fetch-deps.py
           if ($LASTEXITCODE -ne 0) { throw 'dependency preparation failed' }
           ./scripts/build.ps1 -WxSource .cache/wxWidgets-3.2.12
@@ -80,16 +95,13 @@ jobs:
           & $node $signer $exe
           if ($LASTEXITCODE -ne 0) { throw 'standalone installer signing failed' }
 
-          $extract = Join-Path $env:RUNNER_TEMP 'iyw-installer-signed-zip'
-          if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+          $extract = Join-Path $env:RUNNER_TEMP "iyw-installer-signed-zip-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           New-Item -ItemType Directory -Path $extract -Force | Out-Null
           Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
           $inner = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter '原助理安装向导.exe')
           if ($inner.Count -ne 1) { throw "expected one executable in Windows ZIP, found $($inner.Count)" }
-          & $node $signer $inner[0].FullName
-          if ($LASTEXITCODE -ne 0) { throw 'ZIP installer signing failed' }
-          $zipTemp = "$zip.new"
-          if (Test-Path -LiteralPath $zipTemp) { Remove-Item -LiteralPath $zipTemp -Force }
+          Copy-Item -LiteralPath $exe -Destination $inner[0].FullName -Force
+          $zipTemp = Join-Path $packageRoot 'signed-windows.zip'
           Compress-Archive -Path (Join-Path $extract '*') -DestinationPath $zipTemp -CompressionLevel Optimal
           Move-Item -LiteralPath $zipTemp -Destination $zip -Force
 
@@ -113,7 +125,7 @@ jobs:
         shell: pwsh
         working-directory: installer
         run: |
-          gh release upload "${{ inputs.release_tag }}" packages/YuanAssistant-Setup-windows.exe packages/YuanAssistant-Setup-windows.zip packages/SHA256SUMS.txt --repo hwzlikewyh/iyw-claw-installer --clobber
+          gh release upload "$env:INSTALLER_TAG" packages/YuanAssistant-Setup-windows.exe packages/YuanAssistant-Setup-windows.zip packages/SHA256SUMS.txt --repo hwzlikewyh/iyw-claw-installer --clobber
 
       - name: Upload signed build artifact
         uses: actions/upload-artifact@v4

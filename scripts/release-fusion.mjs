@@ -13,6 +13,8 @@ const ROLLOUT_PERCENT = 1
 // 不能再作为 Fusion 的必需制品，否则会因缺少 AppImage 而整体阻塞发布。
 const PLATFORMS = [
   ["windows", "x86_64", "nsis", "x64-setup.exe"],
+  ["windows", "x86_64", "app_payload_zip", "x64-app-payload.zip"],
+  ["windows", "x86_64", "bootstrapper", "x64-bootstrapper.exe"],
   ["darwin", "x86_64", "app_tar_gz", "x64.app.tar.gz"],
   ["darwin", "aarch64", "app_tar_gz", "aarch64.app.tar.gz"],
 ]
@@ -234,14 +236,16 @@ async function verifyUpdateCatalog(api, release, inputs) {
   for (const input of inputs) {
     const route = `/app-updates/v1/check/${input.target}/${input.arch}`
     const update = await api(`${route}/0.1.92?reason=manual`)
+    const artifact = input.packageKind === "app_payload_zip" ? update?.app_payload :
+      input.packageKind === "bootstrapper" ? update?.bootstrapper : update
     if (
       !update ||
       update.version !== release.version ||
       update.release_id !== release.id ||
       update.rollout_percent !== ROLLOUT_PERCENT ||
       update.update_policy !== "optional" ||
-      update.sha256 !== input.sha256 ||
-      update.size !== input.size
+      artifact?.sha256 !== input.sha256 ||
+      artifact?.size !== input.size
     ) {
       throw new Error(
         `published release update check failed: ${input.target}/${input.arch}`
@@ -273,7 +277,7 @@ export async function publishFusion({ repo, version, directory }) {
   for (const input of inputs)
     sameArtifact(
       ready.artifacts.find(
-        (item) => item.target === input.target && item.arch === input.arch
+        (item) => item.target === input.target && item.arch === input.arch && item.packageKind === input.packageKind
       ),
       input
     )
