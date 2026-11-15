@@ -32,6 +32,8 @@ jobs:
     env:
       INSTALLER_TAG: ${{ inputs.release_tag }}
       INSTALLER_SOURCE: ${{ inputs.installer_ref }}
+      NO_COLOR: "1"
+      CLICOLOR: "0"
       GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
@@ -46,7 +48,8 @@ jobs:
           if ($env:INSTALLER_TAG -notmatch '^v0\.2\.\d+$') { throw 'This workflow signs the direct installer 0.2 release line' }
           $json = gh release view $env:INSTALLER_TAG --repo hwzlikewyh/iyw-claw-installer --json isDraft,targetCommitish
           if ($LASTEXITCODE -ne 0) { throw 'Installer draft lookup failed' }
-          $release = $json | ConvertFrom-Json
+          $plain = [regex]::Replace(($json -join "`n"), '\x1b\[[0-?]*[ -/]*[@-~]', '')
+          $release = $plain | ConvertFrom-Json
           if (-not $release.isDraft) { throw 'Sign a draft release; published installers are immutable' }
           if ($release.targetCommitish -ne $env:INSTALLER_SOURCE) { throw 'Draft release is bound to a different installer commit' }
       - name: Checkout installer source
