@@ -9,10 +9,12 @@ export async function publishWindowsPayload({ root, version, sourceCommit, conte
   if (!installer) throw new Error("verified direct installer is required for Windows payload release")
   const output = join(process.env.RUNNER_TEMP, `payload-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`)
   const webview = join(process.env.LOCALAPPDATA, "tauri/MicrosoftEdgeWebview2Setup.exe")
+  const powershellEnv = Object.fromEntries(Object.entries(process.env)
+    .filter(([key]) => key.toUpperCase() !== "PSMODULEPATH"))
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
     join(root, "src-tauri/scripts/verify-payload-inputs.ps1"), "-Installer", installer, "-WebView", webview,
     "-Application", join(root, "src-tauri/target/x86_64-pc-windows-msvc/release/iyw-claw.exe"),
-    "-Helper", join(root, "src-tauri/binaries/iyw-environment-x86_64-pc-windows-msvc.exe")], { stdio: "inherit", windowsHide: true })
+    "-Helper", join(root, "src-tauri/binaries/iyw-environment-x86_64-pc-windows-msvc.exe")], { stdio: "inherit", windowsHide: true, env: powershellEnv })
   const archive = await packageWindowsPayload({ root, output, version, sourceCommit, installer, webview })
   mkdirSync(assets, { recursive: true })
   const bootstrapper = join(assets, `iyw-claw_${version}_x64-bootstrapper.exe`)
