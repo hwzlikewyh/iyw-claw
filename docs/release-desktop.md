@@ -44,7 +44,7 @@
    版本、源码提交、架构、文件清单和逐文件摘要。本机只签名与封装。
 5. 签名后的资源作为安装验证输入；Windows 实际安装和 macOS Intel 验证成功后，
    清理临时资产，生成更新清单并发布 GitHub 正式版。
-6. 本地脚本下载四个必选平台包和原始更新签名，核对 GitHub 摘要，再上传 Fusion。
+6. 本地脚本下载 Windows NSIS、直接载荷 ZIP、签名向导和 macOS 双架构包及各自的更新签名，核对 GitHub 摘要，再上传 Fusion。
 7. 所有制品经 Fusion 验签成为 `ready` 后，正式发布并回读更新接口。
 
 安装包和最终记录保留在 `artifacts/release-<版本>/`，这个目录不进入 Git。
@@ -60,6 +60,25 @@
 现有逻辑决定。这次没有修改服务端选版逻辑。
 
 ## 重试
+
+只有 Windows 封装或签名失败、应用编译已成功时，使用现有草稿与原 Release 运行编号：
+
+```powershell
+gh workflow run release-resign-windows.yml -R hwzlikewyh/iyw-claw --ref main -f version=0.1.340 -f build_run_id=43679471534
+```
+
+该流程校验原运行的固定源码、staging 摘要、版本和架构，只重新打包、签名和安装验收，
+不重新编译应用。正式发布还要等待原 macOS 构建及安装检查成功。若当前构建尚未结束，
+流程先等待原 Windows 构建结果；不启动第二轮编译。
+
+Tauri 会在封装 NSIS 前把主 EXE 的 `__TAURI_BUNDLE_TYPE_VAR_UNK` 改成 `NSS`。
+必须启用打包器的 `signCommand` 回调，对改写后的 EXE 签名；仅在 bundle 前签名会得到
+外层安装器签名有效、内层 EXE `HashMismatch` 的错误包。0.1.339 的已签名源文件与
+安装包内 EXE 恰好相差这 3 个字节，本次据此修复；不得通过关闭内层验签绕过。
+打包器恢复的原始签名 EXE 继续用于直接载荷 ZIP。
+
+NSIS smoke 卸载使用 `_?=<已验证临时安装目录>` 原地运行，等待真实卸载完成，
+之后才检查和清理临时目录。不能把卸载启动器退出当成卸载已经完成。
 
 - 远程构建仍运行时直接跟进，不重复触发。
 - 最近同版本工作流失败或被取消时，从远程主分支重新派发完整流程，重新核对草稿和源码，
