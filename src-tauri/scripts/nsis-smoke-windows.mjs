@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { spawnSync } from "node:child_process"
 import { existsSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, join, resolve, sep } from "node:path"
+import { basename, dirname, join, resolve, sep } from "node:path"
 import { assertNoInstallResidue } from "./nsis-smoke-residue.mjs"
 
 const COMMAND_MAX_BUFFER = 4 * 1024 * 1024
@@ -167,6 +167,8 @@ function runUninstaller(options, warnings) {
   const result = runCommand(uninstaller, [
     "/S",
     ...installerTestArgs(options.testId),
+    // 原地运行并等待真实卸载完成，避免临时副本尚未卸载就清理测试目录。
+    `_?=${dirname(uninstaller)}`,
   ])
   if (result.status !== 0) {
     warnings.push(commandDiagnostic("test uninstaller failed", result))

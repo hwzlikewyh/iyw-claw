@@ -62,6 +62,16 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.artifact_run_id || github.run_id }}
 
+      - name: Checkout current installation verification tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .verification-tools
+          sparse-checkout: src-tauri/scripts/nsis-smoke-windows.mjs
+          sparse-checkout-cone-mode: false
+      - name: Apply synchronous smoke uninstaller cleanup
+        shell: pwsh
+        run: Copy-Item -LiteralPath .verification-tools/src-tauri/scripts/nsis-smoke-windows.mjs -Destination src-tauri/scripts/nsis-smoke-windows.mjs -Force
       - name: Verify installed NSIS sidecars
         env:
           IYW_CLAW_VERIFY_NSIS: "1"
