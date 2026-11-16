@@ -1,6 +1,6 @@
 [package]
 name = "iyw-claw"
-version = "0.1.348"
+version = "0.1.349"
 description = "Agent Code Generation App"
 authors = ["feitao"]
 edition = "2021"
