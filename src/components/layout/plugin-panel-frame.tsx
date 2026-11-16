@@ -59,16 +59,27 @@ export function PluginPanelFrame({
             toggle={() => setFullscreen((value) => !value)}
           />
           <div className="min-h-0 flex-1">
-            <PluginAppHost
-              {...tab.response}
-              fill
-              toolUpdate={sync?.update}
-              displayMode={fullscreen ? "fullscreen" : "inline"}
-              onDisplayModeRequest={(mode) => {
-                setFullscreen(mode === "fullscreen")
-                return mode
-              }}
-            />
+            {tab.kind === "studio-url" ? (
+              <iframe
+                src={tab.url}
+                title={tab.label}
+                className="size-full border-0 bg-background"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-pointer-lock allow-popups"
+                allow="clipboard-read; clipboard-write; fullscreen"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <PluginAppHost
+                {...tab.response}
+                fill
+                toolUpdate={sync?.update}
+                displayMode={fullscreen ? "fullscreen" : "inline"}
+                onDisplayModeRequest={(mode) => {
+                  setFullscreen(mode === "fullscreen")
+                  return mode
+                }}
+              />
+            )}
           </div>
         </>
       )}

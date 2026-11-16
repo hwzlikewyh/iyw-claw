@@ -10,7 +10,7 @@ import {
 } from "@/lib/plugin-panel"
 import { requestPluginAppTeardown } from "@/lib/plugin-app-teardown"
 import { reportPluginWindowReady } from "@/lib/plugin-panel-window"
-import type { PluginPanelTab } from "./use-plugin-panel-tabs"
+import type { McpPluginPanelTab } from "./use-plugin-panel-tabs"
 import { connectPluginWindowRelay } from "@/lib/plugin-window-relay"
 
 export function usePluginWindowRelay(relayId: string, conversationId: number) {
@@ -39,7 +39,7 @@ export function useDetachedPluginLoad(
   input: PluginPanelChoice & { conversationId: number },
   enabled = true
 ) {
-  const [tab, setTab] = useState<PluginPanelTab | null>(null)
+  const [tab, setTab] = useState<McpPluginPanelTab | null>(null)
   const [error, setError] = useState("")
   useEffect(() => {
     if (!enabled) return
@@ -63,6 +63,7 @@ export function useDetachedPluginLoad(
             conversationId: input.conversationId,
             pluginSlug: input.pluginSlug,
             appKey: input.appKey,
+            kind: "mcp-app",
             response,
           })
         })
@@ -80,7 +81,7 @@ export function useDetachedPluginLoad(
   return { tab, error }
 }
 
-export function usePluginWindowClose(tab: PluginPanelTab) {
+export function usePluginWindowClose(tab: McpPluginPanelTab) {
   const [error, setError] = useState("")
   const t = useTranslations("PluginPanels")
   useEffect(() => {
@@ -128,7 +129,7 @@ export function usePluginWindowClose(tab: PluginPanelTab) {
   return error
 }
 
-export function useDetachedPluginSync(tab: PluginPanelTab) {
+export function useDetachedPluginSync(tab: McpPluginPanelTab) {
   const [state, setState] = useState<PluginPanelSyncState>({})
   useEffect(() => {
     let alive = true

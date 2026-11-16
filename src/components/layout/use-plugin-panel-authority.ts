@@ -7,7 +7,7 @@ const KEEP_ALIVE_MS = 4 * 60 * 1000
 export function usePluginPanelAuthority(tab: PluginPanelTab) {
   const [revoked, setRevoked] = useState(false)
   useEffect(() => {
-    if (revoked) return
+    if (revoked || tab.kind !== "mcp-app") return
     let alive = true
     let dispose: (() => void) | undefined
     const transport = getTransport()
@@ -39,7 +39,7 @@ export function usePluginPanelAuthority(tab: PluginPanelTab) {
 }
 
 function keepAlive(
-  tab: PluginPanelTab,
+  tab: Extract<PluginPanelTab, { kind: "mcp-app" }>,
   transport: ReturnType<typeof getTransport>,
   revoke: () => void
 ) {

@@ -13,7 +13,7 @@ import {
   usePluginWindowRelay,
 } from "./use-detached-plugin"
 import { reportPluginWindowReady } from "@/lib/plugin-panel-window"
-import type { PluginPanelTab } from "./use-plugin-panel-tabs"
+import type { McpPluginPanelTab } from "./use-plugin-panel-tabs"
 import { getTransport } from "@/lib/transport"
 
 export function DetachedPluginPanel() {
@@ -60,7 +60,7 @@ export function DetachedPluginPanel() {
   )
 }
 
-function DetachedContent({ tab }: { tab: PluginPanelTab }) {
+function DetachedContent({ tab }: { tab: McpPluginPanelTab }) {
   const t = useTranslations("PluginPanels")
   const revoked = usePluginPanelAuthority(tab)
   const sync = useDetachedPluginSync(tab)
