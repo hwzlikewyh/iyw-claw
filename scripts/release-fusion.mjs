@@ -243,7 +243,6 @@ async function verifyUpdateCatalog(api, release, inputs) {
       update.version !== release.version ||
       update.release_id !== release.id ||
       update.rollout_percent !== ROLLOUT_PERCENT ||
-      update.update_policy !== "optional" ||
       artifact?.sha256 !== input.sha256 ||
       artifact?.size !== input.size
     ) {
