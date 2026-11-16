@@ -229,7 +229,6 @@ jobs:
   publish:
     needs: [resolve, sign, verify-direct-fresh, verify-direct-legacy]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') && needs.verify-direct-fresh.result == 'success' && needs.verify-direct-legacy.result == 'success' }}
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.verify-direct-fresh.result == 'success' && needs.verify-direct-legacy.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
