@@ -225,7 +225,12 @@ function windowsBuildArgs(tauriCli, options, target, signingConfigPath) {
   if (webview) args.push("--config", JSON.stringify(webview))
   if (options.verbose) args.push("-vv")
   if (options.noSign) args.push("--no-sign")
-  if (!options.bundleOnly) args.push("--", "--timings")
+  if (!options.bundleOnly) {
+    if (isWin7Target(target))
+      args.push("--", "-Z", "build-std=std,panic_abort")
+    else args.push("--")
+    args.push("--timings")
+  }
   return args
 }
 
