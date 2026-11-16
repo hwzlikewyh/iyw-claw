@@ -15,7 +15,7 @@ export async function publishWindowsPayload({ root, version, sourceCommit, conte
     join(root, "src-tauri/scripts/verify-payload-inputs.ps1"), "-Installer", installer, "-WebView", webview,
     "-Application", join(root, "src-tauri/target/x86_64-pc-windows-msvc/release/iyw-claw.exe"),
     "-Helper", join(root, "src-tauri/binaries/iyw-environment-x86_64-pc-windows-msvc.exe")], { stdio: "inherit", windowsHide: true, env: powershellEnv })
-  const archive = await packageWindowsPayload({ root, output, version, sourceCommit, installer, webview })
+  const archive = await packageWindowsPayload({ root, output, version, sourceCommit, webview })
   mkdirSync(assets, { recursive: true })
   const bootstrapper = join(assets, `iyw-claw_${version}_x64-bootstrapper.exe`)
   copyFileSync(installer, bootstrapper)

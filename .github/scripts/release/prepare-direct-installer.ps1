@@ -1,9 +1,11 @@
 param([Parameter(Mandatory=$true)][string]$Tag)
 $ErrorActionPreference='Stop'
 if($Tag -notmatch '^v\d+\.\d+\.\d+$'){throw 'Invalid installer release tag'}
+$env:GH_FORCE_TTY='0';$env:CLICOLOR_FORCE='0';$env:TERM='dumb'
 $releaseJson=gh api "repos/hwzlikewyh/iyw-claw-installer/releases/tags/$Tag"
 if($LASTEXITCODE -ne 0){throw 'Published direct installer lookup failed'}
-$plain=[regex]::Replace(($releaseJson -join "`n"),'\x1b\[[0-?]*[ -/]*[@-~]','')
+$ansiPattern=[string][char]27+[regex]::Escape('[')+'[0-?]*[ -/]*[@-~]'
+$plain=[regex]::Replace(($releaseJson -join "`n"),$ansiPattern,'')
 $release=$plain | ConvertFrom-Json
 if($release.draft -or $release.prerelease){throw 'A published stable direct installer release is required'}
 $asset=@($release.assets | Where-Object name -eq 'YuanAssistant-Setup-windows.exe')

@@ -123,33 +123,63 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
-        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.0
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.1
       - name: Repackage and sign existing executable without compiling
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node .release-tools/.github/scripts/release/windows-release.mjs finalize
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer-verification-x86_64-pc-windows-msvc
-          path: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/iyw-claw.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*_${{ inputs.version }}_x64-setup.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/direct/*
-            src-tauri/resources/xinghe-worker/*
-            src-tauri/binaries/iyw-environment-x86_64-pc-windows-msvc.exe
-          compression-level: 1
-          retention-days: 7
-          if-no-files-found: error
-  verify:
+  verify-direct-fresh:
     needs: [resolve, sign]
-    uses: ./.github/workflows/release-windows-verification.yml
-    with:
-      source_ref: ${{ needs.resolve.outputs.source }}
-      artifact_run_id: ${{ github.run_id }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .verification-tools
+      - name: Install into an empty profile
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ needs.resolve.outputs.source }}
+          GH_TOKEN: ${{ github.token }}
+          IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+          NO_COLOR: "1"
+          GH_COLOR: never
+          GH_FORCE_TTY: "0"
+          CLICOLOR_FORCE: "0"
+          TERM: dumb
+        run: ./.verification-tools/.github/scripts/release/verify-direct-release.ps1 -Scenario Fresh
+  verify-direct-legacy:
+    needs: [resolve, sign]
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .verification-tools
+      - name: Upgrade previous NSIS installation and preserve its data
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ needs.resolve.outputs.source }}
+          GH_TOKEN: ${{ github.token }}
+          IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+          NO_COLOR: "1"
+          GH_COLOR: never
+          GH_FORCE_TTY: "0"
+          CLICOLOR_FORCE: "0"
+          TERM: dumb
+        run: ./.verification-tools/.github/scripts/release/verify-direct-release.ps1 -Scenario Legacy
   publish:
-    needs: [resolve, sign, verify]
+    needs: [resolve, sign, verify-direct-fresh, verify-direct-legacy]
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:

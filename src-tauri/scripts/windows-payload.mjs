@@ -33,7 +33,7 @@ function collect(source, destination, entries) {
   } else throw new Error("payload source must be a regular file")
 }
 
-export async function stagePayload({ root, output, version, sourceCommit, installer, webview }) {
+export async function stagePayload({ root, output, version, sourceCommit, webview }) {
   const config = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"))
   if (config.version !== version || !/^\d+\.\d+\.\d+$/.test(version) || !/^[a-f0-9]{40}$/.test(sourceCommit))
     throw new Error("payload version or source identity mismatch")
@@ -46,7 +46,6 @@ export async function stagePayload({ root, output, version, sourceCommit, instal
   for (const [source, destination] of Object.entries(config.bundle.resources)) {
     collect(resolve(root, "src-tauri", source), `app/${safePayloadPath(destination.replace(/\/$/, ""))}`, entries)
   }
-  collect(installer, "app/installer/原助理安装向导.exe", entries)
   collect(webview, "app/installer/webview2-setup.exe", entries)
   const names = new Set()
   let total = 0
@@ -57,7 +56,7 @@ export async function stagePayload({ root, output, version, sourceCommit, instal
     total += entry.size
   }
   if (entries.length > MAX_FILES || total > MAX_BYTES) throw new Error("payload exceeds safety limits")
-  for (const required of ["app/iyw-claw.exe", "app/iyw-environment.exe", "app/resources/bundle/index.html", "app/xinghe-resources/runtime.json", "app/native-share/config.json"])
+  for (const required of ["app/iyw-claw.exe", "app/iyw-environment.exe", "app/resources/bundle/index.html", "app/xinghe-resources/runtime.json", "app/native-share/config.json", "app/native-share/register.ps1", "app/native-share/share-resources.ps1", "app/native-share/iywassistant.sharetarget.msix", "app/installer/webview2-setup.exe"])
     if (!names.has(required)) throw new Error(`payload missing ${required}`)
   mkdirSync(output, { recursive: true })
   const files = []

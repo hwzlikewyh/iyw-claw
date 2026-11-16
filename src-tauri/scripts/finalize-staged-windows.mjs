@@ -125,13 +125,6 @@ function preflightToken() {
 function prepareBundleConfig() {
   const config = join(tmpdir(), `iyw-staged-bundle-${process.pid}.json`)
   const bundle = { createUpdaterArtifacts: false }
-  if (TARGET === "x86_64-pc-windows-msvc" && process.env.IYW_UNIFIED_INSTALLER) {
-    const directory = join(ROOT, "src-tauri/resources/direct-installer")
-    mkdirSync(directory, { recursive: true })
-    copyFileSync(process.env.IYW_UNIFIED_INSTALLER, join(directory, "原助理安装向导.exe"))
-    const config = JSON.parse(readFileSync(join(ROOT, "src-tauri/tauri.conf.json"), "utf8"))
-    bundle.resources = { ...config.bundle.resources, "resources/direct-installer/": "installer/" }
-  }
   const webview = win7WebviewConfig(TARGET)
   if (webview) Object.assign(bundle, webview.bundle)
   writeFileSync(config, JSON.stringify({ bundle }) + "\n", "utf8")

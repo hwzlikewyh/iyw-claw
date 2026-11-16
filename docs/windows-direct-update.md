@@ -5,9 +5,10 @@ Windows 10/11 x64 发布同时保留签名 NSIS、`app_payload_zip` 和 `bootstr
 历史 release 没有载荷时继续使用旧更新路径；存在但格式或身份错误时停止更新。
 macOS、Linux、Win7 和 i686 不选择直接载荷。
 
-载荷由实际签名后的主程序、环境助手、Tauri resources 映射、签名向导和微软 WebView2
-bootstrapper 组成。确定性 ZIP 的清单固定版本、源码提交、架构、每个文件大小和摘要。
-主应用和助手沿用原 Authenticode 签名，ZIP/向导使用现有 Tauri Minisign 发布密钥。
+载荷由实际签名后的主程序、环境助手、Tauri resources 映射及微软 WebView2 bootstrapper
+组成。独立安装向导只作为 `bootstrapper` 制品下载，不嵌入 NSIS 或 app payload。
+确定性 ZIP 清单固定版本、源码提交、架构、每个文件大小和摘要。主应用和助手沿用原
+Authenticode 签名，ZIP/向导使用现有 Tauri Minisign 发布密钥。
 
 客户端复用现有 Tauri 下载与更新缓存，额外校验向导大小、摘要、Minisign、Windows
 信任链及发布者，并保持禁止写入/删除的文件句柄。向导先验证缓存并预下载缺失环境，
@@ -20,7 +21,7 @@ bootstrapper 组成。确定性 ZIP 的清单固定版本、源码提交、架�
 激活意图在目录变更前持久化；事务回执 v2 仅在 current snapshot 写入后标记 committed。
 原 NSIS 的 prepare/commit 命令继续兼容。
 
-发布步骤：Fusion 兼容接口部署 → 固定源提交的安装器 0.2.0 草稿签名与验收 →
+发布步骤：Fusion 兼容接口部署 → 固定源提交的安装器 0.2.2 草稿签名与验收 →
 安装器稳定版 → 含三种制品的应用过渡版。签名任务只补打包已有应用构建结果，
 保留原 NSIS 供旧客户端首次迁移。新程序从此后使用向导直接替换 app 文件。
 公开下载页按 Fusion latest 返回的 Windows URL 选择制品，无需固定 NSIS 文件名。
