@@ -279,7 +279,7 @@ jobs:
         if: inputs.target == 'x86_64-pc-windows-msvc'
         env:
           GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
-        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.2
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.3
       - name: Sign legacy package and direct app payload
         if: inputs.target == 'x86_64-pc-windows-msvc'
         env:

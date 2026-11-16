@@ -14,6 +14,10 @@ on:
         description: Reuse signed draft assets from a completed sign job; skip signing
         required: false
         type: string
+      refresh_bootstrapper:
+        description: Sign only the independently downloaded installer; keep app assets unchanged
+        type: boolean
+        default: false
 permissions:
   contents: write
   actions: read
@@ -73,7 +77,7 @@ jobs:
             core.setOutput('asset',assets[0].id);core.setOutput('sha256',assets[0].digest.slice(7));
   sign:
     needs: resolve
-    if: inputs.signed_run_id == ''
+    if: ${{ inputs.signed_run_id == '' || inputs.refresh_bootstrapper }}
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 60
     concurrency:
@@ -127,9 +131,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Bundler dependencies failed' }
           "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/resign-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_ENV
       - id: download
+        if: ${{ !inputs.refresh_bootstrapper }}
         shell: pwsh
         run: node .release-tools/.github/scripts/release/windows-release.mjs download
       - shell: pwsh
+        if: ${{ !inputs.refresh_bootstrapper }}
         env:
           ARCHIVE: ${{ steps.download.outputs.archive }}
         run: Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:IYW_CLAW_STAGING_DIR
@@ -137,13 +143,23 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
-        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.2
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.3
       - name: Repackage and sign existing executable without compiling
+        if: ${{ !inputs.refresh_bootstrapper }}
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node .release-tools/.github/scripts/release/windows-release.mjs finalize
+      - name: Refresh only the standalone installer
+        if: inputs.refresh_bootstrapper
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node --input-type=module -e 'import {publishBootstrapper} from "./.release-tools/.github/scripts/release/windows-payload-release.mjs"; await publishBootstrapper({root:process.cwd(), version:process.env.RELEASE_TAG.slice(1), context:{repo:process.env.GITHUB_REPOSITORY,releaseId:process.env.RELEASE_ID,tag:process.env.RELEASE_TAG}})'
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone installer publication failed' }
   verify-direct-fresh:
     needs: [resolve, sign]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
