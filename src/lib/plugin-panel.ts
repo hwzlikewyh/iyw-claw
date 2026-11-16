@@ -29,6 +29,20 @@ export interface PluginPanelChoice {
     | "disabled"
     | "unavailable"
 }
+
+export function isPluginPanelVisibleForConversation(
+  tab: {
+    kind: "mcp-app" | "studio-url"
+    conversationId: number | null
+  },
+  conversationId: number | null
+) {
+  return (
+    tab.conversationId === conversationId ||
+    (tab.kind === "studio-url" && tab.conversationId === null)
+  )
+}
+
 export const readPluginPanels = (
   conversationId: number | null,
   transport = getTransport()
@@ -44,7 +58,7 @@ export const readInstalledPlugins = (transport = getTransport()) =>
   })
 
 export const openOpenfilmStudio = (
-  conversationId: number,
+  conversationId: number | null,
   app: PluginPanelChoice,
   transport = getTransport()
 ) =>

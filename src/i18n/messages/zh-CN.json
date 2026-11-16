@@ -351,7 +351,7 @@
     "state": {
       "blocked": "插件或依赖需要处理",
       "legacy": "旧版插件，请管理所含连接器",
-      "context_required": "正在自动准备当前对话…",
+      "context_required": "发送消息后准备插件",
       "configuration_required": "需要配置插件参数",
       "permission_required": "需要当前项目授权",
       "disabled": "当前项目已停用",

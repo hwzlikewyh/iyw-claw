@@ -7,7 +7,10 @@ import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
 import { preparePluginUse, type PluginUseContext } from "@/lib/plugin-use"
-import { selectComposerPlugin } from "@/lib/plugin-composer-context"
+import {
+  deferComposerPlugin,
+  selectComposerPlugin,
+} from "@/lib/plugin-composer-context"
 import {
   OPENFILM_STUDIO_APP_KEY,
   readPluginPanels,
@@ -82,12 +85,19 @@ async function openPluginChoice(
       ? (useTabStore.getState().tabs.find((tab) => tab.id === context.tabId)
           ?.conversationId ?? null)
       : null
-    if (conversationId == null) throw Error(context.unavailable)
     if (context.tabId) selectComposerPlugin(context.tabId, app)
     await context.tabs.open(app, conversationId)
     return
   }
   if (!context.tabId) return
+  const tab = useTabStore
+    .getState()
+    .tabs.find((item) => item.id === context.tabId)
+  if (!tab) return
+  if (tab.conversationId == null) {
+    deferComposerPlugin(context.tabId, app)
+    return
+  }
   await openPreparedApp(
     app,
     {

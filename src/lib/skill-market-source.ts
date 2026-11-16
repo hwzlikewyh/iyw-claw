@@ -320,19 +320,26 @@ class TransportSkillMarketSource implements SkillMarketSource {
     const audienceView =
       query.view === "market" || query.view === "organization"
     const complete =
+      query.packageType !== undefined ||
       localInstallView ||
       audienceView ||
       query.compatibility !== "all" ||
       query.distribution !== "all" ||
       query.sort !== "recommended"
-    // 接口返回所有可访问的受众，须先分组再分页，避免空页和总数混用。
+    // 旧接口混合返回不同包类型；先完整读取，再过滤并分页。
     const result = complete
       ? await listCompleteCatalog(params)
       : await skillMarketList(params)
     const items = orderSkillCatalog(
       result.items
         .map(mapItemV1ToV2)
-        .filter((item) => matchesCatalogView(item, query.view)),
+        .filter(
+          (item) =>
+            matchesCatalogView(item, query.view) &&
+            (!query.packageType ||
+              (item.packageType === "plugin") ===
+                (query.packageType === "plugin"))
+        ),
       query
     )
     const total = complete ? items.length : result.total
