@@ -193,6 +193,7 @@
     "more": "更多插件",
     "open": "打开",
     "openUnavailable": "当前无法打开这个插件应用。",
+    "browserUnavailable": "内置浏览器尚未就绪，请先启用并打开内置浏览器。",
     "openNamed": "打开 {name}",
     "removeSelection": "移除 {name}",
     "install": "安装",

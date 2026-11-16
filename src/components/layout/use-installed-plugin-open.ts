@@ -7,9 +7,15 @@ import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useBrowser } from "@/contexts/browser-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
+import { browserApi } from "@/lib/browser-api"
 import { preparePluginUse, type PluginUseContext } from "@/lib/plugin-use"
 import { selectComposerPlugin } from "@/lib/plugin-composer-context"
-import { readPluginPanels, type PluginPanelChoice } from "@/lib/plugin-panel"
+import {
+  OPENFILM_STUDIO_APP_KEY,
+  openOpenfilmStudio,
+  readPluginPanels,
+  type PluginPanelChoice,
+} from "@/lib/plugin-panel"
 import { onPluginApplicationOpen } from "@/lib/plugin-preparation-events"
 import { getTransport } from "@/lib/transport"
 import { toErrorMessage } from "@/lib/app-error"
@@ -17,9 +23,23 @@ import type { PluginPreparation } from "@/lib/plugin-preparation"
 import type { usePluginPanelTabs } from "./use-plugin-panel-tabs"
 
 type Tabs = ReturnType<typeof usePluginPanelTabs>
+type Browser = ReturnType<typeof useBrowser>
+
+interface PluginOpenContext {
+  tabId: string | null
+  transport: ReturnType<typeof getTransport>
+  current: () => boolean
+  browser: Browser
+  page: ReturnType<typeof useInteractivePage>
+  tabs: Tabs
+  stateMessage: (state: PluginPreparation["state"]) => string
+  unavailable: string
+  browserUnavailable: string
+}
 
 export function useInstalledPluginOpen(tabs: Tabs) {
   const t = useTranslations("PluginPreparation")
+  const pluginPanelsT = useTranslations("PluginPanels")
   const panel = useAuxPanelContext(),
     route = useWorkbenchRoute()
   const browser = useBrowser(),
@@ -27,7 +47,8 @@ export function useInstalledPluginOpen(tabs: Tabs) {
   const state = useOpenState(tabs)
   const open = async (app: PluginPanelChoice) => {
     const tabId = useTabStore.getState().activeTabId
-    if (!tabId || state.running.current) return
+    const standaloneStudio = app.appKey === OPENFILM_STUDIO_APP_KEY
+    if ((!tabId && !standaloneStudio) || state.running.current) return
     const transport = getTransport()
     const current = () =>
       state.alive.current &&
@@ -39,18 +60,17 @@ export function useInstalledPluginOpen(tabs: Tabs) {
     panel.openTab("home")
     route.openConversations()
     try {
-      page.closePanel()
-      if (browser.isOpen) await browser.closeBrowser()
-      if (!current()) return
-      await openPreparedApp(
-        app,
-        { tabId, transport, current },
-        {
-          open: (choice, id) => state.latest.current.open(choice, id),
-          stateMessage: (value) => t(`state.${value}`),
-          unavailable: t("unavailable"),
-        }
-      )
+      await openPluginChoice(app, {
+        tabId,
+        transport,
+        current,
+        browser,
+        page,
+        tabs: state.latest.current,
+        stateMessage: (value) => t(`state.${value}`),
+        unavailable: t("unavailable"),
+        browserUnavailable: pluginPanelsT("browserUnavailable"),
+      })
     } catch (cause) {
       if (current()) state.setError(toErrorMessage(cause))
       logFailure(app.pluginSlug, cause)
@@ -61,6 +81,69 @@ export function useInstalledPluginOpen(tabs: Tabs) {
   }
   usePluginOpenRequests(open)
   return { open, busy: state.busy, error: state.error }
+}
+
+async function openPluginChoice(
+  app: PluginPanelChoice,
+  context: PluginOpenContext
+) {
+  context.page.closePanel()
+  if (context.browser.isOpen) await context.browser.closeBrowser()
+  if (!context.current()) return
+  if (app.appKey === OPENFILM_STUDIO_APP_KEY)
+    return openStandaloneStudio(app, context)
+  if (!context.tabId) return
+  await openPreparedApp(
+    app,
+    {
+      tabId: context.tabId,
+      transport: context.transport,
+      current: context.current,
+    },
+    {
+      open: (choice, id) => context.tabs.open(choice, id),
+      stateMessage: context.stateMessage,
+      unavailable: context.unavailable,
+    }
+  )
+}
+
+async function openStandaloneStudio(
+  app: PluginPanelChoice,
+  context: PluginOpenContext
+) {
+  const conversationId = context.tabId
+    ? (useTabStore.getState().tabs.find((tab) => tab.id === context.tabId)
+        ?.conversationId ?? null)
+    : null
+  const { url } = await openOpenfilmStudio(
+    conversationId,
+    app,
+    context.transport
+  )
+  if (!context.current()) return
+  await context.browser.openBrowser()
+  const hostId = await waitForDockedBrowserHost(
+    context.browser.refresh,
+    context.current,
+    context.browserUnavailable
+  )
+  if (!context.current()) return
+  context.browser.acceptState(await browserApi.createTab(url, hostId))
+}
+
+async function waitForDockedBrowserHost(
+  refresh: ReturnType<typeof useBrowser>["refresh"],
+  current: () => boolean,
+  unavailable: string
+) {
+  for (let attempt = 0; attempt < 10 && current(); attempt += 1) {
+    const state = await refresh()
+    const host = state?.hosts.find((item) => item.kind === "docked")
+    if (host) return host.hostId
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw Error(unavailable)
 }
 
 function useOpenState(tabs: Tabs) {

@@ -1,5 +1,6 @@
 import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useTabStore } from "@/stores/tab-store"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useComposerPlugins } from "@/components/chat/use-composer-plugins"
@@ -24,11 +25,12 @@ type PluginRow = {
 
 export function InstalledPluginTools({ panels }: { panels: Panels }) {
   const route = useWorkbenchRoute()
+  const { isOpen } = useAuxPanelContext()
   const tab = useTabStore((state) =>
     state.tabs.find((item) => item.id === state.activeTabId)
   )
   const catalog = useComposerPlugins({
-    open: true,
+    open: isOpen,
     agentType: tab?.agentType ?? null,
     workspacePath: tab?.workingDir ?? null,
   })

@@ -1,6 +1,8 @@
 import { getTransport } from "@/lib/transport"
 import type { PluginAppOpenResponse } from "@/lib/api"
 
+export const OPENFILM_STUDIO_APP_KEY = "iyw-openfilm-studio"
+
 export interface PluginPanelUpdate {
   cursor: string
   arguments: unknown
@@ -39,6 +41,19 @@ export const readPluginPanels = (
 export const readInstalledPlugins = (transport = getTransport()) =>
   transport.call<PluginPanelChoice[]>("plugin_app_catalog", {
     request: { conversationId: null, includePlugins: true },
+  })
+
+export const openOpenfilmStudio = (
+  conversationId: number | null,
+  app: PluginPanelChoice,
+  transport = getTransport()
+) =>
+  transport.call<{ url: string }>("plugin_openfilm_studio", {
+    request: {
+      ...(conversationId ? { conversationId } : {}),
+      pluginSlug: app.pluginSlug,
+      expectedVersion: app.version,
+    },
   })
 export const launchPluginPanel = (
   conversationId: number,
