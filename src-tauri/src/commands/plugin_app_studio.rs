@@ -13,7 +13,7 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OpenStudioRequest {
-    pub conversation_id: Option<i64>,
+    pub conversation_id: i64,
     pub plugin_slug: String,
     pub expected_version: String,
 }
@@ -42,12 +42,8 @@ pub async fn open_studio_core(
     let _operation = registry::lock_mutation().await;
     let scope = crate::commands::mcp_cli_config::account_scope(&db.conn).await?;
     registry::reconcile_global(&db.conn).await?;
-    let workspace = match request.conversation_id {
-        Some(conversation_id) => {
-            Some(super::plugin_app_context::conversation_workspace(db, conversation_id).await?)
-        }
-        None => None,
-    };
+    let workspace =
+        super::plugin_app_context::conversation_workspace(db, request.conversation_id).await?;
     let plugin = registry::global_snapshot()
         .and_then(|snapshot| snapshot.plugins.get(OPENFILM_PLUGIN_SLUG).cloned())
         .filter(|plugin| plugin.version == request.expected_version && plugin.available)
@@ -57,10 +53,15 @@ pub async fn open_studio_core(
     let entrypoint = openfilm_entrypoint(&plugin_root)?;
     let node = crate::managed_environment::require_tool_entrypoint("node")
         .map_err(AppCommandError::configuration_missing)?;
-    let working_dir = workspace
-        .map(|value| value.workspace_dir)
-        .unwrap_or(plugin_root);
-    let output = run_openfilm(&node, &entrypoint, &working_dir).await?;
+    let (studio_home, shared_home) = openfilm_studio_homes(&scope, request.conversation_id)?;
+    let output = run_openfilm(
+        &node,
+        &entrypoint,
+        &workspace.workspace_dir,
+        &studio_home,
+        &shared_home,
+    )
+    .await?;
     if !output.status.success() {
         return Err(open_failed("OpenFilm Studio failed to start", &output));
     }
@@ -73,6 +74,30 @@ pub async fn open_studio_core(
     }
     tracing::info!(plugin = %request.plugin_slug, version = %request.expected_version, "OpenFilm Studio started");
     Ok(OpenStudioResponse { url })
+}
+
+fn openfilm_studio_homes(
+    scope: &str,
+    conversation_id: i64,
+) -> Result<(PathBuf, PathBuf), AppCommandError> {
+    use sha2::{Digest, Sha256};
+
+    let scope_key = format!("{:x}", Sha256::digest(scope.as_bytes()));
+    let base = crate::acp::agent_storage::AgentStoragePaths::active()
+        .ok_or_else(|| AppCommandError::configuration_missing("Agent storage is unavailable"))?
+        .root()
+        .join("plugin-data")
+        .join(OPENFILM_PLUGIN_SLUG)
+        .join(scope_key)
+        .join("studio");
+    let shared = base.join("shared");
+    let conversation = base.join(conversation_id.to_string());
+    std::fs::create_dir_all(&shared).map_err(AppCommandError::io)?;
+    std::fs::create_dir_all(&conversation).map_err(AppCommandError::io)?;
+    Ok((
+        std::fs::canonicalize(conversation).map_err(AppCommandError::io)?,
+        std::fs::canonicalize(shared).map_err(AppCommandError::io)?,
+    ))
 }
 
 fn openfilm_entrypoint(root: &Path) -> Result<PathBuf, AppCommandError> {
@@ -96,6 +121,8 @@ async fn run_openfilm(
     node: &Path,
     entrypoint: &Path,
     workspace: &Path,
+    studio_home: &Path,
+    shared_home: &Path,
 ) -> Result<std::process::Output, AppCommandError> {
     let entrypoint = node_entrypoint(entrypoint)?;
     let mut command = crate::process::tokio_command(node);
@@ -105,6 +132,8 @@ async fn run_openfilm(
         .current_dir(workspace)
         .env("OPENFILM_NO_BROWSER", "1")
         .env("OPENFILM_NO_UPDATE_CHECK", "1")
+        .env("OPENFILM_HOME", studio_home)
+        .env("OPENFILM_SHARED_HOME", shared_home)
         .env_remove("OPENFILM_RUN")
         .env_remove("npm_command")
         .stdout(Stdio::piped())

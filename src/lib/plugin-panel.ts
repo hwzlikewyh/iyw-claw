@@ -44,13 +44,13 @@ export const readInstalledPlugins = (transport = getTransport()) =>
   })
 
 export const openOpenfilmStudio = (
-  conversationId: number | null,
+  conversationId: number,
   app: PluginPanelChoice,
   transport = getTransport()
 ) =>
   transport.call<{ url: string }>("plugin_openfilm_studio", {
     request: {
-      ...(conversationId ? { conversationId } : {}),
+      conversationId,
       pluginSlug: app.pluginSlug,
       expectedVersion: app.version,
     },

@@ -22,7 +22,7 @@ export function usePluginPanelRetry(input: {
   }, [])
   return async (id: string) => {
     const tab = input.tabs.find((item) => item.id === id)
-    if (!tab || running.current) return
+    if (!tab || tab.kind !== "mcp-app" || running.current) return
     running.current = true
     const scope = watchRetryScope(tab, input.transport, alive)
     const current = scope.current

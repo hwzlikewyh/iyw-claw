@@ -9,6 +9,14 @@ import type { SkillMarketV2Item } from "@/lib/skill-market"
 import { getSkillMarketSource } from "@/lib/skill-market-source"
 import { readInstalledPlugins } from "@/lib/plugin-panel"
 
+const PLUGIN_DISPLAY_NAMES: Record<string, string> = {
+  "iyw-openfilm": "OpenFilm Studio",
+}
+
+function pluginDisplayName(slug: string, fallback: string) {
+  return PLUGIN_DISPLAY_NAMES[slug] ?? fallback
+}
+
 export interface ComposerPluginChoice {
   id: string
   slug: string
@@ -46,7 +54,7 @@ export function inventoryPluginChoices(
     const group = groups.get(id) ?? {
       id,
       slug: observation.pluginSlug,
-      label: observation.pluginSlug,
+      label: pluginDisplayName(observation.pluginSlug, observation.pluginSlug),
       version: observation.installedVersion ?? "",
       skills: [],
       blocked: false,
@@ -77,7 +85,7 @@ export function inventoryPluginChoices(
     groups.set(app.pluginId, {
       id: app.pluginId,
       slug: app.pluginSlug,
-      label: app.label,
+      label: pluginDisplayName(app.pluginSlug, app.label),
       version: app.version,
       skills: [],
       blocked: app.state === "unavailable",
@@ -95,7 +103,8 @@ export function enrichPluginChoices(
     if (item.packageType !== "plugin" || !item.installedVersion) continue
     const existing = choices.get(item.id)
     if (existing) {
-      if (existing.slug === item.slug) existing.label = item.displayName
+      if (existing.slug === item.slug)
+        existing.label = pluginDisplayName(item.slug, item.displayName)
       continue
     }
   }

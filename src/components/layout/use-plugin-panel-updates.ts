@@ -33,7 +33,10 @@ export function usePluginPanelUpdates(
             Object.entries(current).filter(([id]) => ids.has(id))
           )
         )
-        for (const tab of tabs.filter((tab) => !blocked.current.has(tab.id)))
+        for (const tab of tabs.filter(
+          (tab): tab is Extract<PluginPanelTab, { kind: "mcp-app" }> =>
+            tab.kind === "mcp-app" && !blocked.current.has(tab.id)
+        ))
           void loadUpdate(tab, transport, {
             requests,
             alive: () => alive,
@@ -63,7 +66,7 @@ export function usePluginPanelUpdates(
 }
 
 async function loadUpdate(
-  tab: PluginPanelTab,
+  tab: Extract<PluginPanelTab, { kind: "mcp-app" }>,
   transport: ReturnType<typeof getTransport>,
   lifecycle: {
     requests: Map<string, number>
