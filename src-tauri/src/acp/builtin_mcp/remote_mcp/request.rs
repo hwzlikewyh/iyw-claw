@@ -175,12 +175,30 @@ fn preserve_billing_receipt(result: &mut CallToolResult) {
         return;
     }
     // 部分 SDK 历史只保存 content；保留最小回执供按当前账户核对，绝不复制金额或凭证。
-    let value = serde_json::json!({"_meta": {"billing": {
-        "call_id": call_id, "status": receipt.get("status"), "outcome": receipt.get("outcome"),
-    }}});
+    let billing = serde_json::json!({
+        "call_id": call_id,
+        "status": receipt.get("status"),
+        "outcome": receipt.get("outcome"),
+    });
+    if let Some(structured) = result.structured_content.as_mut() {
+        attach_billing_receipt(structured, billing.clone());
+    }
+    let value = serde_json::json!({"_meta": {"billing": billing}});
     result
         .content
         .push(rmcp::model::Content::text(value.to_string()));
+}
+
+fn attach_billing_receipt(structured: &mut Value, billing: Value) {
+    let Some(object) = structured.as_object_mut() else {
+        return;
+    };
+    let metadata = object
+        .entry("_meta")
+        .or_insert_with(|| Value::Object(Default::default()));
+    if let Some(metadata) = metadata.as_object_mut() {
+        metadata.insert("billing".into(), billing);
+    }
 }
 
 pub(super) fn service_error(error: ServiceError, execution: bool) -> ErrorData {

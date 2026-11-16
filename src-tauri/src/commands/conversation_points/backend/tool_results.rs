@@ -5,6 +5,7 @@ const MAX_RESULT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_DEPTH: usize = 16;
 const MAX_NODES: usize = 4096;
 const MAX_ID_BYTES: usize = 64;
+const CODEX_OUTPUT_MARKER: &str = "\nOutput:\n";
 
 pub(super) fn requests(output: &str, image: bool) -> BTreeMap<String, &'static str> {
     let mut reader = Reader {
@@ -52,6 +53,10 @@ impl Reader {
         if text.len() > MAX_RESULT_BYTES || depth > MAX_DEPTH || self.remaining == 0 {
             return;
         }
+        let text = text
+            .strip_prefix("Wall time: ")
+            .and_then(|text| text.split_once(CODEX_OUTPUT_MARKER))
+            .map_or(text, |(_, output)| output);
         // 远山会把多个文本块以换行拼接，可能同时包含业务文本和最小计费回执。
         for value in serde_json::Deserializer::from_str(text)
             .into_iter::<Value>()
