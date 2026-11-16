@@ -9,6 +9,7 @@ import { TaskArtifactsTab } from "./aux-panel-artifacts-tab"
 import { FileTreeTab } from "./aux-panel-file-tree-tab"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { onTransportChange } from "@/lib/transport"
+import { isPluginPanelVisibleForConversation } from "@/lib/plugin-panel"
 import { usePluginPanels } from "./use-plugin-panels"
 import { PluginPanelFrame } from "./plugin-panel-frame"
 import { AuxPanelNavigation } from "./plugin-panel-navigation"
@@ -48,7 +49,7 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
   const activeApp = panels.tabs.find(
     (tab) =>
       `app:${tab.id}` === activeTab &&
-      tab.conversationId === panels.conversationId
+      isPluginPanelVisibleForConversation(tab, panels.conversationId)
   )
 
   return (

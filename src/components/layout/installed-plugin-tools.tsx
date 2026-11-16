@@ -5,10 +5,12 @@ import { useTabStore } from "@/stores/tab-store"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useComposerPlugins } from "@/components/chat/use-composer-plugins"
 import { useComposerPluginSelection } from "@/components/chat/use-composer-plugin-selection"
-import { selectComposerPlugin } from "@/lib/plugin-composer-context"
 import { Button } from "@/components/ui/button"
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
-import type { PluginPanelChoice } from "@/lib/plugin-panel"
+import {
+  OPENFILM_STUDIO_APP_KEY,
+  type PluginPanelChoice,
+} from "@/lib/plugin-panel"
 import type { usePluginPanels } from "./use-plugin-panels"
 import { PluginIcon } from "./plugin-icon"
 import { usePluginPresentation } from "./plugin-presentation"
@@ -37,16 +39,7 @@ export function InstalledPluginTools({ panels }: { panels: Panels }) {
   const selection = useComposerPluginSelection({
     scopeKey: catalog.scopeKey,
     tabId: tab?.id ?? null,
-    onSelect: (plugin) => {
-      if (!tab) return
-      selectComposerPlugin(tab.id, {
-        pluginId: plugin.id,
-        pluginSlug: plugin.slug,
-        version: plugin.version,
-        label: plugin.label,
-        appKey: "",
-        state: "available",
-      })
+    onSelect: () => {
       route.openConversations()
     },
   })
@@ -92,6 +85,11 @@ function PluginToolsList({
             key={row.key}
             row={row}
             busy={selection.busy || panels.busy}
+            canOpen={
+              !!row.app &&
+              (panels.conversationId !== null ||
+                row.app.appKey === OPENFILM_STUDIO_APP_KEY)
+            }
             onSelect={() => {
               if (row.app) void panels.open(row.app)
               else if (row.tool) void selection.select(row.tool)
@@ -106,10 +104,12 @@ function PluginToolsList({
 function ToolRow({
   row,
   busy,
+  canOpen,
   onSelect,
 }: {
   row: PluginRow
   busy: boolean
+  canOpen: boolean
   onSelect: () => void
 }) {
   const t = useTranslations("PluginPanels")
@@ -130,10 +130,10 @@ function ToolRow({
         disabled={busy}
         onClick={onSelect}
         title={
-          row.app ? t("openNamed", { name: row.label }) : t("conversationOnly")
+          canOpen ? t("openNamed", { name: row.label }) : t("conversationOnly")
         }
       >
-        {t(row.app ? "open" : "addToConversation")}
+        {t(canOpen ? "open" : "addToConversation")}
       </Button>
     </li>
   )

@@ -7,6 +7,7 @@ import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useBrowser } from "@/contexts/browser-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
 import { Button } from "@/components/ui/button"
+import { isPluginPanelVisibleForConversation } from "@/lib/plugin-panel"
 import {
   Tooltip,
   TooltipContent,
@@ -28,8 +29,8 @@ export function CollapsedPluginRail({
   const { closeBrowser } = useBrowser()
   const { closePanel } = useInteractivePage()
   const t = useTranslations("PluginPanels")
-  const tabs = panels.tabs.filter(
-    (tab) => tab.conversationId === panels.conversationId
+  const tabs = panels.tabs.filter((tab) =>
+    isPluginPanelVisibleForConversation(tab, panels.conversationId)
   )
   if (!slot || isOpen || !restored || !tabs.length) return null
   return createPortal(

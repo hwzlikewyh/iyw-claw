@@ -11,6 +11,10 @@ import {
   type PluginUseContext,
 } from "@/lib/plugin-use"
 import { readPluginPanels } from "@/lib/plugin-panel"
+import {
+  deferComposerPlugin,
+  selectComposerPlugin,
+} from "@/lib/plugin-composer-context"
 import { requestPluginApplicationOpen } from "@/lib/plugin-preparation-events"
 import type { PluginPreparation } from "@/lib/plugin-preparation"
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
@@ -53,6 +57,19 @@ export function useComposerPluginSelection(input: {
       )
       if (!result || !current()) return false
       const { selected, apps } = result
+      const tab = useTabStore
+        .getState()
+        .tabs.find((item) => item.id === context.tabId)
+      const selectPlugin =
+        tab?.conversationId == null ? deferComposerPlugin : selectComposerPlugin
+      selectPlugin(context.tabId, {
+        pluginId: selected.id,
+        pluginSlug: selected.slug,
+        version: selected.version,
+        label: selected.label,
+        appKey: "",
+        state: tab?.conversationId == null ? "context_required" : "available",
+      })
       input.onSelect(selected, t("usePrompt", { name: selected.label }))
       const app = apps.find(
         (item) => item.pluginId === choice.id && item.state === "available"
@@ -79,6 +96,11 @@ async function prepareSelection(
   context: PluginUseContext,
   stateMessage: (state: PluginPreparation["state"]) => string
 ) {
+  const tab = useTabStore
+    .getState()
+    .tabs.find((item) => item.id === context.tabId)
+  if (!tab || !context.current()) return null
+  if (tab.conversationId == null) return { selected: choice, apps: [] }
   const ready = await preparePluginUse(choice, context)
   if (!ready || !context.current()) return null
   if (!["unchecked", "legacy"].includes(ready.view.state))

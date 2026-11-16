@@ -16,6 +16,7 @@ import {
   type AuxPanelTab,
 } from "@/contexts/aux-panel-context"
 import { cn } from "@/lib/utils"
+import { isPluginPanelVisibleForConversation } from "@/lib/plugin-panel"
 import { Button } from "@/components/ui/button"
 import {
   ContextMenu,
@@ -55,7 +56,9 @@ export function AuxPanelNavigation({
           <StandardTab key={tab.id} {...tab} />
         ))}
         {panels.tabs
-          .filter((tab) => tab.conversationId === panels.conversationId)
+          .filter((tab) =>
+            isPluginPanelVisibleForConversation(tab, panels.conversationId)
+          )
           .map((tab) => (
             <AppTab
               key={tab.id}

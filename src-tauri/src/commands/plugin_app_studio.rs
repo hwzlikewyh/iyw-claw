@@ -13,7 +13,7 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OpenStudioRequest {
-    pub conversation_id: i64,
+    pub conversation_id: Option<i64>,
     pub plugin_slug: String,
     pub expected_version: String,
 }
@@ -42,8 +42,14 @@ pub async fn open_studio_core(
     let _operation = registry::lock_mutation().await;
     let scope = crate::commands::mcp_cli_config::account_scope(&db.conn).await?;
     registry::reconcile_global(&db.conn).await?;
-    let workspace =
-        super::plugin_app_context::conversation_workspace(db, request.conversation_id).await?;
+    let workspace_dir = match request.conversation_id {
+        Some(conversation_id) => Some(
+            super::plugin_app_context::conversation_workspace(db, conversation_id)
+                .await?
+                .workspace_dir,
+        ),
+        None => None,
+    };
     let plugin = registry::global_snapshot()
         .and_then(|snapshot| snapshot.plugins.get(OPENFILM_PLUGIN_SLUG).cloned())
         .filter(|plugin| plugin.version == request.expected_version && plugin.available)
@@ -54,14 +60,8 @@ pub async fn open_studio_core(
     let node = crate::managed_environment::require_tool_entrypoint("node")
         .map_err(AppCommandError::configuration_missing)?;
     let (studio_home, shared_home) = openfilm_studio_homes(&scope, request.conversation_id)?;
-    let output = run_openfilm(
-        &node,
-        &entrypoint,
-        &workspace.workspace_dir,
-        &studio_home,
-        &shared_home,
-    )
-    .await?;
+    let working_dir = workspace_dir.unwrap_or_else(|| studio_home.clone());
+    let output = run_openfilm(&node, &entrypoint, &working_dir, &studio_home, &shared_home).await?;
     if !output.status.success() {
         return Err(open_failed("OpenFilm Studio failed to start", &output));
     }
@@ -78,7 +78,7 @@ pub async fn open_studio_core(
 
 fn openfilm_studio_homes(
     scope: &str,
-    conversation_id: i64,
+    conversation_id: Option<i64>,
 ) -> Result<(PathBuf, PathBuf), AppCommandError> {
     use sha2::{Digest, Sha256};
 
@@ -91,11 +91,12 @@ fn openfilm_studio_homes(
         .join(scope_key)
         .join("studio");
     let shared = base.join("shared");
-    let conversation = base.join(conversation_id.to_string());
+    let studio_home =
+        base.join(conversation_id.map_or_else(|| "standalone".to_string(), |id| id.to_string()));
     std::fs::create_dir_all(&shared).map_err(AppCommandError::io)?;
-    std::fs::create_dir_all(&conversation).map_err(AppCommandError::io)?;
+    std::fs::create_dir_all(&studio_home).map_err(AppCommandError::io)?;
     Ok((
-        std::fs::canonicalize(conversation).map_err(AppCommandError::io)?,
+        std::fs::canonicalize(studio_home).map_err(AppCommandError::io)?,
         std::fs::canonicalize(shared).map_err(AppCommandError::io)?,
     ))
 }
