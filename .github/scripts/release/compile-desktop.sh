@@ -5,15 +5,20 @@ target="${1:?usage: compile-desktop.sh <target>}"
 configs=(--config src-tauri/tauri.ci.conf.json)
 cargo_args=(--timings --config profile.release.package.iyw-claw.opt-level=1)
 case "$target" in
-  x86_64-apple-darwin|aarch64-apple-darwin|aarch64-unknown-linux-gnu)
+  x86_64-apple-darwin|aarch64-apple-darwin)
     # 限制同机编译压力；仅覆盖应用 package，不改变 worker 和依赖的缓存身份。
     export CARGO_BUILD_JOBS=2
     cargo_args+=(--config profile.release.package.iyw-claw.codegen-units=16)
     ;;
   x86_64-unknown-linux-gnu)
-    # Linux x64 runners have enough memory for four concurrent rustc jobs;
-    # multiple codegen units keep the large application crate parallel.
-    export CARGO_BUILD_JOBS=4
+    # 限制依赖内部 LLVM 并发，避免大型 crate 同时编译耗尽内存导致 runner 失联。
+    export CARGO_BUILD_JOBS=2
+    export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+    cargo_args+=(--config profile.release.package.iyw-claw.codegen-units=16)
+    ;;
+  aarch64-unknown-linux-gnu)
+    export CARGO_BUILD_JOBS=1
+    export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
     cargo_args+=(--config profile.release.package.iyw-claw.codegen-units=16)
     ;;
   *) echo "::error::Unsupported parallel desktop target: $target"; exit 1 ;;
@@ -38,7 +43,7 @@ snapshot() {
     if [[ -r /proc/pressure/memory ]]; then cat /proc/pressure/memory; fi
   fi
   # 只输出进程名，不输出可能携带凭证的命令参数。
-  ps -axo pid,ppid,pcpu,rss,comm | sort -k4,4nr | head -n "$PROCESS_SAMPLE_COUNT" || true
+  ps -axo pid,ppid,pcpu,rss,comm | sort -k4,4nr | sed -n "1,${PROCESS_SAMPLE_COUNT}p" || true
 }
 
 monitor() {
@@ -70,7 +75,7 @@ finish() {
 trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-echo "[desktop-build] target=$target jobs=${CARGO_BUILD_JOBS:-default} cargo_args=${cargo_args[*]}" | tee "$report"
+echo "[desktop-build] target=$target jobs=${CARGO_BUILD_JOBS:-default} codegen_units=${CARGO_PROFILE_RELEASE_CODEGEN_UNITS:-default} cargo_args=${cargo_args[*]}" | tee "$report"
 df -h . >> "$report" || true
 monitor &
 monitor_pid=$!

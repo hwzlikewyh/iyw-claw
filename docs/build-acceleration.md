@@ -4,6 +4,16 @@
 流程已停用；下面相关批次保留作历史记录。当前 prepare-worker action 只准备
 版本元数据，星河编译使用应用的 Cargo/sccache 缓存。
 
+## Linux 编译内存限制（2026-11-16）
+
+`v0.1.347` 的 Linux x64 runner 失联；ARM64 在取消前已使用约 2.6 GiB swap，
+内存等待明显增加。ARM64 的退出码 143 表示收到终止信号，日志没有证明发生 OOM kill。
+桌面编译将 Linux x64 限制为两个 Cargo job、ARM64 为一个，并将依赖的
+`codegen-units` 从 64 降到 16，以减少同时运行的 Rust/LLVM 编译任务。
+优化级别、LTO、签名与发布门禁不变；新参数需要重建对应依赖缓存，实际耗时与
+内存峰值仍须用后续 CI 记录确认。资源监控完整消费进程列表，避免 `head`
+提前关闭管道造成 `sort: Broken pipe` 噪声。
+
 ## 当前桌面发布缓存（2026-10-16）
 
 0.1.285 首轮 Windows 编译约 40 分钟、Intel Mac 约 57 分钟，三个平台的 Cargo
