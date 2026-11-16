@@ -1,6 +1,6 @@
 const UPDATER_FILENAME = "latest.json"
 const LEGACY_MCP_ASSET_PATTERN = /^iyw-claw-mcp(?:-|\.|$)/i
-const WIN7_REQUIRED = true
+const WIN7_REQUIRED = process.env.IYW_WIN7_RELEASE_ENABLED === "true"
 const replaceReleaseAsset = require("./replace-release-asset.cjs")
 // Match installers by suffix: the product name is non-ASCII ("原助理") and
 // gets sanitized away in uploaded asset names, so never match on the prefix.
