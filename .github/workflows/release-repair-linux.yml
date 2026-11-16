@@ -1,0 +1,53 @@
+name: Repair Linux Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing draft version without v
+        required: true
+        type: string
+      source_ref:
+        description: Exact application source commit bound to the draft
+        required: true
+        type: string
+      release_id:
+        description: Existing draft release ID
+        required: true
+        type: string
+      frontend_run_id:
+        description: Original release run containing the matching frontend
+        required: true
+        type: string
+      target:
+        required: true
+        default: x86_64-unknown-linux-gnu
+        type: choice
+        options:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: repair-linux-${{ inputs.version }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    uses: ./.github/workflows/release-tauri.yml
+    with:
+      parallel_worker: true
+      release_id: ${{ inputs.release_id }}
+      release_tag: v${{ inputs.version }}
+      release_body: Existing release with repaired Linux build
+      source_ref: ${{ inputs.source_ref }}
+      prerelease: false
+      frontend_run_id: ${{ inputs.frontend_run_id }}
+      build_matrix: >-
+        ${{ inputs.target == 'aarch64-unknown-linux-gnu'
+          && '{"include":[{"name":"Linux arm64","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"16","lto":"off","optional":false}]}'
+          || '{"include":[{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"16","lto":"off","optional":false}]}' }}
+    secrets: inherit

@@ -333,6 +333,11 @@ jobs:
       - name: Verify staged sidecars
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
+      - name: Prepare memory for Linux application compilation
+        if: ${{ contains(matrix.target, 'linux') && !contains(toJSON(matrix.runner), 'self-hosted') }}
+        shell: bash
+        run: bash .release-workflow/.github/scripts/release/prepare-linux-memory.sh
+
       - name: Compile application alongside worker
         if: inputs.parallel_worker
         shell: bash

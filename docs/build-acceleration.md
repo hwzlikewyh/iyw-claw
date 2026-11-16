@@ -6,6 +6,13 @@
 
 ## Linux 编译内存限制（2026-11-16）
 
+`v0.1.349` 已使用限制后的并发，Linux x64 仍在单个 `rustc` 达到约 12 GiB、
+内存等待增加后收到 runner shutdown 信号。并发限制不能约束单个编译单元的峰值。
+托管 Linux job 现在由 `prepare-linux-memory.sh` 补充临时 swap，目标总量为 24 GiB；
+先按可用磁盘预留 16 GiB 构建空间，预算不足时明确停止，不覆盖既有文件。
+该步骤只作用于 GitHub hosted Linux，VM 结束后一起回收。`Repair Linux Release`
+复用同源码、同草稿和原前端，单独补建失败架构；实际峰值与完成结果仍以重试记录为准。
+
 `v0.1.347` 的 Linux x64 runner 失联；ARM64 在取消前已使用约 2.6 GiB swap，
 内存等待明显增加。ARM64 的退出码 143 表示收到终止信号，日志没有证明发生 OOM kill。
 桌面编译将 Linux x64 限制为两个 Cargo job、ARM64 为一个，并将依赖的
