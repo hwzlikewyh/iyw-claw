@@ -6,6 +6,7 @@ import { loadComposerPluginCatalog } from "@/lib/composer-plugins"
 import { onSkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
 import { getTransport } from "@/lib/transport"
 import { toErrorMessage } from "@/lib/app-error"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 
 type Presentation = { label: string; iconUrl: string | null }
 const PresentationContext = createContext(new Map<string, Presentation>())
@@ -26,7 +27,9 @@ export function PluginPresentationProvider({
 
 function usePresentationCatalog() {
   const [items, setItems] = useState(new Map<string, Presentation>())
+  const { isOpen } = useAuxPanelContext()
   useEffect(() => {
+    if (!isOpen) return
     let active = true
     let revision = 0
     const transport = getTransport()
@@ -46,16 +49,14 @@ function usePresentationCatalog() {
         })
     }
     refresh()
-    window.addEventListener("focus", refresh)
     const unsubscribe = onSkillMarketInstallationsChanged(refresh)
     const reconnect = transport.onReconnect?.(refresh)
     return () => {
       active = false
-      window.removeEventListener("focus", refresh)
       unsubscribe()
       reconnect?.()
     }
-  }, [])
+  }, [isOpen])
   return items
 }
 

@@ -8,6 +8,7 @@ import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useBrowser } from "@/contexts/browser-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
 import { browserApi } from "@/lib/browser-api"
+import { getCurrentWindow, isLocalDesktop } from "@/lib/platform"
 import { preparePluginUse, type PluginUseContext } from "@/lib/plugin-use"
 import { selectComposerPlugin } from "@/lib/plugin-composer-context"
 import {
@@ -24,6 +25,8 @@ import type { usePluginPanelTabs } from "./use-plugin-panel-tabs"
 
 type Tabs = ReturnType<typeof usePluginPanelTabs>
 type Browser = ReturnType<typeof useBrowser>
+const BROWSER_HOST_TIMEOUT_MS = 10_000
+const BROWSER_HOST_POLL_MS = 100
 
 interface PluginOpenContext {
   tabId: string | null
@@ -112,6 +115,7 @@ async function openStandaloneStudio(
   app: PluginPanelChoice,
   context: PluginOpenContext
 ) {
+  if (!isLocalDesktop()) throw Error(context.browserUnavailable)
   const conversationId = context.tabId
     ? (useTabStore.getState().tabs.find((tab) => tab.id === context.tabId)
         ?.conversationId ?? null)
@@ -137,11 +141,17 @@ async function waitForDockedBrowserHost(
   current: () => boolean,
   unavailable: string
 ) {
-  for (let attempt = 0; attempt < 10 && current(); attempt += 1) {
+  const currentWindow = await getCurrentWindow()
+  if (!currentWindow) throw Error(unavailable)
+  const deadline = Date.now() + BROWSER_HOST_TIMEOUT_MS
+  while (Date.now() < deadline && current()) {
     const state = await refresh()
-    const host = state?.hosts.find((item) => item.kind === "docked")
+    const host = state?.hosts.find(
+      (item) =>
+        item.kind === "docked" && item.windowLabel === currentWindow.label
+    )
     if (host) return host.hostId
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, BROWSER_HOST_POLL_MS))
   }
   throw Error(unavailable)
 }

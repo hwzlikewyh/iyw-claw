@@ -97,6 +97,7 @@ async fn run_openfilm(
     entrypoint: &Path,
     workspace: &Path,
 ) -> Result<std::process::Output, AppCommandError> {
+    let entrypoint = node_entrypoint(entrypoint)?;
     let mut command = crate::process::tokio_command(node);
     command
         .arg(entrypoint)
@@ -113,6 +114,25 @@ async fn run_openfilm(
         .await
         .map_err(|_| AppCommandError::configuration_invalid("OpenFilm Studio startup timed out"))?
         .map_err(|error| AppCommandError::configuration_invalid(error.to_string()))
+}
+
+fn node_entrypoint(entrypoint: &Path) -> Result<PathBuf, AppCommandError> {
+    let path = entrypoint.to_string_lossy();
+    let argument = if cfg!(windows) {
+        if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+            PathBuf::from(format!(r"\\{rest}"))
+        } else {
+            PathBuf::from(path.strip_prefix(r"\\?\").unwrap_or(&path))
+        }
+    } else {
+        entrypoint.to_path_buf()
+    };
+    if std::fs::canonicalize(&argument).ok().as_deref() != Some(entrypoint) {
+        return Err(AppCommandError::configuration_invalid(
+            "OpenFilm entrypoint cannot be represented without changing its target",
+        ));
+    }
+    Ok(argument)
 }
 
 fn parse_studio_url(stdout: &str) -> Option<String> {
