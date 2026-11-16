@@ -42,8 +42,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE /BOM $R0 `param([ValidateSet('kill', 'check', 'check-main', 'check-legacy-files')][string]$$Action, [Parameter(Mandatory = $$true)][string]$$InstallDir, [Parameter(Mandatory = $$true)][ValidateRange(1, 2147483647)][int]$$InstallerProcessId)$\r$\n`
   FileWriteUTF16LE $R0 `try {$\r$\n`
   FileWriteUTF16LE $R0 `  $$ErrorActionPreference = 'Stop'$\r$\n`
-  ; Restart Manager reports processes that hold app DLL/EXE handles even when
-  ; their executable lives outside the install directory (for example WebView2).
+  ; Restart Manager 仅提供占用诊断；系统服务持有文件不能证明它属于本安装。
   FileWriteUTF16LE $R0 `  Add-Type -Path (Join-Path $$PSScriptRoot 'iyw-restart-manager.cs')$\r$\n`
   FileWriteUTF16LE $R0 `  Add-Type -Path (Join-Path $$PSScriptRoot 'iyw-native-process.cs')$\r$\n`
   !insertmacro IywClawWriteProcessQuery
@@ -123,7 +122,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    if ($$changed) { throw "Process identity changed before stop for PID $$processId" }$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameOwner = [string]::Equals($$actual.OwnerSid, $$CurrentSid, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameParent = [string]::Equals($$actual.ParentPath, $$Target, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
-  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$actual.ExecutablePath) -or ($$resourcePids -contains $$actual.ProcessId) -or -not [string]::IsNullOrWhiteSpace($$actual.ScriptPath)$\r$\n`
+  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$actual.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace($$actual.ScriptPath)$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not ($$sameOwner -and $$inScope)) { throw "Process scope changed before stop for PID $$processId" }$\r$\n`
   FileWriteUTF16LE $R0 `    return $$actual.RuntimeProcess$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
@@ -172,7 +171,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  $$managedRoots = @($$normalizedManagedRoots | Select-Object -Unique)$\r$\n`
   FileWriteUTF16LE $R0 `  $$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; if ([string]::IsNullOrWhiteSpace($$currentSid)) { throw 'Current user SID is unavailable' }$\r$\n`
-  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return (($$resourcePids -contains [int]$$Process.ProcessId) -and $$Process.Name -ine 'explorer.exe') -or $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or ($$Process -is [IywNativeProcessRecord] -and $$Process.Name -ieq 'node.exe' -and -not [string]::IsNullOrWhiteSpace($$Process.QueryError)) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
+  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or ($$Process -is [IywNativeProcessRecord] -and $$Process.Name -ieq 'node.exe' -and -not [string]::IsNullOrWhiteSpace($$Process.QueryError)) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
   FileWriteUTF16LE $R0 `  $$processSnapshots = @()$\r$\n`
   FileWriteUTF16LE $R0 `  Get-InstallerProcesses | ForEach-Object {$\r$\n`
   FileWriteUTF16LE $R0 `    if ([int]$$_.ProcessId -eq $$InstallerProcessId) { return }$\r$\n`
@@ -181,7 +180,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    try { $$identity = Get-ProcessIdentity $$candidate } catch {$\r$\n`
   FileWriteUTF16LE $R0 `      $$stillThere = @(Get-InstallerProcesses $$candidatePid)$\r$\n`
   FileWriteUTF16LE $R0 `      if ($$stillThere.Count -eq 0) { return }$\r$\n`
-  FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$resourcePids -contains $$candidatePid -or $$candidate.Name -ieq 'iyw-claw.exe' -or $$candidate.Name -ieq 'node.exe' -or (Test-ManagedProcessPath $$candidate.ExecutablePath)) { throw ('Unable to verify installer-scoped process: pid={0}; error={1}' -f $$candidatePid, $$_) }$\r$\n`
+  FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$candidate.Name -ieq 'iyw-claw.exe' -or $$candidate.Name -ieq 'node.exe' -or (Test-ManagedProcessPath $$candidate.ExecutablePath)) { throw ('Unable to verify installer-scoped process: pid={0}; error={1}' -f $$candidatePid, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `      Write-Warning ('Skipping auxiliary process {0} (PID {1}): {2}' -f $$candidate.Name, $$candidatePid, $$_)$\r$\n`
   FileWriteUTF16LE $R0 `      return$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
