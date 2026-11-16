@@ -3214,7 +3214,21 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
       }
       const prev = storeRef.current.connections
-      const next = connectionsReducer(prev, action)
+      const normalizedAction =
+        action.type === "HYDRATE_FROM_SNAPSHOT" && action.patch.lastError
+          ? {
+              ...action,
+              patch: {
+                ...action.patch,
+                lastError:
+                  formatAgentRuntimeError(
+                    action.patch.lastError,
+                    runtimeErrorMessages
+                  ) ?? sanitizeAgentRuntimeErrorDetails(action.patch.lastError),
+              },
+            }
+          : action
+      const next = connectionsReducer(prev, normalizedAction)
       if (next === prev) return // no change
 
       storeRef.current.connections = next
@@ -3275,7 +3289,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [notifyKeyListeners, notifyAllKeyListeners, setReplacementState]
+    [
+      notifyKeyListeners,
+      notifyAllKeyListeners,
+      runtimeErrorMessages,
+      setReplacementState,
+    ]
   )
 
   const reportReplacementRetryExhausted = useCallback(
@@ -4258,6 +4277,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // Unknown protocol details stay hidden behind a generic prompt.
           const localizedMessage = (() => {
             switch (e.code) {
+              case "insufficient_points":
+                return t("backendErrors.insufficientBalance")
               case "initialize_timeout":
                 return t("backendErrors.initializeTimeout", {
                   agent: agentLabel,
@@ -4696,6 +4717,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       const rawEvidence = patch.lastErrorDetails?.trim()
       if (!rawEvidence) return
       const evidence = sanitizeAgentRuntimeErrorDetails(rawEvidence)
+      if (!evidence) return
       if (alertedErrorDetailsRef.current.get(contextKey) === evidence) return
       alertedErrorDetailsRef.current.set(contextKey, evidence)
       pushAlertRef.current(
