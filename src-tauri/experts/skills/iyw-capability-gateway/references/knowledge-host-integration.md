@@ -25,13 +25,13 @@ scope、revision从selection_get取得；更新时原样使用，不能自己生
 
 检索由search_iyw_knowledge解析当前活动对话的选择，覆盖子目录、去除重复范围，并在结果返回前核对scope／revision未变。未选范围的请求保持原可选过滤；选择不可用报错，不能退回整库。
 
-## 资料库管理接口
+## 知识库管理接口
 
-资料库页面使用另一组接口，带scope防止账号切换覆盖；和上面的简化选择器分页不同。
+知识库页面使用另一组接口，带scope防止账号切换覆盖；和上面的简化选择器分页不同。
 
 | 命令名 | 请求JSON | 返回／限制 |
 | --- | --- | --- |
-| knowledge_library_folders | {category} | {scope,folders}；先读它取得当前资料库scope |
+| knowledge_library_folders | {category} | {scope,folders}；先读它取得当前知识库scope |
 | knowledge_library_files | {input:{scope,category,folderId,page,searchText?}} | {list,total}；每页50，page≥1，searchText≤200字符 |
 | knowledge_library_refresh | {input:{scope,category,fileIds,forceRefresh?}} | {list}；每批1..10文件 |
 | knowledge_library_file_update | {input:{scope,category,fileId,fileName?,folderId?}} | 成功null；至少一项属性 |
@@ -81,7 +81,7 @@ await invoke("knowledge_upload_begin", {
 {"uploadId":"<UUID>","phase":"receiving","receivedBytes":0,"sentBytes":0,"totalBytes":12345,"error":null}
 ```
 
-phase=receiving／uploading／registering／complete／failed／cancelled。complete表示对象已上传且知识记录注册流程成功，不表示云端解析、同步或问答验证完成。继续用资料库列表和状态刷新确认。
+phase=receiving／uploading／registering／complete／failed／cancelled。complete表示对象已上传且知识记录注册流程成功，不表示云端解析、同步或问答验证完成。继续用知识库列表和状态刷新确认。
 
 同一宿主最多10个暂存上传，暂存字节总量≤2GiB，单文件上限按格式。收到offset或状态冲突先status核对，不能盲目重发append。注册失败且请求结果未知时复用宿主核对流程，不能另发files/create制造副本。
 
