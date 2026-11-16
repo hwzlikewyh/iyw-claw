@@ -29,8 +29,24 @@ async function readVersion(args) {
 }
 
 function findRelease(version) {
-  const releases = github(`repos/${REPO}/releases?per_page=100`)
-  return releases.find((item) => item.tag_name === `v${version}` && !item.draft)
+  try {
+    const result = JSON.parse(
+      gh([
+        "release",
+        "view",
+        `v${version}`,
+        "--repo",
+        REPO,
+        "--json",
+        "tagName,isDraft",
+      ])
+    )
+    return result.tagName === `v${version}` && !result.isDraft ? result : null
+  } catch (error) {
+    if (error.status === 1 && /release not found/i.test(error.stderr ?? ""))
+      return null
+    throw error
+  }
 }
 
 function versionRuns(version) {
