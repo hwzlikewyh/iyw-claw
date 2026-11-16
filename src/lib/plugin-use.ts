@@ -1,6 +1,4 @@
 import { useTabStore } from "@/stores/tab-store"
-import { prepareConnectorConversation } from "./conversation-connectors"
-import { preparePluginDraft } from "./plugin-composer-context"
 import { getTransport } from "./transport"
 import {
   changePluginPreparation,
@@ -27,15 +25,12 @@ export async function preparePluginUse(
   plugin: { id: string; version: string; label: string },
   context: PluginUseContext
 ) {
-  const prepared = await prepareConnectorConversation(
-    context.tabId,
-    plugin.label
-  )
-  if (!context.current()) return null
-  preparePluginDraft(context.tabId, prepared.id)
-  prepared.bind()
+  const conversationId = useTabStore
+    .getState()
+    .tabs.find((tab) => tab.id === context.tabId)?.conversationId
+  if (conversationId == null || !context.current()) return null
   let view = await readPluginPreparation(
-    { marketSkillId: plugin.id, conversationId: prepared.id },
+    { marketSkillId: plugin.id, conversationId },
     context.transport
   )
   if (!context.current()) return null
@@ -48,14 +43,14 @@ export async function preparePluginUse(
     view = await changePluginPreparation(
       {
         marketSkillId: plugin.id,
-        conversationId: prepared.id,
+        conversationId,
         contextToken: view.contextToken,
       },
       true,
       context.transport
     )
   }
-  return context.current() ? { conversationId: prepared.id, view } : null
+  return context.current() ? { conversationId, view } : null
 }
 
 // 只启用用户本次选择的插件技能，使用既有库存校验与投影流程。

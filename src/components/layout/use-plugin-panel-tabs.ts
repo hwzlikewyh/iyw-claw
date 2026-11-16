@@ -26,10 +26,11 @@ interface PluginPanelTabBase {
   label: string
   pluginSlug: string
   appKey: string
-  conversationId: number
+  conversationId: number | null
 }
 
 export type McpPluginPanelTab = PluginPanelTabBase & {
+  conversationId: number
   kind: "mcp-app"
   response: PluginAppOpenResponse
 }
@@ -47,7 +48,9 @@ export function usePluginPanelTabs(
   const [tabs, setTabs] = useState<PluginPanelTab[]>([])
   const [detachingId, setDetachingId] = useState<string | null>(null)
   const detaching = useRef(false)
-  const [busyConversation, setBusyConversation] = useState<number | null>(null),
+  const [busyConversation, setBusyConversation] = useState<
+      number | "standalone" | null
+    >(null),
     [error, setError] = useState("")
   const [transport] = useState(getTransport)
   const lifecycle = usePanelLifecycle(conversationId)
@@ -59,7 +62,9 @@ export function usePluginPanelTabs(
     const timer = setTimeout(
       () =>
         setTabs((values) =>
-          values.filter((tab) => ids.has(tab.conversationId))
+          values.filter(
+            (tab) => tab.conversationId === null || ids.has(tab.conversationId)
+          )
         ),
       0
     )
@@ -68,8 +73,9 @@ export function usePluginPanelTabs(
   const open = (
     app: PluginPanelChoice,
     targetConversationId = conversationId
-  ) =>
-    openPanel({
+  ) => {
+    const busyTarget = targetConversationId ?? "standalone"
+    return openPanel({
       app,
       conversationId: targetConversationId,
       tabs,
@@ -77,18 +83,18 @@ export function usePluginPanelTabs(
       lifecycle: lifecycle.current,
       setBusy: (value) =>
         setBusyConversation((current) =>
-          value
-            ? targetConversationId
-            : current === targetConversationId
-              ? null
-              : current
+          value ? busyTarget : current === busyTarget ? null : current
         ),
       setError,
       commit: (tab) => {
         const state = useTabStore.getState()
-        const stillOpen = state.tabs.some(
-          (item) => item.conversationId === targetConversationId
-        )
+        const standaloneStudio =
+          tab.kind === "studio-url" && tab.conversationId === null
+        const stillOpen = standaloneStudio
+          ? state.tabs.some((item) => item.id === state.activeTabId)
+          : state.tabs.some(
+              (item) => item.conversationId === targetConversationId
+            )
         if (!stillOpen) return
         setTabs((values) =>
           values.some((value) => value.id === tab.id)
@@ -104,6 +110,7 @@ export function usePluginPanelTabs(
       },
       select: (id) => openTab(`app:${id}`),
     })
+  }
   const detach = async (tab: PluginPanelTab) => {
     if (tab.kind !== "mcp-app") return false
     if (detaching.current) return false
@@ -136,7 +143,11 @@ export function usePluginPanelTabs(
   return {
     tabs,
     detachingId,
-    busy: busyConversation !== null && busyConversation === conversationId,
+    busy:
+      busyConversation !== null &&
+      (busyConversation === "standalone"
+        ? conversationId === null
+        : busyConversation === conversationId),
     error,
     open,
     detach,
@@ -207,13 +218,20 @@ interface OpeningContext {
 
 async function openPanel(context: OpeningContext) {
   const { app, conversationId, lifecycle } = context
-  if (lifecycle.runningGeneration === lifecycle.generation || !conversationId)
+  const isOpenfilmStudio = app.appKey === OPENFILM_STUDIO_APP_KEY
+  if (
+    lifecycle.runningGeneration === lifecycle.generation ||
+    (!conversationId && !isOpenfilmStudio)
+  )
     return
   const existing = context.tabs.find(
     (tab) =>
-      tab.conversationId === conversationId &&
       tab.pluginSlug === app.pluginSlug &&
-      tab.appKey === app.appKey
+      tab.appKey === app.appKey &&
+      (tab.conversationId === conversationId ||
+        (isOpenfilmStudio &&
+          tab.kind === "studio-url" &&
+          tab.conversationId === null))
   )
   if (existing) {
     context.select(existing.id)
@@ -234,8 +252,9 @@ async function openPanel(context: OpeningContext) {
         app,
         context.transport
       )
+      if (!lifecycle.alive || getTransport() !== context.transport) return
       context.commit({
-        id: `studio:${conversationId}:${app.pluginSlug}`,
+        id: `studio:${conversationId ?? "standalone"}:${app.pluginSlug}`,
         label: app.label,
         pluginSlug: app.pluginSlug,
         appKey: app.appKey,
@@ -245,6 +264,7 @@ async function openPanel(context: OpeningContext) {
       })
       return
     }
+    if (conversationId == null) return
     const response = await launchPluginPanel(
       conversationId,
       app,

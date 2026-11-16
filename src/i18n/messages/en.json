@@ -351,7 +351,7 @@
     "state": {
       "blocked": "Plugin or dependencies need attention",
       "legacy": "Legacy plugin: manage its connectors",
-      "context_required": "Preparing this conversation automatically…",
+      "context_required": "Send a message to prepare this plugin",
       "configuration_required": "Plugin parameters required",
       "permission_required": "Project authorization required",
       "disabled": "Disabled in this project",

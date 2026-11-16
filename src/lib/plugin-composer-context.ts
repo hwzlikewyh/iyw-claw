@@ -9,6 +9,7 @@ import type { PromptDraft } from "./types"
 interface PluginComposerContext {
   preparedConversationId?: number
   selected?: PluginPanelChoice
+  deferred?: boolean
 }
 
 export const usePluginComposerContext = create<{
@@ -29,11 +30,18 @@ export function selectComposerPlugin(
   tabId: string,
   selected: PluginPanelChoice
 ) {
-  update(tabId, { selected })
+  update(tabId, { selected, deferred: false })
+}
+
+export function deferComposerPlugin(
+  tabId: string,
+  selected: PluginPanelChoice
+) {
+  update(tabId, { selected, deferred: true })
 }
 
 export function clearComposerPlugin(tabId: string) {
-  update(tabId, { selected: undefined })
+  update(tabId, { selected: undefined, deferred: false })
 }
 
 export function clearPluginComposerContext(tabId?: string) {

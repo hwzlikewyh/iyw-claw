@@ -78,6 +78,7 @@ import {
   pluginDraftVisible,
   usePluginComposerContext,
 } from "@/lib/plugin-composer-context"
+import { prepareDeferredPluginForSend } from "@/lib/plugin-send-preparation"
 import { WelcomeLayout } from "@/components/chat/welcome-layout"
 import { QuickActions } from "@/components/chat/quick-actions"
 import welcomeComposerStyles from "@/components/chat/welcome-composer.module.css"
@@ -2219,7 +2220,9 @@ const ConversationTabView = memo(function ConversationTabView({
               workingDirForConnection
             )
             if (toastId !== undefined) {
-              toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
+              toast.success(`技能包 ${packageRef.slug} 已就绪`, {
+                id: toastId,
+              })
             }
             const continued = handleSendRef.current(
               { ...draft, skillPackage: undefined },
@@ -2470,23 +2473,34 @@ const ConversationTabView = memo(function ConversationTabView({
         pinTab(tabId)
       }
 
+      const pluginContext = usePluginComposerContext.getState().entries[tabId]
+      const deferredPlugin = pluginContext?.deferred
+        ? pluginContext.selected
+        : undefined
       const persistedId = dbConvIdRef.current
       if (persistedId) {
         // Existing-tab path: row already exists, send immediately with the
         // conversation_id pinned so the backend reuses our row instead of
         // creating a duplicate.
         rememberSubmittedDraft(draft, selectedModeIdArg)
-        const sending = lifecycleSend(draft, selectedModeIdArg, {
-          folderId,
-          conversationId: persistedId,
-          // The backend echoes this as the broadcast UserMessage's message_id,
-          // so viewers' synthesized user turn dedups against our own optimistic
-          // turn by exact id (and never suppresses a different sender's prompt).
-          clientMessageId: optimisticTurn.id,
-          onTurnInProgress,
-          onModeError: onModeRejected,
-          onError: onSendError,
-        })
+        const sending = prepareDeferredPluginForSend(tabId, deferredPlugin)
+          .then(() =>
+            lifecycleSend(draft, selectedModeIdArg, {
+              folderId,
+              conversationId: persistedId,
+              // The backend echoes this as the broadcast UserMessage's message_id,
+              // so viewers' synthesized user turn dedups against our own optimistic
+              // turn by exact id (and never suppresses a different sender's prompt).
+              clientMessageId: optimisticTurn.id,
+              onTurnInProgress,
+              onModeError: onModeRejected,
+              onError: onSendError,
+            })
+          )
+          .catch((error) => {
+            onSendError(error)
+            return false
+          })
         if (needsImageFallback) {
           return sending.then(onImageAnalysisRejected)
         }
@@ -2599,6 +2613,12 @@ const ConversationTabView = memo(function ConversationTabView({
           // Now that the row exists, kick off the actual prompt with the
           // conversation_id pinned so the backend adopts our row instead of
           // creating a duplicate one.
+          try {
+            await prepareDeferredPluginForSend(tabId, deferredPlugin)
+          } catch (error) {
+            onSendError(error)
+            return false
+          }
           rememberSubmittedDraft(draft, selectedModeIdArg)
           const accepted = await lifecycleSend(draft, selectedModeIdArg, {
             folderId: sendFolderId,
@@ -2868,9 +2888,10 @@ const ConversationTabView = memo(function ConversationTabView({
     agentType: selectedAgent,
     modelId: draftConfigValues.model,
     options: connectionConfigOptions,
-    send: (draft) => connStatus === "prompting"
-      ? handlePromptingSubmit(draft, selectedModeId)
-      : handleSend(draft, selectedModeId),
+    send: (draft) =>
+      connStatus === "prompting"
+        ? handlePromptingSubmit(draft, selectedModeId)
+        : handleSend(draft, selectedModeId),
   })
 
   useEffect(() => {
