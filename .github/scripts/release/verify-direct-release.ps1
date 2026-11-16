@@ -65,6 +65,7 @@ try {
 if ($manifest.version -ne $env:VERSION -or $manifest.target -ne 'windows' -or $manifest.arch -ne 'x86_64') {
     throw 'Payload manifest does not match release version and target'
 }
+if ($manifest.sourceCommit -ne $env:SOURCE_REF) { throw 'Payload build source mismatch' }
 if (@($manifest.files | Where-Object path -eq 'app/installer/原助理安装向导.exe').Count -ne 0) {
     throw 'Standalone installer must remain outside the app payload'
 }
