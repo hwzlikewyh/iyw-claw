@@ -142,7 +142,7 @@ fn add_openfilm_studio(
         plugin_slug: plugin.slug.clone(),
         version: plugin.version.clone(),
         app_key: OPENFILM_STUDIO_APP_KEY.into(),
-        label: plugin.slug.clone(),
+        label: "OpenFilm Studio".into(),
         state: if plugin.available {
             "available"
         } else {

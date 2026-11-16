@@ -7,9 +7,12 @@ import {
   type SetStateAction,
 } from "react"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
+import { useTabStore } from "@/contexts/tab-context"
 import { getTransport } from "@/lib/transport"
 import {
   launchPluginPanel,
+  openOpenfilmStudio,
+  OPENFILM_STUDIO_APP_KEY,
   readPluginPanels,
   type PluginPanelChoice,
 } from "@/lib/plugin-panel"
@@ -18,14 +21,21 @@ import type { PluginAppOpenResponse } from "@/lib/api"
 import { requestPluginAppTeardown } from "@/lib/plugin-app-teardown"
 import { pluginPanelError } from "./use-plugin-panel-choices"
 
-export interface PluginPanelTab {
+interface PluginPanelTabBase {
   id: string
   label: string
   pluginSlug: string
   appKey: string
   conversationId: number
+}
+
+export type McpPluginPanelTab = PluginPanelTabBase & {
+  kind: "mcp-app"
   response: PluginAppOpenResponse
 }
+export type PluginPanelTab =
+  | McpPluginPanelTab
+  | (PluginPanelTabBase & { kind: "studio-url"; url: string })
 const MAX_TABS = 8
 const PANEL_MIN_WIDTH = 560
 const PANEL_OPEN_WIDTH = 640
@@ -43,7 +53,7 @@ export function usePluginPanelTabs(
   const lifecycle = usePanelLifecycle(conversationId)
   const panel = useAuxPanelContext()
   const { openTab, setWidth, width } = panel
-  const close = usePanelClose({ panel, setTabs, setError, lifecycle })
+  const close = usePanelClose({ panel, setTabs, setError, lifecycle, tabs })
   useEffect(() => {
     const ids = new Set(conversations.split(",").map(Number))
     const timer = setTimeout(
@@ -66,16 +76,36 @@ export function usePluginPanelTabs(
       transport,
       lifecycle: lifecycle.current,
       setBusy: (value) =>
-        setBusyConversation(value ? targetConversationId : null),
+        setBusyConversation((current) =>
+          value
+            ? targetConversationId
+            : current === targetConversationId
+              ? null
+              : current
+        ),
       setError,
       commit: (tab) => {
-        setTabs((values) => [...values, tab])
+        const state = useTabStore.getState()
+        const stillOpen = state.tabs.some(
+          (item) => item.conversationId === targetConversationId
+        )
+        if (!stillOpen) return
+        setTabs((values) =>
+          values.some((value) => value.id === tab.id)
+            ? values
+            : [...values, tab]
+        )
+        const activeConversationId = state.tabs.find(
+          (item) => item.id === state.activeTabId
+        )?.conversationId
+        if (targetConversationId !== activeConversationId) return
         if (width < PANEL_MIN_WIDTH) setWidth(PANEL_OPEN_WIDTH)
         openTab(`app:${tab.id}`)
       },
       select: (id) => openTab(`app:${id}`),
     })
   const detach = async (tab: PluginPanelTab) => {
+    if (tab.kind !== "mcp-app") return false
     if (detaching.current) return false
     detaching.current = true
     setDetachingId(tab.id)
@@ -120,19 +150,21 @@ function usePanelClose(input: {
   setTabs: Dispatch<SetStateAction<PluginPanelTab[]>>
   setError: (value: string) => void
   lifecycle: ReturnType<typeof usePanelLifecycle>
+  tabs: PluginPanelTab[]
 }) {
   const latest = useRef(input)
   useEffect(() => {
     latest.current = input
   }, [input])
   return useCallback(async (id: string) => {
-    const lifecycle = latest.current.lifecycle.current
-    const generation = lifecycle.generation
-    const closed = await requestPluginAppTeardown(id)
-    if (!lifecycle.alive) return true
-    const current = lifecycle.generation === generation
-    if (!closed) return !current
-    const { panel, setTabs, setError } = latest.current
+    const { lifecycle, panel, setTabs, setError } = latest.current
+    const currentTab = latest.current.tabs.find((tab) => tab.id === id)
+    if (!currentTab) return true
+    const generation = lifecycle.current.generation
+    if (currentTab.kind === "mcp-app" && !(await requestPluginAppTeardown(id)))
+      return false
+    if (!lifecycle.current.alive) return true
+    const current = lifecycle.current.generation === generation
     setTabs((values) => values.filter((tab) => tab.id !== id))
     if (current) setError("")
     if (current && panel.activeTab === `app:${id}`) panel.openTab("home")
@@ -196,6 +228,23 @@ async function openPanel(context: OpeningContext) {
   context.setError("")
   const generation = lifecycle.generation
   try {
+    if (app.appKey === OPENFILM_STUDIO_APP_KEY) {
+      const { url } = await openOpenfilmStudio(
+        conversationId,
+        app,
+        context.transport
+      )
+      context.commit({
+        id: `studio:${conversationId}:${app.pluginSlug}`,
+        label: app.label,
+        pluginSlug: app.pluginSlug,
+        appKey: app.appKey,
+        conversationId,
+        kind: "studio-url",
+        url,
+      })
+      return
+    }
     const response = await launchPluginPanel(
       conversationId,
       app,
@@ -213,6 +262,7 @@ async function openPanel(context: OpeningContext) {
       pluginSlug: app.pluginSlug,
       appKey: app.appKey,
       conversationId,
+      kind: "mcp-app",
       response,
     })
   } catch (cause) {
@@ -221,7 +271,6 @@ async function openPanel(context: OpeningContext) {
   } finally {
     if (lifecycle.runningGeneration === generation)
       lifecycle.runningGeneration = null
-    if (lifecycle.alive && lifecycle.generation === generation)
-      context.setBusy(false)
+    context.setBusy(false)
   }
 }

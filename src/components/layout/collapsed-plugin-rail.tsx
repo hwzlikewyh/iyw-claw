@@ -13,6 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { PluginIcon } from "./plugin-icon"
+import { usePluginPresentation } from "./plugin-presentation"
 import type { PluginPanelTab, usePluginPanels } from "./use-plugin-panels"
 
 export function CollapsedPluginRail({
@@ -64,6 +65,7 @@ function PluginRailButton({
   open: () => void
 }) {
   const t = useTranslations("PluginPanels")
+  const name = usePluginPresentation().get(tab.pluginSlug)?.label || tab.label
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -71,15 +73,15 @@ function PluginRailButton({
           variant="ghost"
           size="icon"
           className="size-9 shrink-0 rounded-md"
-          aria-label={t("openNamed", { name: tab.label })}
+          aria-label={t("openNamed", { name })}
           disabled={moving}
           onClick={open}
         >
-          <PluginIcon slug={tab.pluginSlug} label={tab.label} />
+          <PluginIcon slug={tab.pluginSlug} label={name} />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="left" sideOffset={6}>
-        {tab.label}
+        {name}
       </TooltipContent>
     </Tooltip>
   )
