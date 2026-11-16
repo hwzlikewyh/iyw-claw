@@ -71,6 +71,8 @@ pub struct BrowserSessionManager {
     #[cfg(feature = "tauri-runtime")]
     pub(super) native: Arc<super::native::NativeBrowser>,
     #[cfg(feature = "tauri-runtime")]
+    pub(super) obscura: Arc<super::obscura::ObscuraRoutes>,
+    #[cfg(feature = "tauri-runtime")]
     pub(super) resource_governor: Option<Arc<super::resource_gate::BrowserResourceGovernor>>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) tabs: Arc<BrowserTabRegistry>,
@@ -126,6 +128,8 @@ impl BrowserSessionManager {
             runtime: None,
             #[cfg(feature = "tauri-runtime")]
             native: Arc::new(super::native::NativeBrowser::default()),
+            #[cfg(feature = "tauri-runtime")]
+            obscura: Arc::new(super::obscura::ObscuraRoutes::default()),
             #[cfg(feature = "tauri-runtime")]
             resource_governor: None,
             #[cfg(feature = "tauri-runtime")]

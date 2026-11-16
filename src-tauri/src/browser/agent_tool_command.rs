@@ -148,12 +148,7 @@ impl BrowserSessionManager {
         input: &Value,
     ) -> Result<Value, BrowserError> {
         let tab_id = required_string(input, "tab_id", 128)?;
-        let command = required_string(input, "command", 64)?.to_ascii_lowercase();
-        if !ALLOWED_COMMANDS.contains(&command.as_str()) {
-            return Err(invalid_argument("Unsupported managed browser command"));
-        }
-        let mut args = vec![command];
-        args.extend(parse_arguments(input)?);
+        let args = validated_command(input)?;
         let timeout = requested_timeout(input, COMMAND_TIMEOUT)?;
         self.run_command(AgentCliRequest {
             context,
@@ -170,6 +165,16 @@ impl BrowserSessionManager {
         let output = self.run_agent_cli(request).await?;
         self.agent_state(context, Some(&tab_id), Some(output)).await
     }
+}
+
+pub(super) fn validated_command(input: &Value) -> Result<Vec<String>, BrowserError> {
+    let command = required_string(input, "command", 64)?.to_ascii_lowercase();
+    if !ALLOWED_COMMANDS.contains(&command.as_str()) {
+        return Err(invalid_argument("Unsupported managed browser command"));
+    }
+    let mut args = vec![command];
+    args.extend(parse_arguments(input)?);
+    Ok(args)
 }
 
 fn parse_arguments(input: &Value) -> Result<Vec<String>, BrowserError> {

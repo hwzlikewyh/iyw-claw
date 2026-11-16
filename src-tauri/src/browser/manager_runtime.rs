@@ -210,6 +210,7 @@ impl BrowserSessionManager {
     }
 
     async fn shutdown_resources(&self) -> Result<(), BrowserError> {
+        self.obscura.clear().await;
         self.close_all_controls().await;
         self.stop_cdp_observer().await;
         let _tab_guard = self.tab_open_lock.lock().await;
@@ -319,6 +320,7 @@ impl BrowserSessionManager {
             shutdown_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             runtime,
             native: Arc::new(super::native::NativeBrowser::default()),
+            obscura: Arc::new(super::obscura::ObscuraRoutes::default()),
             resource_governor: None,
             tabs: Arc::new(super::tabs::BrowserTabRegistry::default()),
             tab_cleanups: Arc::new(

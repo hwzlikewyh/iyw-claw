@@ -9,9 +9,15 @@ UI interaction, screenshots, or page/rendering acceptance. Do not inspect tabs
 or load browser workflows before that decision. A failed unrelated tool or
 retired Skill is not a browser trigger.
 
-The unified `browser` tool uses only the installed managed Chromix browser.
-Use the live catalog for exact stable IDs and schemas. External browser tab IDs
-are retired; do not replay their references or import external login state.
+The unified `browser` tool prefers Obscura embedded in the main application for
+new background tasks; existing built-in tabs keep their current engine. The host
+can fall back once to the configured built-in browser when safe. Use the live
+catalog and exact returned tab IDs. A fallback sets `stateReset=true`: old refs
+are invalid and cookies/login/in-page state are not transferred. Present and
+human action reopen the URL in the built-in browser. An advanced-command
+fallback returns a fresh snapshot without running the original command; inspect
+it before continuing. Failed or uncertain writes are never automatically replayed.
+Retired external browser IDs and references remain invalid.
 
 The built-in browser setting is enforced by the host. When off, browser
 operations return an error; ask the user to enable the browser when needed.

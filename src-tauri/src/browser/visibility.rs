@@ -32,6 +32,7 @@ impl BrowserSessionManager {
         self.managed_browser_enabled
             .store(visible, Ordering::Release);
         if !visible {
+            self.obscura.clear().await;
             self.cancel_user_action_requests(Vec::new()).await;
             self.window_open_requests.lock().await.clear();
         }

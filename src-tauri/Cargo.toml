@@ -19,6 +19,7 @@ crate-type = ["rlib"]
 [features]
 default = ["tauri-runtime", "memory-semantic"]
 tauri-runtime = [
+    "dep:obscura-cdp",
     "dep:iyw-share-core",
     "computer-executor",
     "dep:tauri",
@@ -205,6 +206,10 @@ indexmap-win7 = { package = "indexmap", version = "1.9.3", features = ["std"] }
 
 [target.'cfg(target_pointer_width = "64")'.dependencies]
 qdrant-edge = { version = "=0.8.0", optional = true }
+
+# Obscura 直接链接到桌面主程序；Win7 和 32 位目标沿用系统 WebView。
+[target.'cfg(all(target_pointer_width = "64", not(target_vendor = "win7")))'.dependencies]
+obscura-cdp = { git = "https://github.com/h4ckf0r0day/obscura", rev = "0ecc41770da5c5300227dd83a15bfa1e5100d5d4", features = ["render"], optional = true }
 
 # This crate is built repeatedly with several feature sets. Full debug info plus
 # incremental caches grows into tens of gigabytes per feature/worktree on
