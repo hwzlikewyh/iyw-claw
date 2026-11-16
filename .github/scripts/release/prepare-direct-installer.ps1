@@ -2,12 +2,12 @@ param([Parameter(Mandatory=$true)][string]$Tag)
 $ErrorActionPreference='Stop'
 if($Tag -notmatch '^v\d+\.\d+\.\d+$'){throw 'Invalid installer release tag'}
 $env:GH_FORCE_TTY='0';$env:CLICOLOR_FORCE='0';$env:TERM='dumb'
-$releaseJson=gh api "repos/hwzlikewyh/iyw-claw-installer/releases/tags/$Tag"
+$releaseJson=gh release view $Tag --repo hwzlikewyh/iyw-claw-installer --json isDraft,isPrerelease,assets
 if($LASTEXITCODE -ne 0){throw 'Published direct installer lookup failed'}
 $ansiPattern=[string][char]27+[regex]::Escape('[')+'[0-?]*[ -/]*[@-~]'
 $plain=[regex]::Replace(($releaseJson -join "`n"),$ansiPattern,'')
 $release=$plain | ConvertFrom-Json
-if($release.draft -or $release.prerelease){throw 'A published stable direct installer release is required'}
+if($release.isDraft -or $release.isPrerelease){throw 'A published stable direct installer release is required'}
 $asset=@($release.assets | Where-Object name -eq 'YuanAssistant-Setup-windows.exe')
 if($asset.Count -ne 1 -or $asset[0].digest -notmatch '^sha256:[a-f0-9]{64}$'){throw 'Installer artifact digest is missing'}
 $directory=Join-Path $env:RUNNER_TEMP "direct-installer-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
