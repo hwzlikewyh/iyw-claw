@@ -296,7 +296,7 @@ jobs:
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
       parallel_worker: true
-      build_matrix: '{"include":[{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false}]}'
+      build_matrix: '{"include":[{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Linux arm64","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}'
     secrets: inherit
 
   build-macos-x64:
@@ -340,7 +340,6 @@ jobs:
     secrets: inherit
 
   build-windows7:
-    if: ${{ vars.IYW_WIN7_RELEASE_ENABLED == 'true' }}
     needs: [create-draft-release, prepare-frontend]
     strategy:
       fail-fast: false
@@ -395,11 +394,10 @@ jobs:
       - build-windows7
       - verify-windows-installers
       - verify-macos-x64-installer
-    # Only require Windows and macOS builds to succeed (Linux builds disabled)
-    if: ${{ !cancelled() && needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' && (vars.IYW_WIN7_RELEASE_ENABLED != 'true' || needs.build-windows7.result == 'success') }}
+    if: ${{ !cancelled() && needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.build-windows7.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
     runs-on: ubuntu-22.04
     env:
-      IYW_WIN7_RELEASE_ENABLED: ${{ vars.IYW_WIN7_RELEASE_ENABLED }}
+      IYW_WIN7_RELEASE_ENABLED: "true"
     permissions:
       contents: write
     steps:

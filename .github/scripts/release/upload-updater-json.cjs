@@ -1,6 +1,6 @@
 const UPDATER_FILENAME = "latest.json"
 const LEGACY_MCP_ASSET_PATTERN = /^iyw-claw-mcp(?:-|\.|$)/i
-const WIN7_REQUIRED = process.env.IYW_WIN7_RELEASE_ENABLED === "true"
+const WIN7_REQUIRED = true
 const replaceReleaseAsset = require("./replace-release-asset.cjs")
 // Match installers by suffix: the product name is non-ASCII ("原助理") and
 // gets sanitized away in uploaded asset names, so never match on the prefix.
@@ -18,9 +18,8 @@ const PLATFORM_PATTERNS = [
   },
   { platform: "darwin-x86_64", pattern: /x64\.app\.tar\.gz$/ },
   { platform: "darwin-aarch64", pattern: /aarch64\.app\.tar\.gz$/ },
-  // Linux desktop builds are paused in release.yml; publish the platform only
-  // when an AppImage was actually uploaded.
-  { platform: "linux-x86_64", pattern: /amd64\.AppImage$/, optional: true },
+  { platform: "linux-x86_64", pattern: /amd64\.AppImage$/ },
+  { platform: "linux-aarch64", pattern: /arm64\.AppImage$/ },
 ]
 async function fetchAssetText({ github, owner, repo, assetId }) {
   const response = await github.request(
