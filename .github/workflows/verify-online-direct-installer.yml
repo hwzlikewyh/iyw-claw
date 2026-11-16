@@ -1,0 +1,110 @@
+name: Verify Online Standalone Installer
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published app release to install through the standalone installer
+        required: true
+        default: 0.1.340
+        type: string
+      source_sha:
+        description: Exact source commit used to build the application payload
+        required: true
+        default: 0265c2d635492fad6911d160b13c8195ea257836
+        type: string
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-22.04
+    outputs:
+      source: ${{ steps.resolve.outputs.source }}
+    steps:
+      - id: resolve
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE: ${{ inputs.source_sha }}
+        with:
+          script: |
+            if(!/^\d+\.\d+\.\d+$/.test(process.env.VERSION)||!/^[a-f0-9]{40}$/.test(process.env.SOURCE))throw new Error('Invalid version or source identity');
+            const tag=`v${process.env.VERSION}`;
+            const release=(await github.rest.repos.getReleaseByTag({...context.repo,tag})).data;
+            if(release.draft||release.prerelease||release.target_commitish!==process.env.SOURCE)throw new Error('Published app release/source mismatch');
+            const direct=['app_payload_zip','bootstrapper'];
+            for(const kind of direct){
+              const name=kind==='app_payload_zip'?`iyw-claw_${process.env.VERSION}_x64-app-payload.zip`:`iyw-claw_${process.env.VERSION}_x64-bootstrapper.exe`;
+              for(const assetName of [name,`${name}.sig`]){
+                const found=release.assets.filter(asset=>asset.name===assetName&&asset.state==='uploaded'&&asset.size>0&&/^sha256:[a-f0-9]{64}$/.test(asset.digest||''));
+                if(found.length!==1)throw new Error(`Published signed asset unavailable: ${assetName}`);
+              }
+            }
+            core.setOutput('source',process.env.SOURCE);
+  fresh:
+    needs: resolve
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tools
+          sparse-checkout: .github/scripts/release/verify-direct-release.ps1
+          sparse-checkout-cone-mode: false
+      - name: Install application and managed environment into a clean profile
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ needs.resolve.outputs.source }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+          NO_COLOR: "1"
+          GH_FORCE_TTY: "0"
+          CLICOLOR_FORCE: "0"
+          TERM: dumb
+        run: ./tools/.github/scripts/release/verify-direct-release.ps1 -Scenario Fresh
+      - name: Report redacted installer errors
+        if: failure()
+        shell: pwsh
+        run: |
+          $root=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw/logs'
+          Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object Name -in 'installer-error.log','last-error.log','environment-prepare.log.stderr' |
+            ForEach-Object { Write-Output $_.Name; Get-Content -LiteralPath $_.FullName -Tail 80 }
+  migration:
+    needs: resolve
+    runs-on: windows-2022
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tools
+          sparse-checkout: .github/scripts/release/verify-direct-release.ps1
+          sparse-checkout-cone-mode: false
+      - name: Upgrade NSIS installation without replacing user data
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ needs.resolve.outputs.source }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+          NO_COLOR: "1"
+          GH_FORCE_TTY: "0"
+          CLICOLOR_FORCE: "0"
+          TERM: dumb
+        run: ./tools/.github/scripts/release/verify-direct-release.ps1 -Scenario Legacy
+      - name: Report redacted installer errors
+        if: failure()
+        shell: pwsh
+        run: |
+          $root=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw/logs'
+          Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object Name -in 'installer-error.log','last-error.log','environment-prepare.log.stderr' |
+            ForEach-Object { Write-Output $_.Name; Get-Content -LiteralPath $_.FullName -Tail 80 }

@@ -21,7 +21,7 @@ $releaseId = (ConvertFrom-GhJson $releaseJson).databaseId
 $releaseJson = gh api ('repos/' + $env:GITHUB_REPOSITORY + '/releases/' + $releaseId)
 if ($LASTEXITCODE -ne 0) { throw 'Draft assets lookup failed' }
 $release = ConvertFrom-GhJson $releaseJson
-if (-not $release.draft -or $release.target_commitish -ne $env:SOURCE_REF) { throw 'Draft release source mismatch' }
+if ($release.prerelease -or $release.target_commitish -ne $env:SOURCE_REF) { throw 'Release source mismatch' }
 $inputRoot = Join-Path $testRoot 'inputs'
 [IO.Directory]::CreateDirectory($inputRoot) | Out-Null
 $payloadName = 'iyw-claw_' + $env:VERSION + '_x64-app-payload.zip'
