@@ -44,12 +44,8 @@ export function useComposerPlugins(input: {
   )
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1)
-    window.addEventListener("focus", refresh)
     const unsubscribe = onSkillMarketInstallationsChanged(refresh)
-    return () => {
-      window.removeEventListener("focus", refresh)
-      unsubscribe()
-    }
+    return unsubscribe
   }, [])
   useEffect(() => {
     if (!input.open || !input.agentType) return

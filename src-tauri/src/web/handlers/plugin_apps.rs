@@ -81,3 +81,14 @@ pub async fn launch(
     .await
     .map(Json)
 }
+
+pub async fn open_studio(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(RequestParams { request }): Json<
+        RequestParams<crate::commands::plugin_apps::OpenStudioRequest>,
+    >,
+) -> Result<Json<crate::commands::plugin_apps::OpenStudioResponse>, AppCommandError> {
+    crate::commands::plugin_apps::open_studio_core(&state.db, request)
+        .await
+        .map(Json)
+}

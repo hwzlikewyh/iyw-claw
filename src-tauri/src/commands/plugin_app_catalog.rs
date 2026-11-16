@@ -30,6 +30,7 @@ pub struct AppChoice {
     pub state: String,
 }
 const MAX_APPS: usize = 256;
+pub const OPENFILM_STUDIO_APP_KEY: &str = "iyw-openfilm-studio";
 
 pub async fn catalog_core(
     db: &crate::db::AppDatabase,
@@ -113,8 +114,43 @@ fn collect_apps(
                 state: state(plugin, config, (workspace, &snapshot.plugins)).into(),
             });
         }
+        add_openfilm_studio(plugin, &mut apps)?;
     }
     Ok(apps)
+}
+
+fn add_openfilm_studio(
+    plugin: &registry::PluginDescriptor,
+    apps: &mut Vec<AppChoice>,
+) -> Result<(), AppCommandError> {
+    let root = std::path::Path::new(&plugin.install_root);
+    if !cfg!(feature = "tauri-runtime")
+        || plugin.slug != "iyw-openfilm"
+        || apps
+            .iter()
+            .any(|app| app.plugin_slug == plugin.slug && app.app_key == OPENFILM_STUDIO_APP_KEY)
+        || !root.join("studio/ui/dist/index.html").is_file()
+        || !root.join("bin/openfilm.mjs").is_file()
+    {
+        return Ok(());
+    }
+    if apps.len() >= MAX_APPS {
+        return Err(invalid("已安装的插件页面过多，请管理本地安装后重试"));
+    }
+    apps.push(AppChoice {
+        plugin_id: plugin.market_skill_id.to_string(),
+        plugin_slug: plugin.slug.clone(),
+        version: plugin.version.clone(),
+        app_key: OPENFILM_STUDIO_APP_KEY.into(),
+        label: plugin.slug.clone(),
+        state: if plugin.available {
+            "available"
+        } else {
+            "unavailable"
+        }
+        .into(),
+    });
+    Ok(())
 }
 
 fn app_label(plugin: &registry::PluginDescriptor, config: &serde_json::Value) -> String {

@@ -14,6 +14,9 @@ pub use plugin_app_catalog::{catalog_core, AppChoice, CatalogRequest, LaunchRequ
 #[path = "plugin_app_launch.rs"]
 mod plugin_app_launch;
 pub use plugin_app_launch::launch_core;
+#[path = "plugin_app_studio.rs"]
+mod plugin_app_studio;
+pub use plugin_app_studio::{open_studio_core, OpenStudioRequest, OpenStudioResponse};
 #[path = "plugin_app_sync.rs"]
 mod plugin_app_sync;
 pub use plugin_app_sync::{sync_core, SyncRequest, SyncUpdate};
@@ -197,4 +200,13 @@ pub async fn plugin_app_launch(
     request: LaunchRequest,
 ) -> Result<PluginAppOpenResponse, AppCommandError> {
     launch_core(&db, (&apps, &router), request).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn plugin_openfilm_studio(
+    db: tauri::State<'_, crate::db::AppDatabase>,
+    request: OpenStudioRequest,
+) -> Result<OpenStudioResponse, AppCommandError> {
+    open_studio_core(&db, request).await
 }

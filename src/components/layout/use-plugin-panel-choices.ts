@@ -16,11 +16,9 @@ export function usePluginPanelChoices(
   const { isOpen } = useAuxPanelContext()
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1)
-    window.addEventListener("focus", refresh)
     const unsubscribe = onSkillMarketInstallationsChanged(refresh)
     const disconnect = transport.onReconnect?.(refresh)
     return () => {
-      window.removeEventListener("focus", refresh)
       unsubscribe()
       disconnect?.()
     }
