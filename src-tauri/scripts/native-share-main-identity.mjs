@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const CAPABILITY = "IYW_NATIVE_SHARE_MAIN_V1"
+const MT_TIMEOUT_MS = 180_000
 
 export function assertMainShareReceiver(file) {
   if (!readFileSync(file).includes(Buffer.from(CAPABILITY)))
@@ -54,7 +55,7 @@ function embedIdentity({ file, signtool, root, directory, publisher }) {
   const mt = join(dirname(signtool), "mt.exe")
   const original = join(directory, "original.manifest")
   const manifest = join(directory, "main.manifest")
-  const options = { windowsHide: true, stdio: "pipe", timeout: 30_000 }
+  const options = { windowsHide: true, stdio: "pipe", timeout: MT_TIMEOUT_MS }
   execFileSync(mt, [`-inputresource:${file};#1`, `-out:${original}`], options)
   const status = prepareIdentityManifest({
     root,

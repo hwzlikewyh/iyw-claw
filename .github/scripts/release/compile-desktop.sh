@@ -10,7 +10,12 @@ case "$target" in
     export CARGO_BUILD_JOBS=2
     cargo_args+=(--config profile.release.package.iyw-claw.codegen-units=16)
     ;;
-  x86_64-unknown-linux-gnu) ;;
+  x86_64-unknown-linux-gnu)
+    # Linux x64 runners have enough memory for four concurrent rustc jobs;
+    # multiple codegen units keep the large application crate parallel.
+    export CARGO_BUILD_JOBS=4
+    cargo_args+=(--config profile.release.package.iyw-claw.codegen-units=16)
+    ;;
   *) echo "::error::Unsupported parallel desktop target: $target"; exit 1 ;;
 esac
 if [[ "$target" == "aarch64-unknown-linux-gnu" ]]; then
@@ -71,7 +76,7 @@ monitor &
 monitor_pid=$!
 time_args=(-v)
 if [[ "$OSTYPE" == darwin* ]]; then time_args=(-l); fi
-/usr/bin/time "${time_args[@]}" pnpm dlx @tauri-apps/cli@2.11.4 build \
+/usr/bin/time "${time_args[@]}" pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4 build \
   --target "$target" --features tauri-runtime "${configs[@]}" \
   --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign \
   -- "${cargo_args[@]}"

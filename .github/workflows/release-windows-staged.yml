@@ -260,7 +260,7 @@ jobs:
         with:
           node-version: 24
       - name: Prepare local bundler
-        run: pnpm install --frozen-lockfile --prefer-offline
+        run: pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
       - id: download
         name: Download or reuse verified staging
         timeout-minutes: 16

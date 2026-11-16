@@ -23,7 +23,6 @@ import process from "node:process"
 import { windowsLayout, verifyWindowsStaging } from "./windows-staging.mjs"
 import { discoverSigntool, signFiles } from "./sign-windows.mjs"
 import { win7WebviewConfig } from "./build-desktop-windows.mjs"
-import { prepareMainShareIdentity } from "./native-share-main-identity.mjs"
 
 const TOOL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
 const ROOT = resolve(process.env.IYW_CLAW_BUILD_ROOT ?? TOOL_ROOT)
@@ -349,12 +348,7 @@ function main() {
       env: { ...process.env, IYW_SHARE_UNSIGNED: "0" },
     }
   )
-  // 在打包器占用主程序前写入身份，签名回调只校验已有清单。
-  prepareMainShareIdentity({
-    file: join(ROOT, LAYOUT.binary),
-    signtool: discoverSigntool(process.env),
-    env: { ...process.env, IYW_CLAW_BUILD_ROOT: ROOT },
-  })
+  // signApplication() 在打包器占用主程序前写入身份；此处不重复提取/写回 manifest。
   const installer = bundle(version)
   signInstaller(installer)
   assertInstallerSigned(installer)
