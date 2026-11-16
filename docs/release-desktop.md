@@ -94,3 +94,10 @@ NSIS smoke 卸载使用 `_?=<已验证临时安装目录>` 原地运行，等待
 - GitHub 已正式发布时，跳过编译；Fusion 已 `ready` 的相同制品跳过上传。
 - 上传过程中断时先尝试完成已有对象校验；对象缺失或长度错误后才重新上传。
 - 任一签名、摘要、版本、发布策略或安装验证失败都会停止，不跳过验证强行发布。
+
+Linux 与 Win7 某一架构失败时，可分别使用 `Repair Linux Release`、
+`Repair Windows 7 Release`，传入原草稿的版本、源码提交、Release ID 与前端 run ID。
+原 run 保留失败记录，其它架构继续完成。全部补建成功后，`Verify Final Desktop Release`
+的 `repair_run_ids` 接受逗号分隔的补建 run ID，并核对补建工作流、目标、签名结果和
+日志中的相同源码/草稿身份。最终发布同时要求 Linux 双架构；开启 Win7 发布时还要求
+Win7 双架构编译与签名通过，保留 Windows 实际安装和 macOS Intel 验证。

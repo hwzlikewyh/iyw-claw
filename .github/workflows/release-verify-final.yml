@@ -14,6 +14,10 @@ on:
       verification_run_id:
         required: true
         type: string
+      repair_run_ids:
+        description: Successful Win7 or Linux repair runs, separated by commas
+        required: false
+        type: string
 permissions:
   contents: write
   actions: read
@@ -78,6 +82,8 @@ jobs:
   publish:
     needs: [verify-x64, verify-installation]
     runs-on: ubuntu-22.04
+    env:
+      IYW_WIN7_RELEASE_ENABLED: ${{ vars.IYW_WIN7_RELEASE_ENABLED }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,6 +95,7 @@ jobs:
           VERIFICATION_RUN: ${{ inputs.verification_run_id }}
           SOURCE_REF: ${{ inputs.source_ref }}
           GH_TOKEN: ${{ github.token }}
+          REPAIR_RUNS: ${{ inputs.repair_run_ids }}
         with:
           script: |
             const runId = Number(process.env.VERIFICATION_RUN);
@@ -99,16 +106,24 @@ jobs:
             const validateSource = require('./.github/scripts/release/verified-release-source.cjs');
             await validateSource({github,repo:context.repo,run,source,tagged});
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id:runId,per_page:100});
+            const verifyRepairs = require('./.github/scripts/release/verified-repair-jobs.cjs');
+            const repaired = await verifyRepairs({github,repository:context.repo,tag,sourceRef:source,releaseId:process.env.RELEASE_ID,runIds:process.env.REPAIR_RUNS});
             const required = [
               'build-tauri / Build Linux x64',
+              'build-tauri / Build Linux arm64',
               'build-tauri / Build macOS arm64',
               'build-macos-x64 / Build macOS x64',
               'build-windows (x86_64-pc-windows-msvc) / build',
               'build-windows (x86_64-pc-windows-msvc) / sign',
               'verify-macos-x64-installer / verify',
             ];
+            if (process.env.IYW_WIN7_RELEASE_ENABLED === 'true') {
+              for (const target of ['x86_64-win7-windows-msvc','i686-win7-windows-msvc']) {
+                required.push(`build-windows7 (${target}) / build`, `build-windows7 (${target}) / sign`);
+              }
+            }
             for(const name of required) {
-              if(jobs.find(job=>job.name===name)?.conclusion!=='success') throw new Error(`${name} has not passed`);
+              if(jobs.find(job=>job.name===name)?.conclusion!=='success' && !repaired.has(name)) throw new Error(`${name} has not passed`);
             }
             const releaseId=Number(process.env.RELEASE_ID);
             const release=(await github.rest.repos.getRelease({...context.repo,release_id:releaseId})).data;
