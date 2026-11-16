@@ -26,6 +26,6 @@ execFileSync(
   ["src-tauri/scripts/verify-xinghe-worker-bundle.mjs", "--target", target],
   { stdio: "inherit" }
 )
-execFileSync("pnpm", ["dlx", "--prefer-offline", "@tauri-apps/cli@2.11.4", "bundle", ...args], {
+execFileSync("pnpm", ["dlx", "@tauri-apps/cli@2.11.4", "bundle", ...args], {
   stdio: "inherit",
 })

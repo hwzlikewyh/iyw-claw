@@ -169,7 +169,9 @@ jobs:
         run: |
           $win7Config = @()
           if ($env:TAURI_TARGET_TRIPLE -like '*-win7-*') { $win7Config = @('--config', $env:IYW_WIN7_BUILD_CONFIG) }
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json @win7Config --no-bundle --no-sign -- --timings
+          $cargoArgs = @('--timings')
+          if ($env:TAURI_TARGET_TRIPLE -like '*-win7-*') { $cargoArgs = @('-Z', 'build-std=std,panic_abort', '--timings') }
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json @win7Config --no-bundle --no-sign -- @cargoArgs
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Package verified signing input
         run: |

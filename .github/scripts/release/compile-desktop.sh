@@ -76,7 +76,7 @@ monitor &
 monitor_pid=$!
 time_args=(-v)
 if [[ "$OSTYPE" == darwin* ]]; then time_args=(-l); fi
-/usr/bin/time "${time_args[@]}" pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4 build \
+/usr/bin/time "${time_args[@]}" pnpm dlx @tauri-apps/cli@2.11.4 build \
   --target "$target" --features tauri-runtime "${configs[@]}" \
   --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign \
   -- "${cargo_args[@]}"
