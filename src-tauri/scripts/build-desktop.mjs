@@ -71,6 +71,7 @@ export function parseBuildOptions(argv) {
   const options = {
     authenticode: false,
     bundleOnly: false,
+    compileOnly: false,
     jobs: null,
     noSign: false,
     reuseAssets: false,
@@ -79,6 +80,8 @@ export function parseBuildOptions(argv) {
   for (const arg of argv) {
     if (arg === "--bundle-only") {
       options.bundleOnly = true
+    } else if (arg === "--compile-only") {
+      options.compileOnly = true
     } else if (arg === "--authenticode") {
       // Authenticode (the Windows trust chain) is unrelated to --no-sign,
       // which only controls the updater's minisign signature. The two are
@@ -198,8 +201,9 @@ function main() {
   for (const step of plan.steps) {
     runStep(step, plan.env)
   }
-  if (process.platform !== "darwin") finalizeWindowsBuild(plan.env)
-  if (!options.bundleOnly) {
+  if (process.platform !== "darwin" && !options.compileOnly)
+    finalizeWindowsBuild(plan.env)
+  if (!options.bundleOnly && !options.compileOnly) {
     console.log(
       `[desktop-build] Cargo timing report: src-tauri/target/${plan.env.TAURI_TARGET_TRIPLE}/cargo-timings/cargo-timing.html`
     )

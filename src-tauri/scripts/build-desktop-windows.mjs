@@ -210,6 +210,7 @@ function windowsBuildArgs(tauriCli, options, target, signingConfigPath) {
     target,
   ]
   if (options.bundleOnly) args.push("--bundles", "nsis")
+  if (options.compileOnly) args.push("--no-bundle")
   else
     args.push(
       "--config",
@@ -239,7 +240,11 @@ export function createWindowsBuildPlan(tauriCli, options, signingConfigPath) {
       scriptStep("prepare-sidecars", target),
       scriptStep("prepare-xinghe-worker", target),
       {
-        label: options.bundleOnly ? "NSIS bundle" : "release build and bundle",
+        label: options.compileOnly
+          ? "release compile only"
+          : options.bundleOnly
+            ? "NSIS bundle"
+            : "release build and bundle",
         args: windowsBuildArgs(tauriCli, options, target, signingConfigPath),
       },
       scriptStep("verify-xinghe-worker-bundle", target),
