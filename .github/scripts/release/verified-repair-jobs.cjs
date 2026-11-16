@@ -3,7 +3,7 @@ const WINDOWS_TARGETS = ["x86_64-win7-windows-msvc", "i686-win7-windows-msvc"]
 const LINUX_JOBS = ["Linux x64", "Linux arm64"]
 const MAX_REPAIR_RUNS = WINDOWS_TARGETS.length + LINUX_JOBS.length
 
-async function windowsJobs(github, repository, runId, jobs) {
+async function windowsJobs({ github, repository, runId, jobs }) {
   const build = jobs.find((job) => job.name === "repair / build")
   const sign = jobs.find((job) => job.name === "repair / sign")
   if (build?.conclusion !== "success" || sign?.conclusion !== "success")
@@ -78,7 +78,9 @@ module.exports = async function verifiedRepairJobs(input) {
     )
     let selected
     if (run.path === ".github/workflows/release-repair-win7.yml")
-      selected = await windowsJobs(input.github, input.repository, runId, jobs)
+      selected = await windowsJobs({
+        github: input.github, repository: input.repository, runId, jobs,
+      })
     else if (run.path === ".github/workflows/release-repair-linux.yml")
       selected = linuxJobs(runId, jobs)
     else throw new Error(`Unexpected repair workflow for ${id}`)

@@ -6,6 +6,10 @@
 
 ## Linux 编译内存限制（2026-11-16）
 
+Linux x64 补建 `43915796209` 已完成编译、AppImage 打包与上传。日志记录
+总 swap 约 25 GiB，实际使用曾超过 6 GiB，最终桌面编译退出码为 0。
+原先约 3 GiB 的 swap 无法覆盖这一阶段的实测需求；ARM64 结果单独核验。
+
 `v0.1.349` 已使用限制后的并发，Linux x64 仍在单个 `rustc` 达到约 12 GiB、
 内存等待增加后收到 runner shutdown 信号。并发限制不能约束单个编译单元的峰值。
 托管 Linux job 现在由 `prepare-linux-memory.sh` 补充临时 swap，目标总量为 24 GiB；
