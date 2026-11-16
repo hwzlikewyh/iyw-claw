@@ -44,7 +44,7 @@
    版本、源码提交、架构、文件清单和逐文件摘要。本机只签名与封装。
 5. 签名后的资源作为安装验证输入；Windows 实际安装和 macOS Intel 验证成功后，
    清理临时资产，生成更新清单并发布 GitHub 正式版。
-6. 本地脚本下载 Windows NSIS、独立签名向导、应用载荷 ZIP 和 macOS 双架构包及各自的更新签名，核对 GitHub 摘要，再上传 Fusion。
+6. 本地脚本下载 Windows NSIS、独立签名向导、应用载荷 ZIP、Win7 x64/x86、macOS 与 Linux 双架构包及各自的更新签名，核对 GitHub 摘要，再上传 Fusion。
 7. 所有制品经 Fusion 验签成为 `ready` 后，正式发布并回读更新接口；回读检查同发布版本和摘要，避免将旧版本继承的强制更新策略误判为当前版本配置。
 
 安装包和最终记录保留在 `artifacts/release-<版本>/`，这个目录不进入 Git。

@@ -112,7 +112,7 @@ async function startOrResume(version) {
 async function waitForRelease(version, runId) {
   console.log(`[release] https://github.com/${REPO}/actions/runs/${runId}`)
   let lastStatus = ""
-  // 成功发布后不等待非必需的 Linux ARM64 后续任务。
+  // 远程发布门禁统一要求本次全部桌面平台通过。
   while (!findRelease(version)) {
     const run = github(`repos/${REPO}/actions/runs/${runId}`)
     if (run.status === "completed" && run.conclusion !== "success")
@@ -171,7 +171,7 @@ async function main() {
     )
   }
   console.log(
-    `[release] ${version}: Windows x64, macOS x64/ARM64; Fusion 1% optional rollout`
+    `[release] ${version}: Windows x64, Win7 x64/x86, macOS and Linux x64/ARM64; Fusion 1% optional rollout`
   )
   if (args.includes("--check")) return
   if (!findRelease(version))

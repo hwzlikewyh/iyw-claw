@@ -9,14 +9,17 @@ import {
 
 const UPLOAD_TIMEOUT = 20 * 60 * 1000
 const ROLLOUT_PERCENT = 1
-// 由 release.yml 的桌面构建矩阵决定；Windows x86 与 Linux 桌面构建已暂停，
-// 不能再作为 Fusion 的必需制品，否则会因缺少 AppImage 而整体阻塞发布。
+// 与正式发布矩阵一致，所有目标均上传已签名的专用制品。
 const PLATFORMS = [
   ["windows", "x86_64", "nsis", "x64-setup.exe"],
   ["windows", "x86_64", "app_payload_zip", "x64-app-payload.zip"],
   ["windows", "x86_64", "bootstrapper", "x64-bootstrapper.exe"],
+  ["windows7", "x86_64", "nsis", "win7-x64-setup.exe"],
+  ["windows7", "i686", "nsis", "win7-x86-setup.exe"],
   ["darwin", "x86_64", "app_tar_gz", "x64.app.tar.gz"],
   ["darwin", "aarch64", "app_tar_gz", "aarch64.app.tar.gz"],
+  ["linux", "x86_64", "appimage", "amd64.AppImage"],
+  ["linux", "aarch64", "appimage", "arm64.AppImage"],
 ]
 
 export function releasePolicy(version, notes) {
