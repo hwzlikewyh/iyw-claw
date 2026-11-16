@@ -123,6 +123,12 @@ GitHub Release 安装器分别为 `iyw-claw_<版本>_win7-x64-setup.exe` 与
 
 ## 已解决的编译缺口
 
+- 正式发布的 `--compile-only` 阶段直接执行 nightly Cargo 和
+  `-Z build-std=std,panic_abort`，避免 Tauri CLI 2.11.4 在 Cargo 启动前通过
+  `rustup target list` 拒绝没有预编译标准库的 Win7 目标。
+  同时显式启用 `tauri/custom-protocol`、静态 CRT，并通过 `TAURI_CONFIG`
+  传递固定 Runtime 109 与 compile-only 配置；复用已下载的前端产物。
+  后续仍由 `tauri bundle` 封装，不用普通 Windows 目标替代 Win7 目标。
 - indexmap 1 的自动 std 探测不适用于无预编译标准库的目标，Win7 显式启用已有 `std` feature。
 - windows-link 0.1.3/0.2.1 在 Win7 的经典 COM 函数重定向到 `ole32.dll`，其余平台沿用上游绑定；
   WinRT activation、MTA usage 和 capability SID 的可选入口动态解析，缺失返回失败，

@@ -123,9 +123,9 @@ function runStep(step, env) {
       "[desktop-build] the final iyw_claw codegen/link unit may take several minutes"
     )
   }
-  const result = spawnSync(process.execPath, step.args, {
+  const result = spawnSync(step.command ?? process.execPath, step.args, {
     cwd: REPO_ROOT,
-    env,
+    env: { ...env, ...step.env },
     stdio: "inherit",
   })
   if (result.error) {

@@ -234,24 +234,58 @@ function windowsBuildArgs(tauriCli, options, target, signingConfigPath) {
   return args
 }
 
+export function win7CompileStep(target, webview) {
+  // Tauri CLI 在 Cargo 启动前拒绝无预编译标准库的 Win7 目标。
+  return {
+    label: "release compile only",
+    command: "cargo",
+    args: [
+      "build",
+      "--manifest-path",
+      join(ROOT, "src-tauri", "Cargo.toml"),
+      "--release",
+      "--target",
+      target,
+      "--features",
+      "tauri-runtime,tauri/custom-protocol",
+      "--bin",
+      "iyw-claw",
+      "-Z",
+      "build-std=std,panic_abort",
+      "--timings",
+    ],
+    env: {
+      STATIC_VCRUNTIME: "true",
+      TAURI_CONFIG: JSON.stringify({
+        build: { beforeBuildCommand: null },
+        bundle: { resources: null, ...webview?.bundle },
+      }),
+    },
+  }
+}
+
 export function createWindowsBuildPlan(tauriCli, options, signingConfigPath) {
   const target = resolveWindowsTarget()
   const env = windowsBuildEnvironment(target)
   if (options.noSign) env.IYW_SHARE_UNSIGNED = "1"
   if (options.jobs) env.CARGO_BUILD_JOBS = String(options.jobs)
+  const compileStep =
+    isWin7Target(target) && options.compileOnly
+      ? win7CompileStep(target, win7WebviewConfig(target))
+      : {
+          label: options.compileOnly
+            ? "release compile only"
+            : options.bundleOnly
+              ? "NSIS bundle"
+              : "release build and bundle",
+          args: windowsBuildArgs(tauriCli, options, target, signingConfigPath),
+        }
   return {
     env,
     steps: [
       scriptStep("prepare-sidecars", target),
       scriptStep("prepare-xinghe-worker", target),
-      {
-        label: options.compileOnly
-          ? "release compile only"
-          : options.bundleOnly
-            ? "NSIS bundle"
-            : "release build and bundle",
-        args: windowsBuildArgs(tauriCli, options, target, signingConfigPath),
-      },
+      compileStep,
       scriptStep("verify-xinghe-worker-bundle", target),
     ],
   }
