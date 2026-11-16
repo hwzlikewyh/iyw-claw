@@ -238,17 +238,18 @@ async fn load_or_download(task: &Task, update: &mut Update) -> Result<Vec<u8>, S
     if let Some(bytes) = desktop_cache::load(&task.app, update).await? {
         return Ok(bytes);
     }
-    let access_token = crate::commands::iyw_account::iyw_account_access_token_core(&task.conn)
+    if let Some(access_token) = crate::commands::iyw_account::iyw_account_access_token_core(&task.conn)
         .await
         .map_err(|error| error.to_string())?
-        .ok_or_else(|| "Sign in to download the update".to_string())?;
-    update.headers.insert(
-        "token",
-        access_token
-            .expose()
-            .parse()
-            .map_err(|_| "Invalid update authorization header")?,
-    );
+    {
+        update.headers.insert(
+            "token",
+            access_token
+                .expose()
+                .parse()
+                .map_err(|_| "Invalid update authorization header")?,
+        );
+    }
     state::set_download_target(&task.handle, &task.emitter(), update.version.clone());
     let progress = state::ProgressEmitter::new(task.handle.clone(), task.emitter());
     let mut downloaded = 0_u64;
