@@ -1,9 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { PackageCheck, X } from "lucide-react"
+import { PackageCheck } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { AgentTargets } from "@/components/skills/market/install-agent-targets"
 import {
   BusyPanel,
@@ -28,6 +34,16 @@ type InstallAction = ReturnType<typeof installErrorAction> | null
 
 export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
   const panel = useInstallPanelState(props)
+  const { status, errorCode, plan } = panel.session
+  useEffect(() => {
+    if (status !== "idle")
+      console.info("[SkillMarketInstallPanel] State changed", {
+        status,
+        errorCode,
+        skillId: plan?.targetSkillId,
+        version: plan?.targetVersion,
+      })
+  }, [status, errorCode, plan])
   if (panel.session.status === "idle") return null
   return <InstallPanelDialog target={props.pendingTarget} panel={panel} />
 }
@@ -87,17 +103,20 @@ function InstallPanelDialog({
   target: SkillMarketInstallPanelProps["pendingTarget"]
   panel: InstallPanelState
 }) {
-  const t = useTranslations("SkillMarketV2")
-
+  const canClose = !["resolving", "running"].includes(panel.session.status)
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/25 p-4 backdrop-blur-[1px] sm:items-center">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("install.title")}
-        className="w-full max-w-xl rounded-lg border bg-background shadow-2xl"
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && canClose) panel.close()
+      }}
+    >
+      <DialogContent
+        className="w-full max-w-xl gap-0 overflow-y-auto rounded-lg p-0"
+        showCloseButton={canClose}
+        onInteractOutside={(event) => event.preventDefault()}
       >
-        <InstallPanelHeader target={target} panel={panel} />
+        <InstallPanelHeader target={target} />
         <InstallPanelBody
           session={panel.session}
           selected={panel.selected}
@@ -108,44 +127,30 @@ function InstallPanelDialog({
           onClose={panel.close}
           onOpenConnectors={panel.openConnectors}
         />
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function InstallPanelHeader({
   target,
-  panel,
 }: {
   target: SkillMarketInstallPanelProps["pendingTarget"]
-  panel: InstallPanelState
 }) {
   const t = useTranslations("SkillMarketV2")
-  const canClose = !["resolving", "running"].includes(panel.session.status)
   return (
-    <div className="flex items-start gap-3 border-b px-4 py-3">
+    <div className="flex items-start gap-3 border-b px-4 py-3 pr-14">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
         <PackageCheck className="size-4" aria-hidden="true" />
       </span>
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-sm font-semibold">
+        <DialogTitle className="truncate text-sm font-semibold">
           {target?.name ?? t("install.title")}
-        </h3>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        </DialogTitle>
+        <DialogDescription className="mt-0.5 text-[11px] text-muted-foreground">
           {target ? `v${target.version}` : ""}
-        </p>
+        </DialogDescription>
       </div>
-      {canClose ? (
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={t("install.close")}
-          title={t("install.close")}
-          onClick={panel.close}
-        >
-          <X className="size-3.5" aria-hidden="true" />
-        </Button>
-      ) : null}
     </div>
   )
 }
