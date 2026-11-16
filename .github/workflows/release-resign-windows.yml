@@ -169,6 +169,14 @@ jobs:
           CLICOLOR_FORCE: "0"
           TERM: dumb
         run: ./.verification-tools/.github/scripts/release/verify-direct-release.ps1 -Scenario Fresh
+      - name: Report installer diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $root=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw/logs'
+          Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object Name -in 'installer-error.log','last-error.log','environment-prepare.log.stderr' |
+            ForEach-Object { Write-Output $_.Name; Get-Content -LiteralPath $_.FullName -Tail 80 }
   verify-direct-legacy:
     needs: [resolve, sign]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
@@ -194,6 +202,14 @@ jobs:
           CLICOLOR_FORCE: "0"
           TERM: dumb
         run: ./.verification-tools/.github/scripts/release/verify-direct-release.ps1 -Scenario Legacy
+      - name: Report installer diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $root=Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw/logs'
+          Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object Name -in 'installer-error.log','last-error.log','environment-prepare.log.stderr' |
+            ForEach-Object { Write-Output $_.Name; Get-Content -LiteralPath $_.FullName -Tail 80 }
   publish:
     needs: [resolve, sign, verify-direct-fresh, verify-direct-legacy]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.verify-direct-fresh.result == 'success' && needs.verify-direct-legacy.result == 'success' }}
