@@ -10,7 +10,7 @@ on:
       release_tag:
         description: Existing installer release tag to update
         required: true
-        default: v0.2.2
+        default: v0.2.4
         type: string
 
 permissions:
@@ -46,16 +46,15 @@ jobs:
         run: |
           if ($env:INSTALLER_SOURCE -notmatch '^[a-fA-F0-9]{40}$') { throw 'Use an exact installer commit' }
           if ($env:INSTALLER_TAG -notmatch '^v0\.2\.\d+$') { throw 'This workflow signs the direct installer 0.2 release line' }
-          $json = gh release view $env:INSTALLER_TAG --repo hwzlikewyh/iyw-claw-installer --json isDraft,targetCommitish
-          if ($LASTEXITCODE -ne 0) { throw 'Installer draft lookup failed' }
-          $env:GH_FORCE_TTY = '0'
-          $env:CLICOLOR_FORCE = '0'
-          $env:TERM = 'dumb'
-          $ansiPattern = [string][char]27 + [regex]::Escape('[') + '[0-?]*[ -/]*[@-~]'
-          $plain = [regex]::Replace(($json -join "`n"), $ansiPattern, '')
-          $release = $plain | ConvertFrom-Json
-          if (-not $release.isDraft) { throw 'Sign a draft release; published installers are immutable' }
-          if ($release.targetCommitish -ne $env:INSTALLER_SOURCE) { throw 'Draft release is bound to a different installer commit' }
+          if ($env:INSTALLER_SOURCE -notmatch '^[a-fA-F0-9]{40}$') { throw 'Use an exact installer commit' }
+          if ($env:INSTALLER_TAG -notmatch '^v0\.2\.\d+$') { throw 'This workflow signs the direct installer 0.2 release line' }
+                    $draft = gh release view $env:INSTALLER_TAG --repo hwzlikewyh/iyw-claw-installer --json isDraft --jq .isDraft
+                    if ($LASTEXITCODE -ne 0 -or $draft.Trim() -ne 'true') { throw 'Sign a published draft; published installers are immutable' }
+                    $type = gh api "repos/hwzlikewyh/iyw-claw-installer/git/ref/tags/$env:INSTALLER_TAG" --jq .object.type
+                    $hash = gh api "repos/hwzlikewyh/iyw-claw-installer/git/ref/tags/$env:INSTALLER_TAG" --jq .object.sha
+                    if ($LASTEXITCODE -ne 0) { throw 'Installer tag lookup failed' }
+                    if ($type.Trim() -eq 'tag') { $hash = gh api "repos/hwzlikewyh/iyw-claw-installer/git/tags/$($hash.Trim())" --jq .object.sha }
+                    if ($LASTEXITCODE -ne 0 -or $hash.Trim() -ne $env:INSTALLER_SOURCE) { throw 'Installer tag is bound to a different source commit' }
       - name: Checkout installer source
         uses: actions/checkout@v4
         with:

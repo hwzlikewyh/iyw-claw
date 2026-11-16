@@ -143,7 +143,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
-        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.3
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.4
       - name: Repackage and sign existing executable without compiling
         if: ${{ !inputs.refresh_bootstrapper }}
         shell: pwsh
@@ -228,6 +228,7 @@ jobs:
             ForEach-Object { Write-Output $_.Name; Get-Content -LiteralPath $_.FullName -Tail 80 }
   publish:
     needs: [resolve, sign, verify-direct-fresh, verify-direct-legacy]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') && needs.verify-direct-fresh.result == 'success' && needs.verify-direct-legacy.result == 'success' }}
     if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.verify-direct-fresh.result == 'success' && needs.verify-direct-legacy.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 120
