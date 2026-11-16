@@ -21,6 +21,16 @@ import {
 } from "@/lib/transport"
 
 const serverTransport = () => null
+const GOOD_LATENCY_LIMIT_MS = 200
+const SLOW_LATENCY_LIMIT_MS = 500
+
+function getLatencyColor(value: number | undefined, failed: boolean) {
+  if (failed) return "text-red-700 dark:text-red-400"
+  if (value === undefined) return "text-muted-foreground"
+  if (value < GOOD_LATENCY_LIMIT_MS) return "text-green-700 dark:text-green-400"
+  if (value < SLOW_LATENCY_LIMIT_MS) return "text-amber-700 dark:text-amber-400"
+  return "text-red-700 dark:text-red-400"
+}
 
 export function NetworkStatusBar() {
   const [open, setOpen] = useState(false)
@@ -59,11 +69,14 @@ function NetworkStatusPopover({
 }) {
   const t = useTranslations("NetworkDiagnostics")
   const latency = props.test.outcomes.latency
-  const latencyValue = latency?.result?.elapsed_ms
+  const latencyValue = latency?.result
+    ? Math.round(latency.result.elapsed_ms)
+    : undefined
   const label =
     latencyValue !== undefined
-      ? t("latencyValue", { value: Math.round(latencyValue) })
-      : t(latency?.error ? "failed" : "latencySampling")
+      ? `${latencyValue} ms`
+      : t(latency?.error ? "failed" : "sampling")
+  const color = getLatencyColor(latencyValue, Boolean(latency?.error))
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
@@ -73,10 +86,9 @@ function NetworkStatusPopover({
             network: t(remote ? "serverNetwork" : "localNetwork"),
           })}
           aria-busy={props.test.phase !== null}
-          className="flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1 tabular-nums hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex h-6 shrink-0 items-center rounded-sm px-1 tabular-nums hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
         >
-          <span>{t(remote ? "serverNetwork" : "localNetwork")}</span>
-          <span>{label}</span>
+          <span className={color}>{label}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
