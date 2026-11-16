@@ -71,8 +71,10 @@ function validatePlan(plan, target, arch) {
         (url.hostname.includes(".tos-") && url.hostname.endsWith(".volces.com"))
     )
   }
-  for (const id of required)
-    assert.ok(seen.has(id), `missing required component: ${id}`)
+  if (target !== "windows7") {
+    for (const id of required)
+      assert.ok(seen.has(id), `missing required component: ${id}`)
+  }
   return [...seen].join(", ")
 }
 

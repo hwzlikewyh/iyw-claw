@@ -21,6 +21,9 @@ pub async fn lock_writer() -> tokio::sync::MutexGuard<'static, ()> {
 }
 
 pub fn components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
+    if crate::distribution_platform::TARGET == "windows7" {
+        return false;
+    }
     #[cfg(feature = "tauri-runtime")]
     let browser_enabled = crate::preferences::load().full_browser_enabled;
     #[cfg(not(feature = "tauri-runtime"))]
@@ -36,6 +39,9 @@ pub fn components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
 }
 
 fn core_components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
+    if crate::distribution_platform::TARGET == "windows7" {
+        return false;
+    }
     ["node", "git", "uv"].iter().any(|component_id| {
         report
             .components

@@ -199,7 +199,7 @@ fn validate_plan(
         || plan.pc_version != app_version
         || plan.target != target
         || plan.arch != arch
-        || plan.actions.is_empty()
+        || (plan.actions.is_empty() && plan.target != "windows7")
     {
         bail!("Fusion environment plan does not match this installation")
     }

@@ -74,7 +74,8 @@ assert.ok(
 for (const binding of result.bindings) {
   assert.ok(binding.status === "created" || binding.status === "reused")
   assert.ok(
-    Number.isInteger(binding.componentCount) && binding.componentCount >= 5
+    Number.isInteger(binding.componentCount) &&
+      (binding.target === "windows7" || binding.componentCount >= 5)
   )
   console.log(
     `[environment-binding] ${version} ${binding.target}/${binding.arch}: ${binding.status} (${binding.componentCount} components)`
