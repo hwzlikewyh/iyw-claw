@@ -251,7 +251,8 @@ async function verifyUpdateCatalog(api, release, inputs) {
         `published release update check failed: ${input.target}/${input.arch}`
       )
     }
-    if (await api(`${route}/${release.version}?reason=manual`))
+    const current = await api(`${route}/${release.version}?reason=manual`)
+    if (current && Object.keys(current).length > 0)
       throw new Error("current version unexpectedly receives an update")
   }
 }

@@ -49,6 +49,7 @@ export async function connectFusion(environment = process.env) {
       token,
       "admin-token": admin,
       "X-IYW-Admin-Actor": "desktop-release-script",
+      "X-IYW-Installation-ID": "desktop-release-verification",
     }
     try {
       await fetchJson(`${BASE}/admin/api/app-releases?pageSize=1`, { headers })
