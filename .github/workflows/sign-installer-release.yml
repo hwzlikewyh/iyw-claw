@@ -10,7 +10,7 @@ on:
       release_tag:
         description: Existing installer release tag to update
         required: true
-        default: v0.2.4
+        default: v0.2.3
         type: string
 
 permissions:
