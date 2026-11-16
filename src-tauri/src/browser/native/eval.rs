@@ -187,7 +187,7 @@ fn evaluate(
         return Err("Browser operation cancelled".into());
     }
     use tauri_runtime_wry::wry::WebViewExtUnix;
-    use webkit2gtk::prelude::WebViewExt;
+    use webkit2gtk::WebViewExt;
     view.webview().call_async_javascript_function(
         &format!("return JSON.stringify(await ({expression}))"),
         None,

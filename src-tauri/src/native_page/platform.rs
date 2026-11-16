@@ -56,7 +56,7 @@ pub(crate) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 pub(crate) fn history(view: &WebView) -> (bool, bool) {
     use tauri_runtime_wry::wry::WebViewExtUnix;
-    use webkit2gtk::prelude::WebViewExt;
+    use webkit2gtk::WebViewExt;
     let wk = view.webview();
     (wk.can_go_back(), wk.can_go_forward())
 }
@@ -64,7 +64,7 @@ pub(crate) fn history(view: &WebView) -> (bool, bool) {
 #[cfg(target_os = "linux")]
 pub(crate) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
     use tauri_runtime_wry::wry::WebViewExtUnix;
-    use webkit2gtk::prelude::WebViewExt;
+    use webkit2gtk::WebViewExt;
     let wk = view.webview();
     match action {
         "back" => wk.go_back(),

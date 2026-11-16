@@ -126,7 +126,7 @@ fn platform_capture(view: &WebView, done: BytesCallback) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 fn platform_capture(view: &WebView, done: BytesCallback) -> Result<(), String> {
     use tauri_runtime_wry::wry::WebViewExtUnix;
-    use webkit2gtk::{prelude::WebViewExt, SnapshotOptions, SnapshotRegion};
+    use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
     view.webview().snapshot(
         SnapshotRegion::Visible,
         SnapshotOptions::NONE,
