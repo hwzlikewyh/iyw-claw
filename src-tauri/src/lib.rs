@@ -137,6 +137,26 @@ mod tauri_app {
         tauri::WebviewUrl::App(path.into())
     }
 
+    #[cfg(target_os = "windows")]
+    fn set_app_user_model_id() {
+        const APP_USER_MODEL_ID: &str = "app.iywclaw";
+        let app_id = APP_USER_MODEL_ID
+            .encode_utf16()
+            .chain([0])
+            .collect::<Vec<_>>();
+        // SAFETY: app_id is NUL-terminated and remains alive for this call.
+        let result = unsafe {
+            windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr())
+        };
+        if result < 0 {
+            tracing::warn!(
+                target: "iyw_claw_startup",
+                hresult = result,
+                "failed to set Windows AppUserModelID"
+            );
+        }
+    }
+
     fn summarize_web_auto_start_error(err: &crate::app_error::AppCommandError) -> String {
         match err
             .detail
@@ -221,6 +241,10 @@ mod tauri_app {
         let logging_stage = crate::logging::emergency::StartupStage::new("logging-init");
         let _log_guard = crate::logging::init::init_desktop();
         logging_stage.complete();
+
+        #[cfg(target_os = "windows")]
+        set_app_user_model_id();
+
         tracing::info!(
             target: "iyw_claw_startup",
             event = "process_context",
