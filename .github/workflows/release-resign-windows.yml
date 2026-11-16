@@ -102,7 +102,7 @@ jobs:
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
-      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
+      NO_PROXY: localhost,127.0.0.1,api.github.com
     steps:
       - uses: actions/checkout@v4
         with:

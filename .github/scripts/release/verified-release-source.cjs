@@ -9,6 +9,7 @@ module.exports = async function validateSource({ github, repo, run, source, tagg
   });
   const allowed = (file) => file.startsWith('.github/workflows/')
     || file.startsWith('.github/scripts/release/')
+    || file === 'docs/release-desktop.md'
     || file === 'src-tauri/scripts/finalize-staged-windows.mjs';
   if (data.status !== 'ahead' || !Array.isArray(data.files)
     || data.files.length >= 300 || data.total_commits !== data.commits?.length

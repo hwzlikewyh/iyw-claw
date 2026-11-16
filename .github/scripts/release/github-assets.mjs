@@ -8,6 +8,9 @@ const COMMAND_TIMEOUT = 20 * 60 * 1000
 const DOWNLOAD_TIMEOUT = 5 * 60 * 1000
 const DOWNLOAD_ATTEMPTS = 3
 const DOWNLOAD_RETRY_DELAY = 5000
+const UPLOAD_TIMEOUT = 5 * 60 * 1000
+const UPLOAD_ATTEMPTS = 3
+const UPLOAD_RETRY_DELAY = 5000
 
 export function gh(args, options = {}) {
   return execFileSync("gh", args, {
@@ -33,8 +36,8 @@ export function gh(args, options = {}) {
   })
 }
 
-export function github(path, args = []) {
-  const text = gh(["api", path, ...args])
+export function github(path, args = [], options = {}) {
+  const text = gh(["api", path, ...args], options)
   // `gh` on a Windows runner can emit a UTF-8 BOM. `String.trim()` does not
   // strip U+FEFF, so JSON.parse used to fail with
   // `Unexpected token '\ufeff', "{"... is not valid JSON` on the very first
@@ -91,11 +94,9 @@ export function requireReleaseSource({ repo, releaseId, tag, sourceRef }) {
   return release
 }
 
-export async function uploadDraftFile(context, path) {
+function uploadDraftAttempt(context, path, expected) {
   const release = requireDraft(context)
-  const name = basename(path)
-  const size = statSync(path).size
-  const digest = `sha256:${await sha256(path)}`
+  const { name, size, digest } = expected
   const existing = release.assets.filter((asset) => asset.name === name)
   if (existing.length > 1) throw new Error(`duplicate release asset: ${name}`)
   if (existing[0]?.digest === digest && existing[0].size === size)
@@ -106,14 +107,15 @@ export async function uploadDraftFile(context, path) {
       "DELETE",
     ])
   const endpoint = `https://uploads.github.com/repos/${context.repo}/releases/${context.releaseId}/assets?name=${encodeURIComponent(name)}`
-  const asset = github(endpoint, [
-    "--method",
-    "POST",
-    "--header",
-    "Content-Type: application/octet-stream",
-    "--input",
-    path,
-  ])
+  const asset = github(
+    endpoint,
+    [
+      "--method", "POST",
+      "--header", "Content-Type: application/octet-stream",
+      "--input", path,
+    ],
+    { timeout: UPLOAD_TIMEOUT }
+  )
   if (
     asset.state !== "uploaded" ||
     asset.digest !== digest ||
@@ -122,6 +124,35 @@ export async function uploadDraftFile(context, path) {
     throw new Error(`uploaded GitHub asset does not match local bytes: ${name}`)
   }
   return asset
+}
+
+export async function uploadDraftFile(context, path) {
+  const expected = {
+    name: basename(path),
+    size: statSync(path).size,
+    digest: `sha256:${await sha256(path)}`,
+  }
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      console.log(
+        `[release-assets] upload ${expected.name}; attempt=${attempt}/${UPLOAD_ATTEMPTS}`
+      )
+      return uploadDraftAttempt(context, path, expected)
+    } catch (error) {
+      // 上传后连接断开时，以服务器回读摘要判断是否已完成，避免重复传输。
+      const assets = requireDraft(context).assets.filter(
+        (asset) => asset.name === expected.name
+      )
+      if (
+        assets.length === 1 && assets[0].state === "uploaded" &&
+        assets[0].size === expected.size && assets[0].digest === expected.digest
+      )
+        return assets[0]
+      if (attempt === UPLOAD_ATTEMPTS) throw error
+      console.warn(`[release-assets] upload incomplete for ${expected.name}; retrying`)
+      await delay(UPLOAD_RETRY_DELAY)
+    }
+  }
 }
 
 export async function downloadReleaseFile(context, asset, directory) {
