@@ -206,6 +206,7 @@ impl BrowserSessionManager {
     }
 
     pub(crate) async fn finish_agent_turn(&self, connection_id: &str, turn_generation: i64) {
+        self.obscura.finish(connection_id, Some(turn_generation)).await;
         let tabs = self
             .agent_turn_leases
             .release_turn(connection_id, turn_generation)
@@ -214,6 +215,7 @@ impl BrowserSessionManager {
     }
 
     pub(crate) async fn finish_agent_connection(&self, connection_id: &str) {
+        self.obscura.finish(connection_id, None).await;
         let tabs = self
             .agent_turn_leases
             .release_connection(connection_id)

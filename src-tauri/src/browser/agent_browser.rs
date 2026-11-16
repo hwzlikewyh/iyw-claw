@@ -16,6 +16,9 @@ impl BrowserSessionManager {
         self.ensure_managed_browser_enabled()?;
         let action = browser_action(input)?;
         let input = managed_input(&action, input)?;
+        if let Some(result) = self.try_obscura(context, &action, &input).await? {
+            return Ok(result);
+        }
         let mut result = self.run_managed_action(context, &action, &input).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("provider".into(), Value::String("managed".into()));
@@ -23,7 +26,7 @@ impl BrowserSessionManager {
         Ok(result)
     }
 
-    async fn run_managed_action(
+    pub(super) async fn run_managed_action(
         &self,
         context: AgentToolContext<'_>,
         action: &str,

@@ -1,6 +1,11 @@
 # Agent 浏览器调用
 
-桌面版使用统一的内置浏览器工具。默认轻量 WebView；用户在设置中开启完整浏览器，
+桌面版使用统一的浏览器工具。新的后台任务优先使用直接链接到主程序的 Obscura，
+适用的失败再回退内置浏览器；已有内置标签保持原路径。回退会重新打开 URL 并返回
+新标签 ID，不迁移登录和页内状态，不重放结果不明的交互。范围与验收见
+[主程序内嵌 Obscura](obscura-browser.md)。
+
+内置浏览器默认轻量 WebView；用户在设置中开启完整浏览器，
 并安装、校验完整组件后，程序使用 Chromix。Agent 不选择、安装或启动另一套内核。
 设置、切换和平台能力见 [双内核浏览器](browser-engines.md)。
 
@@ -8,7 +13,7 @@
 
 内置 HTTP MCP 网关 → delegation listener → BrowserSessionManager → 当前活动内核。
 旧 browser_* 兼容工具和 browser(action=...) 进入同一管理器。鉴权、回合租约、取消、
-控制权、标签身份和人工接管沿用现有路径。用户界面显示 Agent 正在操作的原标签，
+控制权、标签身份和人工接管沿用现有路径。内置浏览器的用户界面显示 Agent 正在操作的原标签，
 present 迁移原页面，不通过重新打开 URL 展示另一份页面。
 
 流程：list_tabs → open → read/snapshot → click/fill/press/scroll/wait/advanced →
@@ -27,7 +32,8 @@ present 迁移原页面，不通过重新打开 URL 展示另一份页面。
 
 ## 展示与人工接管
 
-present 展示当前原页面。request_user_action 只用于用户凭据、MFA/OTP、验证码、
+内置标签的 present 展示当前原页面；Obscura 标签则先在内置浏览器重新打开 URL，
+以回退结果中的新 ID 为准。request_user_action 只用于用户凭据、MFA/OTP、验证码、
 设备批准、支付确认、确实无法自动完成的交互或明确的最终人工复核。普通定位失败、
 页面慢或读取问题应先使用有界等待及一次快照恢复。接管完成后重新读取并验证结果。
 

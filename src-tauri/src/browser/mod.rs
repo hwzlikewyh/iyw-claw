@@ -70,6 +70,8 @@ mod manager_recovery;
 mod manager_runtime;
 #[cfg(feature = "tauri-runtime")]
 mod native;
+#[cfg(feature = "tauri-runtime")]
+mod obscura;
 #[path = "opencli/doctor.rs"]
 mod opencli_doctor;
 mod opencli_failure;
