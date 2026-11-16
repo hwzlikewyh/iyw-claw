@@ -1,0 +1,47 @@
+name: Repair Windows 7 Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing draft version without v
+        required: true
+        type: string
+      source_ref:
+        description: Exact application source commit bound to the draft
+        required: true
+        type: string
+      release_id:
+        description: Existing draft release ID
+        required: true
+        type: string
+      frontend_run_id:
+        description: Original release run containing the matching frontend
+        required: true
+        type: string
+      target:
+        required: true
+        default: i686-win7-windows-msvc
+        type: choice
+        options:
+          - i686-win7-windows-msvc
+          - x86_64-win7-windows-msvc
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: repair-win7-${{ inputs.version }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    uses: ./.github/workflows/release-windows-staged.yml
+    with:
+      target: ${{ inputs.target }}
+      source_ref: ${{ inputs.source_ref }}
+      release_id: ${{ inputs.release_id }}
+      release_tag: v${{ inputs.version }}
+      frontend_run_id: ${{ inputs.frontend_run_id }}
+    secrets: inherit

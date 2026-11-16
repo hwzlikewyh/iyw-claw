@@ -21,11 +21,16 @@ on:
         required: false
         default: release-frontend-out
         type: string
+      frontend_run_id:
+        required: false
+        default: ""
+        type: string
 env:
   TAURI_TARGET_TRIPLE: ${{ inputs.target }}
   SOURCE_REF: ${{ inputs.source_ref }}
   RELEASE_ID: ${{ inputs.release_id }}
   RELEASE_TAG: ${{ inputs.release_tag }}
+  FRONTEND_RUN_ID: ${{ inputs.frontend_run_id }}
 jobs:
   build:
     runs-on: windows-2022
@@ -70,6 +75,14 @@ jobs:
           script: |
             const { assertBuildContext } = require('./.release-tools/.github/scripts/release/release-context.cjs');
             await assertBuildContext({github,repository:context.repo,tag:process.env.RELEASE_TAG,releaseId:process.env.RELEASE_ID,sourceRef:process.env.SOURCE_REF});
+            if (process.env.FRONTEND_RUN_ID) {
+              const run_id = Number(process.env.FRONTEND_RUN_ID);
+              if (!Number.isSafeInteger(run_id) || run_id <= 0) throw new Error('Invalid frontend run ID');
+              const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo,run_id});
+              if (run.path !== '.github/workflows/release.yml' || run.display_title !== `Release ${process.env.RELEASE_TAG}`) throw new Error('Frontend run does not match the release');
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id,per_page:100});
+              if (!jobs.some(job => job.name === 'prepare-frontend' && job.conclusion === 'success')) throw new Error('Matching frontend build has not succeeded');
+            }
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -134,6 +147,8 @@ jobs:
         with:
           name: ${{ inputs.frontend_artifact }}
           path: out
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.frontend_run_id || github.run_id }}
       - name: Stage sidecars
         run: pnpm tauri:prepare-sidecars --target $env:TAURI_TARGET_TRIPLE
       - name: Stage verified WebView2 Runtime
@@ -162,6 +177,11 @@ jobs:
       - name: Prepare legacy worker
         if: ${{ (!inputs.parallel_worker || contains(inputs.target, '-win7-')) && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
         run: pnpm tauri:prepare-xinghe-worker --target $env:TAURI_TARGET_TRIPLE
+      - name: Prepare pinned MXC SDK for Win7 x86
+        if: inputs.target == 'i686-win7-windows-msvc'
+        run: |
+          node .release-tools/.github/scripts/release/prepare-mxc-win32.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Win7 x86 SDK compatibility preparation failed' }
       - name: Compile unsigned application only
         if: ${{ !inputs.parallel_worker || contains(inputs.target, '-win7-') }}
         env:

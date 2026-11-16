@@ -123,6 +123,12 @@ GitHub Release 安装器分别为 `iyw-claw_<版本>_win7-x64-setup.exe` 与
 
 ## 已解决的编译缺口
 
+- `mxc-sdk` 固定版本在 Win7 x86 的两处 `SHELLEXECUTEINFOW.hProcess` 检查会触发
+  E0793。`prepare-mxc-win32.mjs` 仅在隔离的 GitHub hosted x86 构建中应用修正：
+  先核对 SDK 提交与两份源文件摘要，再把句柄复制到局部变量后检查并交给原有所有权包装。
+  重复准备可复用已修复内容，SDK 版本或源码不匹配时停止；不修改开发机共享 Cargo 缓存。
+  `Repair Windows 7 Release` 可用相同源码、草稿 ID 和原前端 run 单独重建失败架构，
+  编译后的签名输入仍走原有摘要与硬件签名校验。
 - 正式发布的 `--compile-only` 阶段直接执行 nightly Cargo 和
   `-Z build-std=std,panic_abort`，避免 Tauri CLI 2.11.4 在 Cargo 启动前通过
   `rustup target list` 拒绝没有预编译标准库的 Win7 目标。
