@@ -27,7 +27,7 @@ ID均为字符串；folderId／fileId是业务ID，不能填文件名、文档do
 
 ### 2. 选择已有上传路径
 
-**原助理内的资料库上传**优先使用现有客户端上传器：浏览器／桌面向宿主暂存分块，宿主取得受限STS并上传，再注册文件。STS不进入模型上下文；详细命令见[宿主上传](knowledge-host-integration.md)。
+**原助理内的知识库上传**优先使用现有客户端上传器：浏览器／桌面向宿主暂存分块，宿主取得受限STS并上传，再注册文件。STS不进入模型上下文；详细命令见[宿主上传](knowledge-host-integration.md)。
 
 **Agent已有可读URL路径**：通用upload_iyw_file可把本地文件变成受支持URL，但它不创建知识库记录。需再调用files/create，提供真实fileUrl／uri／tosUrl至少一项，遵守更小的知识库格式限制。
 

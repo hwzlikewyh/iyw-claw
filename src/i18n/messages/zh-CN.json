@@ -38,8 +38,8 @@
     "busyDraft": "请等待附件处理或消息发送完成，并保存消息编辑后再移动会话。"
   },
   "Library": {
-    "title": "资料库",
-    "categories": "资料库分类",
+    "title": "知识库",
+    "categories": "知识库分类",
     "knowledge": "知识库",
     "customers": "客户库",
     "folders": "文件夹",
@@ -48,10 +48,10 @@
     "chooseFolder": "选择文件夹",
     "expandFolder": "展开 {name}",
     "collapseFolder": "收起 {name}",
-    "loading": "正在加载资料库…",
+    "loading": "正在加载知识库…",
     "retry": "重试",
     "refresh": "刷新",
-    "loginRequired": "请通过左下角账号入口登录并选择企业空间后使用资料库。",
+    "loginRequired": "请通过左下角账号入口登录并选择企业空间后使用知识库。",
     "emptyLibrary": "当前库暂无可用文件夹。",
     "emptyFolder": "当前文件夹还没有文件",
     "uploadFirst": "上传资料后，文件会显示在这里。",
@@ -2948,7 +2948,7 @@
       "automations": "定时任务",
       "skillsMarket": "能力市场",
       "resources": "资源区",
-      "library": "资料库",
+      "library": "知识库",
       "loadingSubsessions": "正在加载子会话…"
     },
     "conversation": {

@@ -38,8 +38,8 @@
     "busyDraft": "Wait for attachments or sending to finish, and save message edits before moving the conversation."
   },
   "Library": {
-    "title": "Library",
-    "categories": "Library categories",
+    "title": "Knowledge base",
+    "categories": "Knowledge base categories",
     "knowledge": "Knowledge base",
     "customers": "Customer library",
     "folders": "Folders",
@@ -48,11 +48,11 @@
     "chooseFolder": "Choose a folder",
     "expandFolder": "Expand {name}",
     "collapseFolder": "Collapse {name}",
-    "loading": "Loading library…",
+    "loading": "Loading knowledge base…",
     "retry": "Retry",
     "refresh": "Refresh",
     "loginRequired": "Sign in and choose a workspace using the account menu at the bottom left.",
-    "emptyLibrary": "No folders are available in this library.",
+    "emptyLibrary": "No folders are available in this knowledge base.",
     "emptyFolder": "This folder has no files yet",
     "uploadFirst": "Upload documents to see them here.",
     "noMatches": "No matching files",
@@ -2948,7 +2948,7 @@
       "automations": "Scheduled tasks",
       "skillsMarket": "Capability Market",
       "resources": "Resources",
-      "library": "Library",
+      "library": "Knowledge base",
       "loadingSubsessions": "Loading sub-conversations…"
     },
     "conversation": {

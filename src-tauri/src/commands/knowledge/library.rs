@@ -106,7 +106,7 @@ pub async fn require_scope(
 ) -> Result<(), AppCommandError> {
     if expected.is_empty() || selection::account_scope(conn).await? != expected {
         return Err(AppCommandError::permission_denied(
-            "账号或企业空间已变更，请重新打开资料库",
+            "账号或企业空间已变更，请重新打开知识库",
         ));
     }
     Ok(())
