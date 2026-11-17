@@ -161,6 +161,10 @@
     "clear": "清空",
     "confirm": "保存选择",
     "saved": "已保存知识库范围",
+    "cleared": "已清除知识库范围",
+    "chipLabel": "知识库范围（{count} 项）",
+    "editChip": "编辑知识库范围：{name}",
+    "removeChip": "清除知识库范围：{name}",
     "limit": "最多选择 {count} 个文件夹或文件",
     "newConversation": "新对话",
     "accountBusy": "账号或空间正在切换，请稍候。"

@@ -161,6 +161,10 @@
     "clear": "Clear",
     "confirm": "Save",
     "saved": "Knowledge scope saved",
+    "cleared": "Knowledge scope cleared",
+    "chipLabel": "Knowledge scope ({count} items)",
+    "editChip": "Edit knowledge scope: {name}",
+    "removeChip": "Clear knowledge scope: {name}",
     "limit": "Select up to {count} folders or files",
     "newConversation": "New conversation",
     "accountBusy": "Account or workspace is changing. Please wait."

@@ -2345,6 +2345,17 @@ impl ConnectionManager {
             .await;
         }
 
+        let knowledge_conversation_id = conversation_id_for_status.or(conversation_id);
+        let knowledge_context = if delegation.is_none() {
+            crate::commands::knowledge::selection::prompt_hint(
+                &db.conn,
+                knowledge_conversation_id,
+            )
+            .await
+        } else {
+            None
+        };
+
         // Capture a bounded preview of the user's message BEFORE `blocks` is
         // moved into `send_prompt_inner`. Only on the genuine UI path
         // (`delegation.is_none()`): delegation / sub-agent prompts are not user
@@ -2403,6 +2414,7 @@ impl ConnectionManager {
         // lifecycle subscriber's PendingReview write also never fires and the
         // row would be stuck until a follow-up `send_prompt_linked` re-flipped it.
         let agent_blocks = prepared_agent_blocks.unwrap_or(blocks);
+        let private_context = combine_prompt_context(image_context, knowledge_context);
         if let Some(monitor) = upload_monitor.as_ref() {
             monitor
                 .require_current()
@@ -2414,7 +2426,7 @@ impl ConnectionManager {
                 conn_id,
                 agent_blocks,
                 user_messages,
-                image_context,
+                private_context,
                 accepted,
                 upload_monitor.as_ref(),
                 channel_origin,
