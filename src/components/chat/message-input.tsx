@@ -7,6 +7,8 @@ import { ConversationPluginMenu } from "@/components/chat/conversation-plugins"
 import { insertPluginReferences } from "@/components/chat/composer/plugin-reference"
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
+import { KnowledgeComposerChip } from "@/components/chat/knowledge/knowledge-composer-chip"
+import { setKnowledgeComposerSelection } from "@/lib/knowledge-composer-context"
 import { useNativeShareComposer } from "@/components/native-share/use-native-share-composer"
 import { ComposerActivityBorder } from "./composer-activity-border"
 import { PluginComposerChip } from "./plugin-composer-chip"
@@ -4453,6 +4455,10 @@ export function MessageInput({
             >
               <ComposerActivityBorder active={isPrompting} />
               <PluginComposerChip tabId={attachmentTabId} />
+              <KnowledgeComposerChip
+                tabId={attachmentTabId}
+                onOpen={() => setKnowledgeOpen(true)}
+              />
               {visibleTask && (
                 <TaskModeRail
                   task={visibleTask}
@@ -4911,6 +4917,10 @@ export function MessageInput({
         open={knowledgeOpen}
         onOpenChange={setKnowledgeOpen}
         tabId={attachmentTabId}
+        onSelectionSaved={(selection) => {
+          if (attachmentTabId)
+            setKnowledgeComposerSelection(attachmentTabId, selection)
+        }}
       />
       <VoiceErrorDialog
         kind={voiceErrorKind}

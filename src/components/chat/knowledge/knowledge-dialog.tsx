@@ -16,7 +16,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import type { KnowledgeCategory, KnowledgeChoice } from "@/lib/cloud-knowledge"
+import type {
+  KnowledgeCategory,
+  KnowledgeChoice,
+  KnowledgeSelection,
+} from "@/lib/cloud-knowledge"
 import {
   KnowledgeLoadError,
   KnowledgeLoading,
@@ -29,12 +33,14 @@ interface KnowledgeDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   tabId?: string | null
+  onSelectionSaved?: (selection: KnowledgeSelection) => void
 }
 
 export function KnowledgeDialog({
   open,
   onOpenChange,
   tabId,
+  onSelectionSaved,
 }: KnowledgeDialogProps) {
   const t = useTranslations("CloudKnowledge")
   const account = useOptionalIywAccount()
@@ -49,8 +55,9 @@ export function KnowledgeDialog({
     account?.profile?.org_code,
     blocked,
   ].join(":")
-  const onSaved = () => {
+  const onSaved = (selection: KnowledgeSelection) => {
     onOpenChange(false)
+    onSelectionSaved?.(selection)
     toast.success(t("saved"))
   }
   return (
@@ -85,7 +92,7 @@ function KnowledgePicker({
   onSaved,
 }: {
   tabId: string
-  onSaved: () => void
+  onSaved: (selection: KnowledgeSelection) => void
 }) {
   const picker = useKnowledgeSelection(tabId, onSaved)
   if (!picker.data)
