@@ -222,7 +222,7 @@ export function cleanupStaging(context) {
   const release = requireDraft(context)
   for (const asset of release.assets) {
     if (
-      /^iyw-staging-\d+-\d+-(x86_64|i686)-pc-windows-msvc\.zip$/.test(
+      /^iyw-staging-\d+-\d+-(x86_64|i686)-(pc|win7)-windows-msvc\.zip$/.test(
         asset.name
       )
     ) {
