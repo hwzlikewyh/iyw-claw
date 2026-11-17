@@ -4166,6 +4166,8 @@
           "serviceUnavailable": "语音识别暂时不可用，已保留输入框中的文字。"
         },
         "skills": "技能",
+        "skillsSearch": "搜索名称、ID 或描述…",
+        "skillsNoResults": "没有匹配的技能",
         "skillsLoading": "正在扫描技能目录…",
         "skillsScanFailed": "技能目录扫描失败，请重试。",
         "skillsEmpty": "当前目录没有已启用的技能",
