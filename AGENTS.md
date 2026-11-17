@@ -24,6 +24,14 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 - 新增或修改业务流程时，日志应尽量详细，至少覆盖必要的请求上下文、关键状态变化、分支决策、外部调用结果及完整错误原因，确保问题可定位、流程可追踪。
 - 日志级别应与事件严重程度匹配，优先使用结构化字段；不得记录密码、令牌、密钥、完整个人信息等敏感数据，必要时先脱敏。
 
+## 远程仓库与主分支
+
+- **用户说“推送远程主分支”或“合并到远程主分支”时，默认同时交付 GitHub `main` 和内网 GitLab `master`**；只有明确限定单个平台时才只推送一边，不能将仅完成一边报告为全部完成。
+- GitHub 目标：`https://github.com/hwzlikewyh/iyw-claw.git` 的 `refs/heads/main`；内网 GitLab 目标：`http://192.168.1.97:8081/python/iyw-claw.git` 的 `refs/heads/master`。
+- 本机 `origin` 的 fetch 地址指向内网，push 地址可能同时包含两个仓库。推送前检查 `git remote -v` 和各目标仓库的 `git ls-remote --symref <url> HEAD`，分别获取最新主分支并集成本次提交，保留两边各自已有的提交。
+- 分别使用明确的 URL 和 refspec：GitHub 为 `git push https://github.com/hwzlikewyh/iyw-claw.git <已验证提交>:refs/heads/main`，GitLab 为 `git push http://192.168.1.97:8081/python/iyw-claw.git <已验证提交>:refs/heads/master`；避免用 `git push origin` 将同名分支推到两个仓库，不因分支历史不同而强推覆盖。
+- 推送后分别核对两个远程分支已包含本次改动，交付时报告两边分支及提交号；任一失败时明确说明并继续处理，不能静默遗漏。
+
 ## 架构
 
 ### 双模式运行

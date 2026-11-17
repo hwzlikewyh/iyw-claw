@@ -2626,6 +2626,8 @@
         "forkAndSend": "Fork & Send",
         "slashCommands": "Slash commands",
         "skills": "Skills",
+        "skillsSearch": "Search by name, ID or description…",
+        "skillsNoResults": "No matching skills",
         "slashSearchPlaceholder": "Search commands...",
         "slashSearchEmpty": "No matching commands",
         "experts": "Experts",
