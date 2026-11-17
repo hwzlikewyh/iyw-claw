@@ -31,10 +31,14 @@ execFileSync(
 // 使用已安装的正式 CLI；各包复用同一个版本，避免每个格式重新 dlx。
 const cli = join("node_modules", "@tauri-apps", "cli", "tauri.js")
 if (!existsSync(cli)) throw new Error("installed Tauri CLI is missing")
-// 修复旧版 rpm-rs 的 gzip 压缩瓶颈；也可用于固定在旧 tag 的修复打包。
-if (target.includes("linux") && args[args.indexOf("--bundles") + 1] === "rpm")
+const rpm = target.includes("linux") && args[args.indexOf("--bundles") + 1] === "rpm"
+// 旧 rpm-rs 在短写时反复散列剩余大块数据；2.12.5 使用修复后的 rpm 0.30。
+// 仅更新独立 RPM 打包器，不改变已编译应用或其他平台的 CLI。
+if (rpm)
   args.push("--config", JSON.stringify({bundle:{linux:{rpm:{compression:{type:"zstd",level:1}}}}}))
-await runObserved(process.execPath, [cli, "bundle", ...args], {
+const bundler = rpm ? "pnpm" : process.execPath
+const bundleArgs = rpm ? ["dlx", "@tauri-apps/cli@2.12.5", "bundle", ...args] : [cli, "bundle", ...args]
+await runObserved(bundler, bundleArgs, {
   label: `bundle ${target} ${args[args.indexOf("--bundles") + 1] || "default"}`,
 })
 if (target.includes("linux") && args[args.indexOf("--bundles") + 1] === "deb")

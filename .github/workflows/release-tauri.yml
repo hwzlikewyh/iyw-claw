@@ -174,7 +174,9 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
-            patchelf
+            patchelf \
+            xdg-utils \
+            desktop-file-utils
 
       - name: Configure native Linux arm64 compiler
         if: matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch == 'ARM64'

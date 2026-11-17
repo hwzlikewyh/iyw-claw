@@ -24,8 +24,9 @@ RPM 已使用 gzip level 1 但仍超时，上游 tauri#11478、rpm-rs/rpm-rs#297
 ## 步骤 -> 验证方式
 
 1. 已完成：收集各系统耗时与官方实现 → 核对步骤时间、Cargo timings、内存及上游问题。
-2. 已实现：RPM 使用 Zstd level 1；优先打 AppImage，RPM 限时 30 分钟；复用已安装的
-   2.11.4 CLI，并每分钟记录资源、结束时输出实际耗时。固定旧源码的修复也使用当前打包工具。
+2. 已实现：RPM 使用 Zstd level 1，并单独使用官方 CLI 2.12.5 的 rpm 0.30；旧 rpm 0.16.1
+   的 Sha256Writer 在短写时反复散列整个剩余缓冲，Zstd 单独无法解决。优先打 AppImage，
+   RPM 限时 30 分钟。其他格式复用已安装 2.11.4 CLI；每分钟记录资源、结束时输出实际耗时。
 3. 已实现：两种 macOS 目标使用标准 `macos-15-intel` runner；Windows/Win7 仅将应用
    package 的 opt-level=1、codegen-units=16，与既有 Linux/macOS 方案对齐；运行时依赖保持原配置。
 4. 进行中：Actions 从同发布、同 source、SHA-256 与 minisign 均通过的 ARM64 DEB 恢复
