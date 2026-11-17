@@ -7,6 +7,7 @@ import {
   type SetStateAction,
 } from "react"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
+import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useTabStore } from "@/contexts/tab-context"
 import { getTransport } from "@/lib/transport"
@@ -39,12 +40,18 @@ export type PluginPanelTab =
   | McpPluginPanelTab
   | (PluginPanelTabBase & { kind: "studio-url"; url: string })
 const MAX_TABS = 8
+interface PluginPanelOpening {
+  app: PluginPanelChoice
+  conversationId: number | null
+}
 
 export function usePluginPanelTabs(
   conversationId: number | null,
   conversations: string
 ) {
+  const t = useTranslations("PluginPanels")
   const [tabs, setTabs] = useState<PluginPanelTab[]>([])
+  const [openingApp, setOpeningApp] = useState<PluginPanelOpening | null>(null)
   const [detachingId, setDetachingId] = useState<string | null>(null)
   const detaching = useRef(false)
   const [busyConversation, setBusyConversation] = useState<
@@ -80,6 +87,11 @@ export function usePluginPanelTabs(
       tabs,
       transport,
       lifecycle: lifecycle.current,
+      setOpening: (opening) =>
+        setOpeningApp(
+          opening ? { app, conversationId: targetConversationId } : null
+        ),
+      startupTimedOut: () => t("startupTimedOut", { name: app.label }),
       setBusy: (value) =>
         setBusyConversation((current) =>
           value ? busyTarget : current === busyTarget ? null : current
@@ -94,7 +106,7 @@ export function usePluginPanelTabs(
           : state.tabs.some(
               (item) => item.conversationId === targetConversationId
             )
-        if (!stillOpen) return
+        if (!stillOpen) return false
         setTabs((values) =>
           values.some((value) => value.id === tab.id)
             ? values
@@ -103,9 +115,10 @@ export function usePluginPanelTabs(
         const activeConversationId = state.tabs.find(
           (item) => item.id === state.activeTabId
         )?.conversationId
-        if (targetConversationId !== activeConversationId) return
+        if (targetConversationId !== activeConversationId) return false
         setActiveTab(`app:${tab.id}`)
         setOpen(false)
+        return true
       },
       select: (id) => {
         setActiveTab(`app:${id}`)
@@ -144,6 +157,14 @@ export function usePluginPanelTabs(
   }
   return {
     tabs,
+    openingApp,
+    finishOpening: (tab: PluginPanelTab) =>
+      setOpeningApp((current) =>
+        current?.app.pluginSlug === tab.pluginSlug &&
+        current.app.appKey === tab.appKey
+          ? null
+          : current
+      ),
     detachingId,
     busy:
       busyConversation !== null &&
@@ -215,9 +236,11 @@ interface OpeningContext {
     generation: number
     runningGeneration: number | null
   }
+  setOpening: (opening: boolean) => void
+  startupTimedOut: () => string
   setBusy: (busy: boolean) => void
   setError: (error: string) => void
-  commit: (tab: PluginPanelTab) => void
+  commit: (tab: PluginPanelTab) => boolean
   select: (id: string) => void
 }
 
@@ -247,9 +270,11 @@ async function openPanel(context: OpeningContext) {
     return
   }
   lifecycle.runningGeneration = lifecycle.generation
+  context.setOpening(true)
   context.setBusy(true)
   context.setError("")
   const generation = lifecycle.generation
+  let committed = false
   try {
     if (app.appKey === OPENFILM_STUDIO_APP_KEY) {
       const { url } = await openOpenfilmStudio(
@@ -258,7 +283,7 @@ async function openPanel(context: OpeningContext) {
         context.transport
       )
       if (!lifecycle.alive || getTransport() !== context.transport) return
-      context.commit({
+      committed = context.commit({
         id: `studio:${conversationId ?? "standalone"}:${app.pluginSlug}`,
         label: app.label,
         pluginSlug: app.pluginSlug,
@@ -281,7 +306,7 @@ async function openPanel(context: OpeningContext) {
       })
       return
     }
-    context.commit({
+    committed = context.commit({
       id: response.launch.instanceId,
       label: app.label,
       pluginSlug: app.pluginSlug,
@@ -292,12 +317,26 @@ async function openPanel(context: OpeningContext) {
     })
   } catch (cause) {
     if (lifecycle.alive && lifecycle.generation === generation) {
-      context.setError(pluginPanelError(cause))
-      toast.error(pluginPanelError(cause))
+      const message = pluginOpenError(app, cause, context.startupTimedOut)
+      context.setError(message)
+      toast.error(message)
     }
   } finally {
     if (lifecycle.runningGeneration === generation)
       lifecycle.runningGeneration = null
     context.setBusy(false)
+    if (!committed) context.setOpening(false)
   }
+}
+
+function pluginOpenError(
+  app: PluginPanelChoice,
+  cause: unknown,
+  startupTimedOut: () => string
+) {
+  const message = pluginPanelError(cause)
+  return app.appKey === OPENFILM_STUDIO_APP_KEY &&
+    message.toLocaleLowerCase().includes("timed out")
+    ? startupTimedOut()
+    : message
 }

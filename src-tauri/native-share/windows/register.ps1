@@ -1,10 +1,19 @@
 ﻿param([switch]$Unregister, [switch]$PurgeInbox, [switch]$CheckOnly)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+# Windows PowerShell 5.1 的路径提供程序无法处理扩展路径前缀。
+$shareRoot = $PSScriptRoot
+$extendedPrefix = '\\?\'
+$extendedUncPrefix = '\\?\UNC\'
+if ($shareRoot.StartsWith($extendedUncPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    $shareRoot = '\\' + $shareRoot.Substring($extendedUncPrefix.Length)
+} elseif ($shareRoot.StartsWith($extendedPrefix, [StringComparison]::Ordinal)) {
+    $shareRoot = $shareRoot.Substring($extendedPrefix.Length)
+}
 $packageName = 'IywAssistant.Desktop'
 $legacyPackageName = 'IywAssistant.ShareTarget'
 $identityTimeoutMs = 5000
-$appDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$appDirectory = [IO.Path]::GetFullPath((Join-Path $shareRoot '..'))
 function Test-ShareIdentity([string]$HelperPath) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $HelperPath
@@ -27,7 +36,7 @@ function Test-ShareLocation($Package, [switch]$IncludeLegacy) {
     $effective = [IO.Path]::GetFullPath($native.EffectiveLocation.Path).TrimEnd('\')
     $expected = $appDirectory.TrimEnd('\')
     if ([string]::Equals($effective, $expected, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    return $IncludeLegacy -and [string]::Equals($effective, $PSScriptRoot.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
+    return $IncludeLegacy -and [string]::Equals($effective, $shareRoot.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
 }
 function Test-ShareManifest($Package) {
     $manifest = Get-AppxPackageManifest -Package $Package
@@ -38,7 +47,7 @@ function Test-RegisteredShareResources($Package) {
     foreach ($name in Get-ShareResourceNames) {
         $installedFile = Join-Path $Package.InstallLocation $name
         if (-not (Test-Path -LiteralPath $installedFile -PathType Leaf)) { return $false }
-        if ((Get-FileHash -LiteralPath $installedFile -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $name) -Algorithm SHA256).Hash) { return $false }
+        if ((Get-FileHash -LiteralPath $installedFile -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path $shareRoot $name) -Algorithm SHA256).Hash) { return $false }
     }
     return $true
 }
@@ -71,13 +80,13 @@ $owned = $false
 if ((Test-Path -LiteralPath $helper) -and ($installed | Where-Object { (Test-ShareLocation $_) -and (Test-ShareManifest $_) })) {
     $owned = Test-ShareIdentity $helper
 }
-$packagePath = Join-Path $PSScriptRoot 'IywAssistant.ShareTarget.msix'
+$packagePath = Join-Path $shareRoot 'IywAssistant.ShareTarget.msix'
 if (-not (Test-Path -LiteralPath $packagePath)) { throw '当前安装包没有可注册的系统分享组件，请使用已签名的正式安装包。' }
 if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) { throw '原助理主程序缺失，请重新安装正式安装包。' }
-if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'share-resources.ps1') -PathType Leaf)) { throw '分享资源校验脚本缺失，请重新安装正式安装包。' }
-. (Join-Path $PSScriptRoot 'share-resources.ps1')
-Assert-ShareResources $PSScriptRoot
-$configuration = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'config.json') -Encoding UTF8 -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath (Join-Path $shareRoot 'share-resources.ps1') -PathType Leaf)) { throw '分享资源校验脚本缺失，请重新安装正式安装包。' }
+. (Join-Path $shareRoot 'share-resources.ps1')
+Assert-ShareResources $shareRoot
+$configuration = Get-Content -LiteralPath (Join-Path $shareRoot 'config.json') -Encoding UTF8 -Raw | ConvertFrom-Json
 if (-not $configuration.signed -or $configuration.receiver -ne 'main') { throw '当前构建没有可注册的主程序分享身份包。' }
 $expectedVersion = [version]$configuration.packageVersion
 if ($owned -and ($installed | Where-Object { $_.Version -ge $expectedVersion -and $_.Status -eq 'Ok' -and (Test-ShareManifest $_) -and (Test-RegisteredShareResources $_) })) {

@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Maximize2, Minimize2, X } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Loader2, Maximize2, Minimize2, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { PluginAppHost } from "@/components/message/plugin-app-host"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,8 @@ import type { PluginPanelTab } from "./use-plugin-panels"
 import { usePluginPanelAuthority } from "./use-plugin-panel-authority"
 import { usePluginPanelDialog } from "./use-plugin-panel-dialog"
 import type { PluginPanelSyncState } from "@/lib/plugin-panel"
+
+const APP_READY_TIMEOUT_MS = 60_000
 
 export function PluginPanelFrame({
   tab,
@@ -18,6 +20,7 @@ export function PluginPanelFrame({
   moving,
   mode = "panel",
   onClose,
+  onOpenComplete,
 }: {
   tab: PluginPanelTab
   visible: boolean
@@ -26,12 +29,27 @@ export function PluginPanelFrame({
   moving?: boolean
   mode?: "panel" | "main"
   onClose?: () => Promise<boolean>
+  onOpenComplete?: () => void
 }) {
   const [fullscreen, setFullscreen] = useState(false)
   const authorityLost = usePluginPanelAuthority(tab)
   const revoked = authorityLost || sync?.forbidden
   const expanded = fullscreen && !revoked
+  const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const onOpenCompleteRef = useRef(onOpenComplete)
+  useEffect(() => {
+    onOpenCompleteRef.current = onOpenComplete
+  }, [onOpenComplete])
+  const completeOpening = useCallback(() => onOpenCompleteRef.current?.(), [])
   const dialog = usePluginPanelDialog(visible && mode === "panel", expanded)
+  useAppReadyTimeout(
+    visible && !revoked,
+    ready,
+    failed,
+    setFailed,
+    completeOpening
+  )
   const content = (
     <PanelContent
       tab={tab}
@@ -42,6 +60,11 @@ export function PluginPanelFrame({
       setFullscreen={setFullscreen}
       main={mode === "main"}
       onClose={onClose}
+      ready={ready}
+      failed={failed}
+      setReady={setReady}
+      setFailed={setFailed}
+      onOpenComplete={completeOpening}
     />
   )
   if (mode === "main")
@@ -81,6 +104,23 @@ export function PluginPanelFrame({
   )
 }
 
+function useAppReadyTimeout(
+  visible: boolean,
+  ready: boolean,
+  failed: boolean,
+  setFailed: (value: boolean) => void,
+  onTimeout: () => void
+) {
+  useEffect(() => {
+    if (!visible || ready || failed) return
+    const timer = window.setTimeout(() => {
+      setFailed(true)
+      onTimeout()
+    }, APP_READY_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [failed, onTimeout, ready, setFailed, visible])
+}
+
 function PanelContent({
   tab,
   revoked,
@@ -90,6 +130,11 @@ function PanelContent({
   setFullscreen,
   main,
   onClose,
+  ready,
+  failed,
+  setReady,
+  setFailed,
+  onOpenComplete,
 }: {
   tab: PluginPanelTab
   revoked: boolean | undefined
@@ -99,6 +144,11 @@ function PanelContent({
   setFullscreen: (value: boolean) => void
   main: boolean
   onClose?: () => Promise<boolean>
+  ready: boolean
+  failed: boolean
+  setReady: (value: boolean) => void
+  setFailed: (value: boolean) => void
+  onOpenComplete?: () => void
 }) {
   const t = useTranslations("PluginPanels")
   if (revoked)
@@ -123,7 +173,7 @@ function PanelContent({
             : undefined
         }
       />
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {tab.kind === "studio-url" ? (
           <iframe
             src={tab.url}
@@ -132,18 +182,54 @@ function PanelContent({
             sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-pointer-lock allow-popups"
             allow="clipboard-read; clipboard-write; fullscreen"
             referrerPolicy="no-referrer"
+            onLoad={() => {
+              setReady(true)
+              onOpenComplete?.()
+            }}
+            onError={() => {
+              setFailed(true)
+              onOpenComplete?.()
+            }}
           />
         ) : (
           <PluginAppHost
             {...tab.response}
             fill
             toolUpdate={sync?.update}
+            onReady={() => {
+              setReady(true)
+              onOpenComplete?.()
+            }}
+            onFailure={() => {
+              setFailed(true)
+              onOpenComplete?.()
+            }}
             displayMode={fullscreen ? "fullscreen" : "inline"}
             onDisplayModeRequest={(mode) => {
               setFullscreen(mode === "fullscreen")
               return mode
             }}
           />
+        )}
+        {!ready && !failed && (
+          <div
+            className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+            <span>{t("openingApp", { name: tab.label })}</span>
+          </div>
+        )}
+        {failed && (
+          <p
+            role="alert"
+            className="absolute inset-x-0 bottom-3 mx-auto w-fit rounded-md border bg-background px-3 py-2 text-sm text-destructive shadow-sm"
+          >
+            {t(tab.kind === "mcp-app" ? "startupFailed" : "startupTimedOut", {
+              name: tab.label,
+            })}
+          </p>
         )}
       </div>
     </>

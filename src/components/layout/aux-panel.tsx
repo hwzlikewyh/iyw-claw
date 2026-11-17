@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
 import { createPortal } from "react-dom"
+import { Loader2 } from "lucide-react"
 
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { AuxPanelHome } from "./aux-panel-home"
@@ -45,6 +46,7 @@ export function AuxPanel({
 
 function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
   const t = useTranslations("Folder.auxPanel.tabs")
+  const pluginText = useTranslations("PluginPanels")
   const { isOpen, activeTab } = useAuxPanelContext()
   const panels = usePluginPanels()
   const [mainPluginHost, setMainPluginHost] = useState<HTMLElement | null>(null)
@@ -84,6 +86,7 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
               refresh={panels.updates.refresh}
               moving={panels.detachingId === tab.id}
               onClose={() => panels.close(tab.id)}
+              onOpenComplete={() => panels.finishOpening(tab)}
             />
           )
           if (mainPluginHost) return createPortal(frame, mainPluginHost, tab.id)
@@ -96,11 +99,31 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
                 refresh={panels.updates.refresh}
                 moving={panels.detachingId === tab.id}
                 onClose={() => panels.close(tab.id)}
+                onOpenComplete={() => panels.finishOpening(tab)}
               />
             </div>
           )
         })}
       </aside>
+      {mainPluginHost &&
+      panels.openingApp?.conversationId === panels.conversationId
+        ? createPortal(
+            <div
+              className="pointer-events-auto absolute inset-0 z-[90] flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+              <span>
+                {pluginText("pluginOpening", {
+                  name: panels.openingApp.app.label,
+                })}
+              </span>
+            </div>,
+            mainPluginHost,
+            "plugin-opening"
+          )
+        : null}
     </>
   )
 }
