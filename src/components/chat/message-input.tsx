@@ -4,6 +4,7 @@ import { useAccountChatRequestsBlocked } from "@/components/account/use-account-
 import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
 import { ConversationPluginMenu } from "@/components/chat/conversation-plugins"
+import { ConversationSkillMenu } from "@/components/chat/conversation-skills"
 import { insertPluginReferences } from "@/components/chat/composer/plugin-reference"
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
@@ -4618,57 +4619,14 @@ export function MessageInput({
                         skillPrefix={skillPrefix}
                         onSelect={handleTaskCommandSelect}
                       />
-                      <DropdownMenuSub
+                      <ConversationSkillMenu
+                        skills={visibleEnabledSkills}
+                        disabled={!agentType}
+                        scanning={skillsMenuScanning}
+                        scanFailed={skillsMenuScanFailed}
                         onOpenChange={handleSkillsMenuOpenChange}
-                      >
-                        <DropdownMenuSubTrigger disabled={!agentType}>
-                          <BookOpenText className="size-4" />
-                          {t("skills")}
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent
-                          className="min-w-44 overflow-y-auto"
-                          style={{
-                            maxWidth: "min(20rem, calc(100vw - 1rem))",
-                            maxHeight:
-                              "min(32rem, var(--radix-dropdown-menu-content-available-height))",
-                          }}
-                        >
-                          {skillsMenuScanning &&
-                          visibleEnabledSkills.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                              {t("skillsLoading")}
-                            </div>
-                          ) : skillsMenuScanFailed &&
-                            visibleEnabledSkills.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-xs text-destructive">
-                              {t("skillsScanFailed")}
-                            </div>
-                          ) : visibleEnabledSkills.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                              {t("skillsEmpty")}
-                            </div>
-                          ) : (
-                            visibleEnabledSkills.map((skill) => (
-                              <DropdownMenuItem
-                                key={`${skill.scope}-${skill.id}`}
-                                onClick={() => handleSkillMenuSelect(skill)}
-                              >
-                                <BookOpenText className="size-4" />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate">
-                                    {skill.name || skill.id}
-                                  </span>
-                                  {skill.description && (
-                                    <span className="block truncate text-xs text-muted-foreground">
-                                      {skill.description}
-                                    </span>
-                                  )}
-                                </span>
-                              </DropdownMenuItem>
-                            ))
-                          )}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
+                        onSelect={handleSkillMenuSelect}
+                      />
                       <ConversationConnectorMenu tabId={attachmentTabId} />
                       <ConversationPluginMenu
                         key={JSON.stringify([

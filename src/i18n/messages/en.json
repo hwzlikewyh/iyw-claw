@@ -4166,6 +4166,8 @@
           "serviceUnavailable": "Voice recognition is temporarily unavailable. Text already in the input was kept."
         },
         "skills": "Skills",
+        "skillsSearch": "Search by name, ID or description…",
+        "skillsNoResults": "No matching skills",
         "skillsLoading": "Scanning Skill directories…",
         "skillsScanFailed": "Could not scan Skill directories. Try again.",
         "skillsEmpty": "No enabled Skills found for this workspace",
