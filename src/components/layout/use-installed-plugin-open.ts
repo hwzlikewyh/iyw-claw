@@ -85,7 +85,10 @@ async function openPluginChoice(
       ? (useTabStore.getState().tabs.find((tab) => tab.id === context.tabId)
           ?.conversationId ?? null)
       : null
-    if (context.tabId) selectComposerPlugin(context.tabId, app)
+    if (context.tabId) {
+      if (conversationId == null) deferComposerPlugin(context.tabId, app)
+      else selectComposerPlugin(context.tabId, app)
+    }
     await context.tabs.open(app, conversationId)
     return
   }
