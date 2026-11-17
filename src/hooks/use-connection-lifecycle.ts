@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
-import { useAcpActions } from "@/contexts/acp-connections-context"
+import {
+  useAcpActions,
+  useConnectionStore,
+} from "@/contexts/acp-connections-context"
 import { useTaskContext } from "@/contexts/task-context"
 import { useConnection, type UseConnectionReturn } from "@/hooks/use-connection"
 import { TurnBusyError } from "@/lib/turn-busy"
@@ -29,6 +32,8 @@ interface UseConnectionLifecycleOptions {
   contextKey: string
   agentType: AgentType
   isActive: boolean
+  /** 手动重连只检查会话是否就绪，不受分屏焦点限制。 */
+  canConnect?: boolean
   workingDir?: string
   sessionId?: string
   /**
@@ -53,6 +58,7 @@ export interface UseConnectionLifecycleReturn {
   selectorsLoading: boolean
   autoConnectError: string | null
   ensureConnected: () => Promise<void>
+  reconnect: () => Promise<void>
   handleFocus: () => void
   handleSend: (
     draft: PromptDraft,
@@ -105,6 +111,7 @@ export function useConnectionLifecycle({
   contextKey,
   agentType,
   isActive,
+  canConnect = isActive,
   workingDir,
   sessionId,
   conversationId,
@@ -115,6 +122,7 @@ export function useConnectionLifecycle({
 }: UseConnectionLifecycleOptions): UseConnectionLifecycleReturn {
   const t = useTranslations("Folder.chat.connectionLifecycle")
   const { setActiveKey, touchActivity } = useAcpActions()
+  const connectionStore = useConnectionStore()
   const { addTask, updateTask, removeTask } = useTaskContext()
   const conn = useConnection(contextKey)
 
@@ -187,10 +195,6 @@ export function useConnectionLifecycle({
   useEffect(() => {
     loadErrorRef.current = conn.loadError
   }, [conn.loadError])
-  const connectionIdRef = useRef(conn.connectionId)
-  useEffect(() => {
-    connectionIdRef.current = conn.connectionId
-  }, [conn.connectionId])
   const isViewerRef = useRef(conn.isViewer)
   useEffect(() => {
     isViewerRef.current = conn.isViewer
@@ -289,17 +293,18 @@ export function useConnectionLifecycle({
         sessionIdRef.current,
         conversationIdRef.current,
         {
-          attachOnly: attachOnlyRef.current || isViewerRef.current,
+          attachOnly: attachOnlyRef.current,
           silent: true,
           preferredConfigValues: preferredConfigValuesRef.current,
         }
       )
         .then(() => {
+          if (generation !== reconnectGenerationRef.current) return
+          const current = connectionStore.getConnection(contextKeyRef.current)
           if (
-            connectionIdRef.current ||
-            statusRef.current === "connecting" ||
-            statusRef.current === "connected" ||
-            statusRef.current === "prompting"
+            current?.status === "connecting" ||
+            current?.status === "connected" ||
+            current?.status === "prompting"
           ) {
             reconnectAttemptRef.current = 0
             clearReconnectTimer()
@@ -308,10 +313,11 @@ export function useConnectionLifecycle({
           }
         })
         .catch((error: unknown) => {
+          if (generation !== reconnectGenerationRef.current) return
           if (!isExpectedConnectError(error)) scheduleReconnectRef.current()
         })
     }, delay)
-  }, [clearReconnectTimer])
+  }, [clearReconnectTimer, connectionStore])
 
   useEffect(() => {
     scheduleReconnectRef.current = scheduleReconnect
@@ -548,7 +554,7 @@ export function useConnectionLifecycle({
     ) {
       setLastAutoConnectError(null)
       await connConnect(agentType, workingDir, sessionId, conversationId, {
-        attachOnly: isViewerRef.current || attachOnlyOnActivate,
+        attachOnly: attachOnlyOnActivate,
         preferredConfigValues: preferredConfigValuesRef.current,
       })
     }
@@ -566,6 +572,37 @@ export function useConnectionLifecycle({
     contextKey,
     attachOnlyOnActivate,
     touchActivity,
+  ])
+
+  const reconnect = useCallback(async () => {
+    if (!canConnect || !workingDir?.trim()) {
+      throw new Error(
+        conn.loadError ?? conn.error ?? t("errors.connectionFailed")
+      )
+    }
+    clearReconnectTimer()
+    reconnectAttemptRef.current = 0
+    setLastAutoConnectError(null)
+    touchActivity(contextKey)
+    // 显式重连仍先发现并复用存活连接；已失效时恢复原会话。
+    // 旧的 viewer 身份和激活时的 attach-only 策略不能阻止恢复。
+    console.info("[ConnLifecycle] manual reconnect", { contextKey, agentType })
+    await connConnect(agentType, workingDir, sessionId, conversationId, {
+      preferredConfigValues: preferredConfigValuesRef.current,
+    })
+  }, [
+    canConnect,
+    workingDir,
+    conn.loadError,
+    conn.error,
+    t,
+    clearReconnectTimer,
+    touchActivity,
+    contextKey,
+    connConnect,
+    agentType,
+    sessionId,
+    conversationId,
   ])
 
   const handleFocus = useCallback(() => {
@@ -665,6 +702,7 @@ export function useConnectionLifecycle({
     selectorsLoading,
     autoConnectError,
     ensureConnected,
+    reconnect,
     handleFocus,
     handleSend,
     handleSetConfigOption,
