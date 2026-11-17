@@ -62,6 +62,8 @@ pub(super) async fn publish(
     transfer_files(conn, (&scope, &session), files).await?;
     ensure_scope(conn, &scope).await?;
     complete(conn, &session).await?;
+    tracing::info!(upload_id = %session.upload_id, skill_id = %session.skill_id,
+        "[skill-market] upload committed; refreshing published detail");
     ensure_scope(conn, &scope).await?;
     super::detail_core(
         conn,
@@ -182,22 +184,27 @@ async fn complete(
 ) -> Result<(), AppCommandError> {
     let body = json!({"uploadId": session.upload_id});
     match api(conn, "/skills/uploads/complete", body.clone()).await {
-        Ok(value) if value["status"] == "ready" => Ok(()),
+        Ok(value) if upload_committed(&value) => Ok(()),
         result => {
             if let Ok(value) = api(conn, "/skills/uploads/status", body).await {
-                if value["status"] == "ready" {
+                if upload_committed(&value) {
                     return Ok(());
                 }
             }
             Err(result
                 .err()
-                .unwrap_or_else(|| AppCommandError::network("上传版本尚未就绪"))
+                .unwrap_or_else(|| AppCommandError::network("上传尚未提交完成"))
                 .with_detail(format!(
                     "uploadId={};skillId={};version={}",
                     session.upload_id, session.skill_id, session.version
                 )))
         }
     }
+}
+
+fn upload_committed(value: &Value) -> bool {
+    // 原始文件提交后即发布成功，制品构建由服务端异步完成。
+    matches!(value["status"].as_str(), Some("artifact_pending" | "ready"))
 }
 
 async fn ensure_scope(conn: &DatabaseConnection, expected: &str) -> Result<(), AppCommandError> {
