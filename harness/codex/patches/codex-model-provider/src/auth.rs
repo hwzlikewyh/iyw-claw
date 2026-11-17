@@ -34,6 +34,7 @@ use crate::bearer_auth_provider::BearerAuthProvider;
 #[path = "host_auth.rs"]
 mod host_auth;
 pub use host_auth::api_key as host_api_key;
+pub(crate) use host_auth::{is_managed_provider, resolve_request as resolve_host_request_auth};
 
 const BEDROCK_API_KEY_UNSUPPORTED_MESSAGE: &str =
     "Bedrock API key auth is only supported by the Amazon Bedrock model provider";
