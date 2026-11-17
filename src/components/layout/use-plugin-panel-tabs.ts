@@ -7,6 +7,7 @@ import {
   type SetStateAction,
 } from "react"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
+import { toast } from "sonner"
 import { useTabStore } from "@/contexts/tab-context"
 import { getTransport } from "@/lib/transport"
 import {
@@ -38,8 +39,6 @@ export type PluginPanelTab =
   | McpPluginPanelTab
   | (PluginPanelTabBase & { kind: "studio-url"; url: string })
 const MAX_TABS = 8
-const PANEL_MIN_WIDTH = 560
-const PANEL_OPEN_WIDTH = 640
 
 export function usePluginPanelTabs(
   conversationId: number | null,
@@ -55,7 +54,7 @@ export function usePluginPanelTabs(
   const [transport] = useState(getTransport)
   const lifecycle = usePanelLifecycle(conversationId)
   const panel = useAuxPanelContext()
-  const { openTab, setWidth, width } = panel
+  const { setActiveTab, setOpen } = panel
   const close = usePanelClose({ panel, setTabs, setError, lifecycle, tabs })
   useEffect(() => {
     const ids = new Set(conversations.split(",").map(Number))
@@ -105,10 +104,13 @@ export function usePluginPanelTabs(
           (item) => item.id === state.activeTabId
         )?.conversationId
         if (targetConversationId !== activeConversationId) return
-        if (width < PANEL_MIN_WIDTH) setWidth(PANEL_OPEN_WIDTH)
-        openTab(`app:${tab.id}`)
+        setActiveTab(`app:${tab.id}`)
+        setOpen(false)
       },
-      select: (id) => openTab(`app:${id}`),
+      select: (id) => {
+        setActiveTab(`app:${id}`)
+        setOpen(false)
+      },
     })
   }
   const detach = async (tab: PluginPanelTab) => {
@@ -178,7 +180,10 @@ function usePanelClose(input: {
     const current = lifecycle.current.generation === generation
     setTabs((values) => values.filter((tab) => tab.id !== id))
     if (current) setError("")
-    if (current && panel.activeTab === `app:${id}`) panel.openTab("home")
+    if (current && panel.activeTab === `app:${id}`) {
+      panel.setActiveTab("home")
+      panel.setOpen(false)
+    }
     return true
   }, [])
 }
@@ -286,8 +291,10 @@ async function openPanel(context: OpeningContext) {
       response,
     })
   } catch (cause) {
-    if (lifecycle.alive && lifecycle.generation === generation)
+    if (lifecycle.alive && lifecycle.generation === generation) {
       context.setError(pluginPanelError(cause))
+      toast.error(pluginPanelError(cause))
+    }
   } finally {
     if (lifecycle.runningGeneration === generation)
       lifecycle.runningGeneration = null

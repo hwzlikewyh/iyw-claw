@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
+import { createPortal } from "react-dom"
 
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { AuxPanelHome } from "./aux-panel-home"
@@ -46,6 +47,12 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
   const t = useTranslations("Folder.auxPanel.tabs")
   const { isOpen, activeTab } = useAuxPanelContext()
   const panels = usePluginPanels()
+  const [mainPluginHost, setMainPluginHost] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    // 主工作区在并列布局提交后提供 Portal 容器。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMainPluginHost(document.getElementById("workspace-main-plugin-host"))
+  }, [])
   const activeApp = panels.tabs.find(
     (tab) =>
       `app:${tab.id}` === activeTab &&
@@ -61,22 +68,38 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
         style={isOpen ? { display: "flex" } : undefined}
       >
         <AuxPanelNavigation label={t("label")} panels={panels} />
-        {(activeTab === "home" ||
-          (activeTab.startsWith("app:") && !activeApp)) && (
+        {(activeTab === "home" || activeTab.startsWith("app:")) && (
           <AuxPanelHome panels={panels} />
         )}
         {activeTab === "artifacts" && <TaskArtifactsTab />}
         {activeTab === "file_tree" && <FileTreeTab />}
-        {panels.tabs.map((tab) => (
-          <PluginPanelFrame
-            key={tab.id}
-            tab={tab}
-            visible={isOpen && activeApp?.id === tab.id}
-            sync={panels.updates.states[tab.id]}
-            refresh={panels.updates.refresh}
-            moving={panels.detachingId === tab.id}
-          />
-        ))}
+        {panels.tabs.map((tab) => {
+          const selected = activeApp?.id === tab.id
+          const frame = (
+            <PluginPanelFrame
+              tab={tab}
+              mode="main"
+              visible={selected}
+              sync={panels.updates.states[tab.id]}
+              refresh={panels.updates.refresh}
+              moving={panels.detachingId === tab.id}
+              onClose={() => panels.close(tab.id)}
+            />
+          )
+          if (mainPluginHost) return createPortal(frame, mainPluginHost, tab.id)
+          return (
+            <div key={tab.id} className="hidden">
+              <PluginPanelFrame
+                tab={tab}
+                visible={false}
+                sync={panels.updates.states[tab.id]}
+                refresh={panels.updates.refresh}
+                moving={panels.detachingId === tab.id}
+                onClose={() => panels.close(tab.id)}
+              />
+            </div>
+          )
+        })}
       </aside>
     </>
   )

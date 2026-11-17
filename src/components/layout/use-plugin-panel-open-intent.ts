@@ -37,7 +37,7 @@ export function usePluginPanelOpenIntent(options: Options) {
   const workspace = usePluginWorkspace(tabId)
   const route = useWorkbenchRoute()
   const navigation = usePluginMarketNavigation()
-  const { isOpen, openTab } = useAuxPanelContext()
+  const { setActiveTab, setOpen } = useAuxPanelContext()
   const pending = useRef<OpenIntent | null>(null)
   const [revision, setRevision] = useState(0)
   const [error, setError] = useState("")
@@ -52,20 +52,20 @@ export function usePluginPanelOpenIntent(options: Options) {
     setRevision,
     transport: options.transport,
   })
-  useHiddenIntentCancellation({ isOpen, pending, setBusy })
-
   const open = async (app: PluginPanelChoice) => {
     if (!tabId || pending.current) return
     if (!options.conversationId && app.appKey !== OPENFILM_STUDIO_APP_KEY) {
       deferComposerPlugin(tabId, app)
       route.openConversations()
-      openTab("home")
+      setActiveTab("home")
+      setOpen(false)
       return
     }
     if (!options.conversationId) {
       deferComposerPlugin(tabId, app)
       route.openConversations()
-      openTab("home")
+      setActiveTab("home")
+      setOpen(false)
       const transport = getTransport()
       const current = () =>
         getTransport() === transport &&
@@ -108,10 +108,12 @@ export function usePluginPanelOpenIntent(options: Options) {
           entry.appKey === app.appKey
       )
     if (existing) {
-      openTab(`app:${existing.id}`)
+      setActiveTab(`app:${existing.id}`)
+      setOpen(false)
       return
     }
-    openTab("home")
+    setActiveTab("home")
+    setOpen(false)
     return open(app)
   })
   return { open, busy: busy || workspace.busy, error: error || workspace.error }
@@ -131,30 +133,6 @@ function useApplicationOpenRequest(
       }),
     []
   )
-}
-
-function useHiddenIntentCancellation({
-  isOpen,
-  pending: pendingRef,
-  setBusy,
-}: {
-  isOpen: boolean
-  pending: { current: OpenIntent | null }
-  setBusy: (value: boolean) => void
-}) {
-  useEffect(() => {
-    if (
-      isOpen ||
-      !pendingRef.current ||
-      pendingRef.current.phase === "preparing"
-    )
-      return
-    pendingRef.current = null
-    const timer = setTimeout(() => {
-      if (!pendingRef.current) setBusy(false)
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [isOpen, pendingRef, setBusy])
 }
 
 function useAdvanceIntent(input: {

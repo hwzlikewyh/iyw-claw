@@ -24,7 +24,8 @@ export function CollapsedPluginRail({
   slot: HTMLElement | null
   panels: ReturnType<typeof usePluginPanels>
 }) {
-  const { isOpen, restored, openTab } = useAuxPanelContext()
+  const { isOpen, restored, activeTab, setActiveTab, setOpen } =
+    useAuxPanelContext()
   const route = useWorkbenchRoute()
   const { closeBrowser } = useBrowser()
   const { closePanel } = useInteractivePage()
@@ -32,7 +33,9 @@ export function CollapsedPluginRail({
   const tabs = panels.tabs.filter((tab) =>
     isPluginPanelVisibleForConversation(tab, panels.conversationId)
   )
-  if (!slot || isOpen || !restored || !tabs.length) return null
+  const mainPluginActive = tabs.some((tab) => `app:${tab.id}` === activeTab)
+  if (!slot || isOpen || !restored || !tabs.length || mainPluginActive)
+    return null
   return createPortal(
     <nav
       aria-label={t("openedApps")}
@@ -47,7 +50,8 @@ export function CollapsedPluginRail({
             closePanel()
             void closeBrowser()
             route.openConversations()
-            openTab(`app:${tab.id}`)
+            setActiveTab(`app:${tab.id}`)
+            setOpen(false)
           }}
         />
       ))}
