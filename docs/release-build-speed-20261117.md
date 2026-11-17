@@ -29,9 +29,19 @@ RPM 已使用 gzip level 1 但仍超时，上游 tauri#11478、rpm-rs/rpm-rs#297
    RPM 限时 30 分钟。其他格式复用已安装 2.11.4 CLI；每分钟记录资源、结束时输出实际耗时。
 3. 已实现：两种 macOS 目标使用标准 `macos-15-intel` runner；Windows/Win7 仅将应用
    package 的 opt-level=1、codegen-units=16，与既有 Linux/macOS 方案对齐；运行时依赖保持原配置。
-4. 进行中：Actions 从同发布、同 source、SHA-256 与 minisign 均通过的 ARM64 DEB 恢复
+4. 已验证：Actions 从同发布、同 source、SHA-256 与 minisign 均通过的 ARM64 DEB 恢复
    已编译应用和资源，不重新编译，重打 AppImage/RPM；检查解包后的代码段与输入一致，再签名上传。
    Cargo 构建缓存预热随主线工具变更执行，尚未实测新参数的完整各平台构建耗时。
+
+ARM64 重打包 run **44020624567 成功**：完整流程约 6 分钟，官方 bundle 阶段
+DEB 16.8 秒（修正控制字段后该步骤共 31 秒）、AppImage 126.5 秒、RPM 19.7 秒。
+与原 RPM 110.3 分钟相比瓶颈已消除。RPM 由 Ubuntu 22.04 自带包管理器在隔离根目录
+实际安装成功，未关闭摘要校验；三种包重新验证 minisign、大小及提取后的应用代码段并上传。
+桌面显示名和应用资源目录保留“原助理”，DEB/RPM 包管理标识固定为 iyw-claw。
+
+普通 Windows、Intel/ARM macOS 同源码对比 run **44018664247** 仍在运行，不能将配置
+变更宣称为这三端已测得固定倍数加速。Win7 两种架构的应用级参数已调整且编译计划检查通过，
+本轮没有重新编译原来已签名的 Win7 0.1.350 应用。
 
 定向检查：修改的 Node 文件语法、工作流 YAML 解析和 diff 检查通过；Win7 两架构编译计划
 保留自建标准库参数，资源观测器成功/非零退出路径检查通过。未运行本机桌面构建或项目测试。
