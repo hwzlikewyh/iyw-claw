@@ -51,7 +51,7 @@ jobs:
       - name: Install bundle dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf minisign zstd rpm cpio
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf zstd rpm cpio
           pnpm install --frozen-lockfile --ignore-scripts
       - name: Restore verified application and resources from signed DEB
         run: node .release-workflow/.github/scripts/release/rebundle-linux-deb.mjs restore

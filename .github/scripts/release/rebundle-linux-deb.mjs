@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { chmodSync, closeSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { join, resolve, sep } from "node:path"
 import { downloadReleaseFile, requireReleaseSource, sha256, uploadDraftFile } from "./github-assets.mjs"
+import { verifyMinisign } from "./verify-minisign.mjs"
 
 const target = "aarch64-unknown-linux-gnu"
 const version = process.env.VERSION
@@ -16,11 +17,8 @@ const publicKey = Buffer.from(config.plugins.updater.pubkey, "base64").toString(
   .split(/\r?\n/).find(line => line.startsWith("RW"))
 if (!publicKey) throw new Error("updater public key missing")
 
-function verify(path) {
-  const signature = readFileSync(`${path}.sig`, "utf8").trim()
-  const decoded = join(directory, "verify.minisig")
-  writeFileSync(decoded, signature.startsWith("untrusted comment:") ? signature : Buffer.from(signature, "base64"))
-  execFileSync("minisign", ["-Vm", path, "-x", decoded, "-P", publicKey], { stdio: "inherit" })
+async function verify(path) {
+  await verifyMinisign(path, readFileSync(`${path}.sig`, "utf8"), publicKey)
 }
 
 async function codeDigest(binary) {
@@ -38,7 +36,7 @@ async function restore() {
     await downloadReleaseFile(context, assets[0], directory)
   }
   const deb = join(directory, name)
-  verify(deb)
+  await verify(deb)
   const field = name => execFileSync("dpkg-deb", ["--field", deb, name], { encoding: "utf8" }).trim()
   if (field("Version") !== version || field("Architecture") !== "arm64") throw new Error("DEB platform or version mismatch")
   const extracted = join(directory, "extracted")
@@ -95,7 +93,7 @@ async function publish() {
     const output = join(directory, `iyw-claw_${version}_arm64.${suffix}`)
     copyFileSync(join(root, kind, files[0]), output)
     execFileSync(process.execPath, ["node_modules/@tauri-apps/cli/tauri.js", "signer", "sign", output], { stdio: "inherit" })
-    verify(output)
+    await verify(output)
     await verifyContents(output, kind, directory)
     await uploadDraftFile(context, output)
     await uploadDraftFile(context, `${output}.sig`)
