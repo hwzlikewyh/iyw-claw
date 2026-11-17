@@ -132,8 +132,11 @@ impl DelegationListener {
                         .await
                 }
                 None => {
+                    let source = self
+                        .channel_reply_source(&active_entry, &request.tool)
+                        .await;
                     self.channel_tools
-                        .execute(caller, &request.tool, request.input)
+                        .execute_from_connection(caller, (&request.tool, request.input), source)
                         .await
                 }
             }
@@ -155,6 +158,27 @@ impl DelegationListener {
             return Ok(());
         };
         write_outcome(conn, outcome).await
+    }
+
+    async fn channel_reply_source(
+        &self,
+        entry: &TokenEntry,
+        tool: &str,
+    ) -> Option<crate::chat_channel::reply_routes::ReplySource> {
+        if tool != "send_channel_messages" {
+            return None;
+        }
+        Some(crate::chat_channel::reply_routes::ReplySource {
+            connection_id: entry.parent_connection_id.clone(),
+            conversation_id: self
+                .parent_lookup
+                .current_conversation_id(&entry.parent_connection_id)
+                .await?,
+            turn_generation: self
+                .parent_lookup
+                .current_turn_generation(&entry.parent_connection_id)
+                .await?,
+        })
     }
 
     async fn await_channel_confirmation<C>(
