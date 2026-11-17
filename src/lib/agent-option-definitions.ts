@@ -4,8 +4,12 @@ import type {
   SessionModeStateInfo,
 } from "@/lib/types"
 import type { GatewayModel } from "@/lib/gateway-model-catalog"
+import { parseGatewayModels } from "@/lib/gateway-model-catalog"
 
-type LocalModelDefinition = GatewayModel
+type LocalModelDefinition = Omit<
+  GatewayModel,
+  "capabilities" | "imageInputMode"
+>
 
 export const AGENT_MODEL_IDS: Record<AgentType, readonly string[]> = {
   codex: ["gpt-5.4", "deepseek-v4-pro", "deepseek-v4-flash"],
@@ -193,7 +197,25 @@ export function getLocalModels(agentType: AgentType): GatewayModel[] {
   const byId = new Map(LOCAL_MODELS.map((model) => [model.id, model]))
   return AGENT_MODEL_IDS[agentType].flatMap((id) => {
     const model = byId.get(id)
-    return model ? [{ ...model, efforts: [...model.efforts] }] : []
+    return model
+      ? parseGatewayModels({
+          data: [
+            {
+              id: model.id,
+              display_name: model.name,
+              description: model.description,
+              reasoning: {
+                efforts: model.efforts,
+                default_effort: model.defaultEffort,
+              },
+              fast_mode: {
+                supported: model.fastModeSupported,
+                default_enabled: model.fastModeDefaultEnabled,
+              },
+            },
+          ],
+        })
+      : []
   })
 }
 
