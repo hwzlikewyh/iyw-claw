@@ -52,7 +52,10 @@ pub(crate) struct PendingThreadMetadataPatch {
 }
 
 impl ThreadMetadataSync {
-    pub(crate) async fn for_create(params: &CreateThreadParams) -> Self {
+    pub(crate) async fn for_create(
+        params: &CreateThreadParams,
+        inherited_preview: Option<&str>,
+    ) -> Self {
         let created_at = Utc::now();
         let cwd = params.metadata.cwd.clone().unwrap_or_default();
         let git_info = if get_git_repo_root(cwd.as_path()).is_some() {
@@ -90,7 +93,8 @@ impl ThreadMetadataSync {
         Self {
             thread_id: params.thread_id,
             cwd_seen: !cwd.as_os_str().is_empty(),
-            preview_seen: guardian_review,
+            preview_seen: guardian_review
+                || inherited_preview.is_some_and(|preview| !preview.is_empty()),
             first_user_message_seen: guardian_review,
             title_seen: guardian_review,
             pending_update: Some(update),
@@ -290,7 +294,7 @@ impl ThreadMetadataSync {
                     update.model = Some(turn_ctx.model.clone());
                     update.reasoning_effort = Some(turn_ctx.effort.clone());
                     update.approval_mode = Some(turn_ctx.approval_policy);
-                    update.permission_profile = Some(turn_ctx.permission_profile());
+                    update.permission_profile = Some(turn_ctx.permission_profile.clone());
                 }
                 RolloutItem::EventMsg(EventMsg::UserMessage(user)) => {
                     self.observe_user_message(user, &mut update);

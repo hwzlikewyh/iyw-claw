@@ -14,7 +14,7 @@ use std::path::PathBuf;
 mod manifest_cache;
 pub(crate) use manifest_cache::ManifestCache;
 const MAX_DEFAULT_PROMPT_COUNT: usize = 3;
-const MAX_DEFAULT_PROMPT_LEN: usize = 128;
+const MAX_DEFAULT_PROMPT_LEN: usize = 512;
 
 #[path = "agent_plugin_manifest.rs"]
 mod agent_plugin_manifest;

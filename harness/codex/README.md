@@ -33,23 +33,20 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.167.1`. It recognizes the managed
+The current pin is `rust-v0.169.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
 does not grant experimental context-management availability.
 
-The 0.155.0 upgrade retains the current worker, native commands, automatic-turn
-ownership, Windows process patches, and command-description protocol extension.
-Session MCP configuration is required and checked against the thread's tool
-catalog before readiness, except the host-provided remote business gateway,
-which is optional so an outage cannot prevent session startup. The exception
-requires its exact service name and URL; built-in MCP remains required.
-Tool names retain their saved namespace across resume.
-
-The official release was checked on 2026-11-11: the latest stable tag is
-`rust-v0.167.1`, published on 2026-11-10 UTC. Its tag object and source commit
+The official release was checked on 2026-11-17: the latest stable tag is
+`rust-v0.169.0`, published on 2026-11-13 UTC. Its tag object and source commit
 match `upstream.lock`; prereleases remain outside the synchronization policy.
+
+The 0.169.0 refresh keeps the in-process host, managed credentials, image
+references, MCP routing and Windows helpers while adopting the current app-server,
+thread-store, sandbox and model-provider APIs. Official source:
+https://github.com/openai/codex/releases/tag/rust-v0.169.0
 
 The 0.167.1 refresh preserves the in-process host and local patches while
 adopting upstream MCP connection leases, network approval cancellation and
@@ -57,6 +54,14 @@ serialization, inherited execution policies and failed-response usage boundaries
 Managed images, usage provenance and optional command/compaction descriptions
 remain integrated. Official source:
 https://github.com/openai/codex/releases/tag/rust-v0.167.1
+
+The historical 0.155.0 upgrade retained the worker, native commands, automatic-turn
+ownership, Windows process patches, and command-description protocol extension.
+Session MCP configuration is required and checked against the thread's tool
+catalog before readiness, except the host-provided remote business gateway,
+which is optional so an outage cannot prevent session startup. The exception
+requires its exact service name and URL; built-in MCP remains required.
+Tool names retain their saved namespace across resume.
 
 The 0.166.0 refresh preserves the in-process host and local patches while
 adopting upstream thread lifecycle timestamps, runtime authentication changes,
@@ -94,7 +99,7 @@ setup helper before application initialization. Official source:
 https://github.com/openai/codex/releases/tag/rust-v0.161.0
 
 Upgrade decisions and validation are recorded in
-[`docs/xinghe-upgrade-0.167.1.md`](../../docs/xinghe-upgrade-0.167.1.md).
+[`docs/xinghe-upgrade-0.169.0.md`](../../docs/xinghe-upgrade-0.169.0.md).
 
 Settings commands that change confirmed values wait for a matching
 `thread/settings/updated` notification;

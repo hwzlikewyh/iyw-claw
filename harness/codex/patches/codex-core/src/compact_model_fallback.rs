@@ -55,6 +55,9 @@ fn may_use_current_model(error: &CodexErr, previous: &TurnContext, current: &Tur
         CodexErrorDetails::TurnAborted
             | CodexErrorDetails::Interrupted
             | CodexErrorDetails::SessionBudgetExceeded
+            | CodexErrorDetails::InferenceHookDenied { .. }
+            | CodexErrorDetails::WorkspaceAccessDenied(_)
+            | CodexErrorDetails::ContentPolicyViolation { .. }
             | CodexErrorDetails::ResponseIncomplete(_)
             | CodexErrorDetails::RefreshTokenFailed(_)
     ) || (previous.model_info().slug == current.model_info().slug

@@ -178,6 +178,7 @@ async fn build_and_install_compaction(
         (attempt, compaction_turn_context, None)
     };
     let RemoteCompactV2Attempt {
+        rejected_audio_file_ids,
         input_goal_ids,
         trace_input_history,
         prompt_input,
@@ -190,7 +191,8 @@ async fn build_and_install_compaction(
     if prefix.is_none()
         && let Some(token_usage) = token_usage.as_ref()
     {
-        sess.record_rollout_budget_usage(token_usage).await?;
+        sess.record_rollout_budget_usage(&compaction_turn_context.sub_id, token_usage)
+            .await?;
         analytics_details.active_context_tokens_before = Some(token_usage.input_tokens);
     }
     let image_ids = crate::client::image_references::collect_image_ids(prompt_input.iter(), true);
@@ -204,6 +206,7 @@ async fn build_and_install_compaction(
         } else {
             RetainedImageBudget::Disabled
         },
+        crate::session::file_audio::snapshot(sess).await.as_ref(),
     );
     let compacted_history =
         crate::client::image_references::retain_in_history(image_ids, compacted_history);
@@ -225,10 +228,15 @@ async fn build_and_install_compaction(
             compacted_history,
             replacement_step_context.to_turn_context_item(),
             world_state_baseline,
+            rejected_audio_file_ids,
             CompactedHistoryInstallation::Prefix {
                 prefix,
                 prefix_context,
                 initial_context,
+                reset_world_state_sections: world_state
+                    .full_context_excluded_section_ids()
+                    .chain(cutoff_world_state.full_context_excluded_section_ids())
+                    .collect(),
                 model_info: &model_info,
                 compaction_response_id,
                 reviewer_compaction_hash,
@@ -259,6 +267,7 @@ async fn build_and_install_compaction(
             new_history,
             replacement_step_context.to_turn_context_item(),
             world_state_baseline,
+            rejected_audio_file_ids,
             installation,
         )
         .await

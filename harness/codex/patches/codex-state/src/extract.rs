@@ -133,7 +133,7 @@ fn apply_turn_context(metadata: &mut ThreadMetadata, turn_ctx: &TurnContextItem)
     metadata.model = Some(turn_ctx.model.clone());
     metadata.reasoning_effort = turn_ctx.effort.clone();
     metadata.sandbox_policy =
-        serde_json::to_string(&turn_ctx.permission_profile()).unwrap_or_default();
+        serde_json::to_string(&turn_ctx.permission_profile).unwrap_or_default();
     metadata.approval_mode = enum_to_string(&turn_ctx.approval_policy);
 }
 
