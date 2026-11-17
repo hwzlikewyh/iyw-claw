@@ -2320,6 +2320,19 @@ impl ConnectionManager {
             }
         }
 
+        let knowledge_context = if delegation.is_none() {
+            let id = state_arc.read().await.conversation_id.or(conversation_id);
+            match crate::commands::knowledge::message_sources::prepare(&db.conn, id, &blocks)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?
+            {
+                Some(context) => Some(context),
+                None => crate::commands::knowledge::selection::prompt_hint(&db.conn, id).await,
+            }
+        } else {
+            None
+        };
+
         // Centralized status transition: every prompt send flips the
         // conversation row to InProgress. This MUST happen on every call
         // (including the already-linked path) so that a follow-up turn whose
@@ -2344,17 +2357,6 @@ impl ConnectionManager {
             )
             .await;
         }
-
-        let knowledge_conversation_id = conversation_id_for_status.or(conversation_id);
-        let knowledge_context = if delegation.is_none() {
-            crate::commands::knowledge::selection::prompt_hint(
-                &db.conn,
-                knowledge_conversation_id,
-            )
-            .await
-        } else {
-            None
-        };
 
         // Capture a bounded preview of the user's message BEFORE `blocks` is
         // moved into `send_prompt_inner`. Only on the genuine UI path

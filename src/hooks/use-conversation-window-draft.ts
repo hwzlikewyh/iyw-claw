@@ -4,6 +4,8 @@ import type { RichComposerHandle } from "@/components/chat/composer/rich-compose
 import type { InputAttachment } from "@/components/chat/message-input-attachments"
 import type { PromptInputBlock } from "@/lib/types"
 import { registerConversationWindowDraft } from "@/lib/conversation-window-draft"
+import { useKnowledgeComposerContext } from "@/lib/knowledge-composer-context"
+import { isKnowledgeSourceBlock, knowledgePrompt } from "@/lib/knowledge-prompt"
 
 interface CaptureOptions {
   tabId?: string | null
@@ -27,12 +29,25 @@ export function useConversationWindowDraft(options: CaptureOptions) {
       ) {
         throw new Error(t("busyDraft"))
       }
+      const knowledge = knowledgePrompt(
+        { blocks: [], displayText: "" },
+        useKnowledgeComposerContext.getState().entries[options.tabId!]
+          ?.selection
+      ).blocks
       return {
         doc: options.editor.current?.getJSON() ?? null,
         attachments: options.attachments.current.map((item) =>
           item.type === "image" ? { ...item, previewUrl: undefined } : item
         ),
-        embeddedPayloads: Array.from(options.embedded.current.entries()),
+        embeddedPayloads: [
+          ...Array.from(options.embedded.current.entries()).filter(
+            ([, block]) => !isKnowledgeSourceBlock(block)
+          ),
+          ...knowledge.map((block): [string, PromptInputBlock] => [
+            block.type === "resource_link" ? block.uri : "",
+            block,
+          ]),
+        ],
       }
     })
   }, [options, t])

@@ -12,6 +12,7 @@ struct KnowledgeRequest {
     category: i64,
     folder_id: Option<Value>,
     file_id: Option<String>,
+    source_refs: Option<Vec<String>>,
     #[serde(default = "default_limit")]
     limit: i64,
     #[serde(default = "default_dense_weight")]
@@ -39,6 +40,7 @@ pub(super) async fn search(
         "query": request.query.trim(),
         "folderId": request.folder_id,
         "fileId": request.file_id,
+        "sourceRefs": request.source_refs,
         "limit": request.limit,
         "denseWeight": request.dense_weight,
     });
@@ -69,6 +71,18 @@ pub(super) async fn search(
 }
 
 fn validate(request: &KnowledgeRequest) -> Result<(), rmcp::ErrorData> {
+    if request.source_refs.as_ref().is_some_and(|references| {
+        references.is_empty()
+            || references.len() > crate::commands::knowledge::models::MAX_SELECTION
+            || references.iter().any(|reference| {
+                reference.len() > crate::commands::knowledge::message_sources::MAX_SOURCE_REF_BYTES
+            })
+    }) {
+        return Err(rmcp::ErrorData::invalid_params(
+            "Invalid message sourceRefs",
+            None,
+        ));
+    }
     let valid_id = crate::commands::knowledge::models::valid_id;
     let folder_valid = request.folder_id.as_ref().is_none_or(|value| match value {
         Value::String(id) => valid_id(id),
