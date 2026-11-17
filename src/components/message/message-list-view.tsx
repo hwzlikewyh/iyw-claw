@@ -76,6 +76,7 @@ import type {
   SessionConfigOptionInfo,
   SessionStats,
 } from "@/lib/types"
+import type { GatewayModel } from "@/lib/gateway-model-parser"
 import { copyTextToClipboard } from "@/lib/utils"
 import { isModelConfigOption } from "@/lib/model-config-groups"
 import { VirtualizedMessageThread } from "@/components/message/virtualized-message-thread"
@@ -93,6 +94,7 @@ import { resolveArtifactConversationId } from "@/lib/artifact-conversation-id"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
 import { CurrentReplyArtifacts } from "@/components/message/current-reply-artifacts"
+import { useAgentModelCatalog } from "@/components/message/use-agent-model-catalog"
 import { AssistantTurnContent } from "@/components/message/assistant-turn-content"
 import { AgentInputDelivery } from "./agent-input-delivery"
 import { ConversationProgressButton } from "./conversation-progress-button"
@@ -512,6 +514,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   artifactConversationId,
   agentType,
   modelOptions,
+  gatewayModels,
+  lastTurnModelId,
   enableUserMemoryActions,
   promptText,
   dimmed = false,
@@ -534,6 +538,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   artifactConversationId: number | null
   agentType: AgentType
   modelOptions?: SessionConfigOptionInfo[]
+  gatewayModels: GatewayModel[]
+  lastTurnModelId?: string | null
   enableUserMemoryActions: boolean
   dimmed?: boolean
   showStats?: boolean
@@ -638,6 +644,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                   model={group.model}
                   models={group.models}
                   modelOptions={modelOptions}
+                  gatewayModels={gatewayModels}
+                  lastTurnModelId={lastTurnModelId}
                   previousUserIndex={previousUserIndex}
                   isResponseComplete={isResponseComplete}
                   copyText={extractTextFromParts(group.parts)}
@@ -729,6 +737,7 @@ export function MessageListView({
     artifactConversationId
   )
   const t = useTranslations("Folder.chat.messageList")
+  const gatewayModels = useAgentModelCatalog(agentType)
   const {
     mode: conversationDisplayMode,
     collapseCompletedTurn,
@@ -998,6 +1007,13 @@ export function MessageListView({
                   artifactConversationId={resolvedArtifactConversationId}
                   agentType={agentType}
                   modelOptions={modelOptions}
+                  gatewayModels={gatewayModels}
+                  lastTurnModelId={
+                    agentType === "claude_code" &&
+                    item.key === lastAssistantItem?.key
+                      ? session?.detail?.summary.model
+                      : null
+                  }
                   enableUserMemoryActions={enableUserMemoryActions}
                   dimmed={item.phase === "optimistic"}
                   showStats={
@@ -1100,6 +1116,8 @@ export function MessageListView({
       lastAssistantItem?.key,
       loadEarlierHistory,
       modelOptions,
+      gatewayModels,
+      session?.detail?.summary.model,
       sessionActions,
       t,
     ]

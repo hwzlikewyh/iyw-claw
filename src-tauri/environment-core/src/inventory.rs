@@ -203,9 +203,9 @@ fn add_entrypoint(
 ) {
     let file = lower.rsplit('/').next().unwrap_or(lower);
     let name = match component {
-        "node" if matches!(file, "node" | "node.exe") => Some("node"),
-        "node" if matches!(file, "npm" | "npm.cmd") => Some("npm"),
-        "node" if matches!(file, "npx" | "npx.cmd") => Some("npx"),
+        "node" if file == if cfg!(windows) { "node.exe" } else { "node" } => Some("node"),
+        "node" if file == if cfg!(windows) { "npm.cmd" } else { "npm" } => Some("npm"),
+        "node" if file == if cfg!(windows) { "npx.cmd" } else { "npx" } => Some("npx"),
         "git" if lower.ends_with("cmd/git.exe") || lower.ends_with("bin/git") => Some("git"),
         "uv" if matches!(file, "uv" | "uv.exe") => Some("uv"),
         "uv" if matches!(file, "uvx" | "uvx.exe") => Some("uvx"),
@@ -224,6 +224,13 @@ fn add_entrypoint(
     if let Some(name) = name {
         values
             .entry(name.to_string())
+            .and_modify(|current| {
+                if component == "node"
+                    && relative.matches('/').count() < current.matches('/').count()
+                {
+                    *current = relative.to_string();
+                }
+            })
             .or_insert_with(|| relative.to_string());
     }
 }

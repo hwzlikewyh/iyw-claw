@@ -10,12 +10,12 @@ pub(super) fn get(agent_type: AgentType) -> AcpAgentMeta {
             name: "远山",
             description: "ACP wrapper for Anthropic's Claude",
             distribution: AgentDistribution::Npx {
-                version: "0.98.0",
-                package: "@agentclientprotocol/claude-agent-acp@0.98.0",
+                version: "0.107.3",
+                package: "@agentclientprotocol/claude-agent-acp@0.107.3",
                 cmd: "claude-agent-acp",
                 args: &[],
                 env: &[],
-                node_required: Some("22.0.0"),
+                node_required: Some("24.0.0"),
             },
         },
         AgentType::Codex => AcpAgentMeta {

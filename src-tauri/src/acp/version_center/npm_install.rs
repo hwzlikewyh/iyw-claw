@@ -122,6 +122,9 @@ pub(crate) async fn ensure_npm_node_requirement(
     };
     let required = semver::Version::parse(required)
         .map_err(|_| contract_error("trusted Agent Node.js requirement is invalid"))?;
+    if cfg!(feature = "tauri-runtime") {
+        return ensure_desktop_npm_node_requirement(agent_type, &required).await;
+    }
     let active_version = inventory::list_tool_settings(conn)
         .await?
         .into_iter()
@@ -147,6 +150,40 @@ pub(crate) async fn ensure_npm_node_requirement(
     crate::acp::preflight::enforce_minimum_node_version(&environment, &required_text)
         .await
         .map_err(|detail| node_path_requirement_error(agent_type, &required, &detail))
+}
+
+async fn ensure_desktop_npm_node_requirement(
+    agent_type: AgentType,
+    required: &semver::Version,
+) -> Result<(), AcpError> {
+    let repair_error = || {
+        AcpError::DownloadFailed(format!(
+            "{} requires a verified managed Node.js runtime; repair the application environment",
+            registry::get_agent_meta(agent_type).name
+        ))
+    };
+    let version = crate::managed_environment::component_version("node").ok_or_else(repair_error)?;
+    let installed = semver::Version::parse(&version).map_err(|_| repair_error())?;
+    if installed < *required {
+        return Err(managed_node_requirement_error(
+            agent_type, required, &version,
+        ));
+    }
+    let node = crate::managed_environment::tool_entrypoint("node").ok_or_else(repair_error)?;
+    crate::managed_environment::tool_entrypoint("npm").ok_or_else(repair_error)?;
+    tracing::info!(
+        agent = registry::registry_id_for(agent_type),
+        managed_node = %version,
+        required_node = %required,
+        "[agent-version-center] validating desktop managed Node.js"
+    );
+    crate::acp::preflight::enforce_node_binary_version(
+        &node,
+        &std::collections::BTreeMap::new(),
+        &required.to_string(),
+    )
+    .await
+    .map_err(|detail| node_path_requirement_error(agent_type, required, &detail))
 }
 
 async fn validate_managed_node_inventory(

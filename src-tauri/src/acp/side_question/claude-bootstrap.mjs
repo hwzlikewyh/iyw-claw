@@ -9,29 +9,62 @@ if (!entrypoint) throw new Error("Missing managed ACP entrypoint")
 process.argv.splice(1, 2, entrypoint)
 const require = createRequire(entrypoint)
 const load = (name) => import(pathToFileURL(require.resolve(name)).href)
+const loadInternal = (name) => import(pathToFileURL(join(dirname(entrypoint), name)).href)
 const version = JSON.parse(
   readFileSync(join(dirname(entrypoint), "../package.json"), "utf8")
 ).version
-// 已核对两个受管版本的 ACP v1 接口和未声明类型的 Query 侧问方法。
+
+async function runLatestAcp(logger, onAgent) {
+  const [protocol, server, transport, v1, v2] = await Promise.all([
+    load("@agentclientprotocol/sdk/experimental/v2"),
+    loadInternal("serve.js"),
+    loadInternal("utils.js"),
+    loadInternal("v1/acp-agent.js"),
+    loadInternal("v2/agent.js"),
+  ])
+  const router = protocol.agentProtocolRouter()
+  const protocols = server.acpProtocolsFromEnv(
+    process.env.CLAUDE_AGENT_ACP_PROTOCOL
+  )
+  if (protocols !== "v2") router.withV1(v1.v1AgentApp(logger, onAgent))
+  if (protocols !== "v1") router.withV2(v2.v2AgentApp(logger, onAgent))
+  return router.connect(
+    protocol.ndJsonStream(
+      transport.nodeToWebWritable(process.stdout),
+      transport.nodeToWebReadable(process.stdin)
+    )
+  )
+}
+
+// 只为已核验的受管版本安装原生侧问扩展。
 if (
-  !["0.73.0", "0.98.0"].includes(version) ||
+  !["0.73.0", "0.98.0", "0.107.3"].includes(version) ||
+  (version === "0.107.3" && process.env.CLAUDE_AGENT_ACP_PROTOCOL === "v2") ||
   process.argv.some((arg) => ["--cli", "--version", "-v"].includes(arg))
 ) {
   // Preserve ordinary sessions on newer packages; absence of our RPC is explicit.
   await import(pathToFileURL(entrypoint).href)
 } else {
   const { AgentApp } = await load(
-    version === "0.98.0"
-      ? "@agentclientprotocol/sdk/unstable"
-      : "@agentclientprotocol/sdk"
+    version === "0.73.0"
+      ? "@agentclientprotocol/sdk"
+      : "@agentclientprotocol/sdk/unstable"
   )
-  const native = await import(
-    pathToFileURL(join(dirname(entrypoint), "acp-agent.js")).href
-  )
+  let runAcp
+  if (version === "0.107.3") {
+    runAcp = async (logger) => ({
+      connection: await runLatestAcp(logger, (created) => {
+        agent = created
+      }),
+    })
+  } else {
+    const native = await loadInternal("acp-agent.js")
+    runAcp = native.runAcp
+  }
   const sdk = await load("@anthropic-ai/claude-agent-sdk")
   if (
     typeof AgentApp?.prototype?.connect !== "function" ||
-    typeof native.runAcp !== "function" ||
+    typeof runAcp !== "function" ||
     typeof sdk.resolveSettings !== "function"
   ) {
     throw new Error(
@@ -108,6 +141,10 @@ if (
   let agent
   let closing = false
   let installed = 0
+  let resolveInstalled
+  const installedConnection = new Promise((resolve) => {
+    resolveInstalled = resolve
+  })
   const pending = new Map()
   const seen = new Set()
   const remember = (id) => {
@@ -210,9 +247,14 @@ if (
           "Unexpected ACP connection during side-question bootstrap"
         )
       this.onRequest("_iyw/side_question", parser, handler)
-      return connect.apply(this, args)
+      const result = connect.apply(this, args)
+      resolveInstalled()
+      return result
     }
-    ;({ connection, agent } = native.runAcp(logger))
+    const runtime = await runAcp(logger)
+    connection = runtime.connection
+    agent = runtime.agent ?? agent
+    await installedConnection
   } finally {
     AgentApp.prototype.connect = connect
   }
@@ -223,7 +265,7 @@ if (
     closing = true
     for (const { controller } of pending.values()) controller.abort()
     try {
-      await agent.dispose()
+      await agent?.dispose()
     } finally {
       process.exit(0)
     }

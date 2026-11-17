@@ -20,6 +20,7 @@ import { useMessageScroll } from "@/components/message/message-scroll-context"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { copyTextToClipboard } from "@/lib/utils"
 import type { TurnUsage, SessionConfigOptionInfo } from "@/lib/types"
+import type { GatewayModel } from "@/lib/gateway-model-parser"
 import { TurnModelLabel } from "./turn-model-label"
 
 interface TurnStatsProps {
@@ -28,6 +29,8 @@ interface TurnStatsProps {
   model?: string | null
   models?: string[]
   modelOptions?: SessionConfigOptionInfo[]
+  gatewayModels?: GatewayModel[]
+  lastTurnModelId?: string | null
   previousUserIndex?: number | null
   isResponseComplete?: boolean
   copyText?: string
@@ -45,6 +48,8 @@ export function TurnStats({
   model,
   models,
   modelOptions,
+  gatewayModels,
+  lastTurnModelId,
   previousUserIndex,
   isResponseComplete = true,
   copyText = "",
@@ -156,7 +161,13 @@ export function TurnStats({
         )}
         {actions}
         {displayModels.map((name) => (
-          <TurnModelLabel key={name} model={name} options={modelOptions} />
+          <TurnModelLabel
+            key={name}
+            model={name}
+            options={modelOptions}
+            gatewayModels={gatewayModels}
+            lastTurnModelId={lastTurnModelId}
+          />
         ))}
         <span className="inline-flex min-h-8 items-center px-2 tabular-nums">
           {tLive("turnDuration", { time: durationLabel })}
