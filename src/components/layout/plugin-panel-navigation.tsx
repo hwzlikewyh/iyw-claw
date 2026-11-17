@@ -132,7 +132,7 @@ function AppTab({
   detach: (tab: PluginPanelTab) => Promise<boolean>
   moving: boolean
 }) {
-  const { activeTab, setActiveTab } = useAuxPanelContext()
+  const { activeTab, setActiveTab, setOpen } = useAuxPanelContext()
   const pluginText = useTranslations("PluginPanels")
   const { closing, closePanel } = useAppTabClose(tab.id, close)
   const move = () => {
@@ -159,7 +159,10 @@ function AppTab({
             className="flex max-w-36 items-center gap-1.5 truncate px-2 text-xs"
             aria-current={activeTab === `app:${tab.id}` ? "page" : undefined}
             onClick={() => {
-              if (!consumeDrag()) setActiveTab(`app:${tab.id}`)
+              if (!consumeDrag()) {
+                setActiveTab(`app:${tab.id}`)
+                setOpen(false)
+              }
             }}
           >
             {moving ? (
