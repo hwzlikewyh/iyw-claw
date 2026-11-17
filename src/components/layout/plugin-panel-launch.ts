@@ -43,7 +43,15 @@ export async function openPanel(context: OpeningContext) {
     context.select(existing.id)
     return
   }
-  if (context.tabs.length >= MAX_TABS) {
+  if (
+    context.tabs.filter(
+      (tab) =>
+        tab.conversationId === conversationId ||
+        (tab.conversationId != null &&
+          tab.conversationId < 0 &&
+          draftPluginMatches(tab.conversationId, conversationId))
+    ).length >= MAX_TABS
+  ) {
     context.setError("PluginPanels.limit")
     return
   }
@@ -59,10 +67,7 @@ function findExistingPanel(context: OpeningContext) {
       (tab.conversationId === conversationId ||
         (tab.conversationId != null &&
           tab.conversationId < 0 &&
-          draftPluginMatches(tab.conversationId, conversationId)) ||
-        (app.appKey === OPENFILM_STUDIO_APP_KEY &&
-          tab.kind === "studio-url" &&
-          tab.conversationId === null))
+          draftPluginMatches(tab.conversationId, conversationId)))
   )
 }
 

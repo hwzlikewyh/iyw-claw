@@ -7,54 +7,51 @@ import type {
   PluginPanelUpdate,
 } from "@/lib/plugin-panel"
 import type { PluginPanelTab } from "./use-plugin-panels"
+import type { McpPluginPanelTab } from "./use-plugin-panel-tabs"
 
 const SYNC_DELAY_MS = 40
+const SYNC_INTERVAL_MS = 5_000
 type States = Record<string, PluginPanelSyncState>
+type Transport = ReturnType<typeof getTransport>
+type Commit = (id: string, value: PluginPanelSyncState) => void
+type Refresh = (instanceId?: string) => void
 
 export function usePluginPanelUpdates(
   tabs: PluginPanelTab[],
-  transport: ReturnType<typeof getTransport>
+  transport: Transport,
+  activeTab: string | null
 ) {
   const [states, setStates] = useState<States>({})
-  const schedule = useRef(() => {})
-  const blocked = useRef(new Set<string>())
+  const schedule = useRef<Refresh>(() => {})
   useEffect(() => {
-    let alive = true,
-      timer: ReturnType<typeof setTimeout>
-    const requests = new Map<string, number>()
-    schedule.current = () => {
-      clearTimeout(timer)
-      timer = setTimeout(() => {
-        const ids = new Set(tabs.map((tab) => tab.id))
-        for (const id of blocked.current)
-          if (!ids.has(id)) blocked.current.delete(id)
+    const sync = createSyncScheduler(tabs, transport, (id, value) => {
+      setStates((current) => merge(current, id, value))
+    })
+    schedule.current = sync.schedule
+    sync.schedule()
+    const stop = subscribeRefresh(transport, sync.schedule)
+    return () => {
+      sync.dispose()
+      stop()
+      schedule.current = () => {}
+    }
+  }, [tabs, transport])
+  useEffect(() => {
+    const ids = new Set(tabs.map((tab) => tab.id))
+    const timer = setTimeout(
+      () =>
         setStates((current) =>
           Object.fromEntries(
             Object.entries(current).filter(([id]) => ids.has(id))
           )
-        )
-        for (const tab of tabs.filter(
-          (tab): tab is Extract<PluginPanelTab, { kind: "mcp-app" }> =>
-            tab.kind === "mcp-app" && !blocked.current.has(tab.id)
-        ))
-          void loadUpdate(tab, transport, {
-            requests,
-            alive: () => alive,
-            commit: (value) => {
-              if (value.forbidden) blocked.current.add(tab.id)
-              setStates((current) => merge(current, tab.id, value))
-            },
-          })
-      }, SYNC_DELAY_MS)
-    }
-    schedule.current()
-    return () => {
-      alive = false
-      clearTimeout(timer)
-      schedule.current = () => {}
-    }
-  }, [tabs, transport])
+        ),
+      0
+    )
+    return () => clearTimeout(timer)
+  }, [tabs])
+  useActivePanelRefresh(tabs, activeTab, schedule)
   useAcpEvent((event) => {
+    if (event.type === "turn_complete") return schedule.current()
     if (event.type !== "tool_call" && event.type !== "tool_call_update") return
     const meta = event.meta as Record<string, unknown> | undefined
     const app = meta?.["iyw-claw.plugin-app"] as
@@ -65,19 +62,94 @@ export function usePluginPanelUpdates(
   return { states, refresh: () => schedule.current() }
 }
 
-async function loadUpdate(
-  tab: Extract<PluginPanelTab, { kind: "mcp-app" }>,
-  transport: ReturnType<typeof getTransport>,
-  lifecycle: {
-    requests: Map<string, number>
-    alive: () => boolean
-    commit: (value: PluginPanelSyncState) => void
-  }
+function useActivePanelRefresh(
+  tabs: PluginPanelTab[],
+  activeTab: string | null,
+  schedule: { current: Refresh }
 ) {
-  const generation = (lifecycle.requests.get(tab.id) ?? 0) + 1
-  lifecycle.requests.set(tab.id, generation)
-  const current = () =>
-    lifecycle.alive() && lifecycle.requests.get(tab.id) === generation
+  useEffect(() => {
+    const active = tabs.find(
+      (tab) => tab.kind === "mcp-app" && `app:${tab.id}` === activeTab
+    )
+    if (!active) return
+    const refresh = () => {
+      if (document.visibilityState !== "hidden") schedule.current(active.id)
+    }
+    refresh()
+    const timer = setInterval(refresh, SYNC_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [activeTab, tabs, schedule])
+}
+
+function createSyncScheduler(
+  tabs: PluginPanelTab[],
+  transport: Transport,
+  commit: Commit
+) {
+  let alive = true,
+    running = false
+  const pending = new Set<string>()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const blocked = new Set<string>()
+  const run = async () => {
+    timer = undefined
+    if (!alive || running) return
+    const batch = tabs.filter(
+      (tab): tab is McpPluginPanelTab =>
+        tab.kind === "mcp-app" && pending.has(tab.id) && !blocked.has(tab.id)
+    )
+    pending.clear()
+    running = true
+    await Promise.all(
+      batch.map((tab) =>
+        loadUpdate(tab, transport, (value) => {
+          if (!alive) return
+          if (value.forbidden) blocked.add(tab.id)
+          commit(tab.id, value)
+        })
+      )
+    )
+    running = false
+    if (pending.size && alive)
+      timer = setTimeout(() => void run(), SYNC_DELAY_MS)
+  }
+  const schedule: Refresh = (instanceId) => {
+    if (!alive || !tabs.length) return
+    for (const tab of tabs)
+      if (tab.kind === "mcp-app" && (!instanceId || tab.id === instanceId))
+        pending.add(tab.id)
+    // 不重置已有计时器；连续事件不能无限推迟同步。
+    if (!running && timer === undefined)
+      timer = setTimeout(() => void run(), SYNC_DELAY_MS)
+  }
+  return {
+    schedule,
+    dispose: () => {
+      alive = false
+      clearTimeout(timer)
+    },
+  }
+}
+
+function subscribeRefresh(transport: Transport, refresh: () => void) {
+  const visible = () => {
+    if (document.visibilityState !== "hidden") refresh()
+  }
+  window.addEventListener("focus", visible)
+  document.addEventListener("visibilitychange", visible)
+  const stopReconnect = transport.onReconnect?.(refresh)
+  return () => {
+    window.removeEventListener("focus", visible)
+    document.removeEventListener("visibilitychange", visible)
+    stopReconnect?.()
+  }
+}
+
+async function loadUpdate(
+  tab: McpPluginPanelTab,
+  transport: Transport,
+  commit: (value: PluginPanelSyncState) => void
+) {
   try {
     const update = await transport.call<PluginPanelUpdate | null>(
       "plugin_app_sync",
@@ -90,15 +162,14 @@ async function loadUpdate(
         },
       }
     )
-    if (current()) lifecycle.commit(update ? { update } : {})
+    commit(update ? { update } : {})
   } catch (cause) {
     const code = extractAppCommandError(cause)?.code
-    if (current())
-      lifecycle.commit({
-        error: true,
-        forbidden:
-          code === "permission_denied" || code === "configuration_missing",
-      })
+    commit({
+      error: true,
+      forbidden:
+        code === "permission_denied" || code === "configuration_missing",
+    })
   }
 }
 
