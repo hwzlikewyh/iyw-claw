@@ -169,17 +169,28 @@ pub(super) fn component_entrypoint(
     component: &ManagedComponent,
     name: &str,
 ) -> Result<PathBuf, String> {
-    let relative = component
-        .entrypoints
-        .get(name)
-        .ok_or_else(|| format!("缺少组件入口记录：{name}"))?;
+    let relative =
+        if cfg!(windows) && component.component_id == "node" && matches!(name, "npm" | "npx") {
+            let node = component
+                .entrypoints
+                .get("node")
+                .ok_or("缺少 Node.js 入口记录")?;
+            let directory = node.rsplit_once('/').map(|(directory, _)| directory);
+            directory.map_or_else(|| format!("{name}.cmd"), |dir| format!("{dir}/{name}.cmd"))
+        } else {
+            component
+                .entrypoints
+                .get(name)
+                .ok_or_else(|| format!("缺少组件入口记录：{name}"))?
+                .clone()
+        };
     let component_root = super::snapshot::component_path(root, &component.relative_path)
         .ok_or("组件目录缺失、不可读或不在受管目录内")?;
-    let candidate = managed_path(&component_root, relative).ok_or("组件入口路径无效")?;
+    let candidate = managed_path(&component_root, &relative).ok_or("组件入口路径无效")?;
     let record = component
         .files
         .iter()
-        .find(|file| file.path == *relative)
+        .find(|file| file.path == relative)
         .ok_or("组件入口缺少文件校验记录")?;
     super::verification::verify(&component_root, &candidate, record)
         .map_err(|error| format!("{name}：{error}"))?;

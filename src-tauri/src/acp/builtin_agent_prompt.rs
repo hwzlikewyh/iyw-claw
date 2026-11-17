@@ -14,6 +14,9 @@ const COMMON_PROMPT: &str = include_str!("../../resources/agent-prompt.md");
 const CLAUDE_SINGLE_VERSION_PROMPT: &str = r#"## Single-version responses
 
 Return one complete version of the requested deliverable. Do not append a second, shorter or alternative version after already providing the full version, and do not offer to provide a version that you then include unasked. Provide multiple versions only when the user requests them."#;
+const CLAUDE_ARTIFACT_DELIVERY_PROMPT: &str = r#"## Mandatory Artifacts-area delivery
+
+When this task creates or modifies a final user-facing file or directory, completing the work requires registering the complete final set in this conversation's Artifacts area with `present_task_files`. Call it once after the files are final, inspect its accepted and rejected results, and report any rejected item as undelivered. A local path or a chat message alone does not complete file delivery. Do not register source code, tests, drafts, previews, logs, caches or other working files unless the user explicitly requests them."#;
 
 const NO_HOST_MCP: &str = r#"## Agent capability boundary
 
@@ -56,6 +59,7 @@ pub fn render(
     }
     if agent_type == AgentType::ClaudeCode {
         sections.push(CLAUDE_SINGLE_VERSION_PROMPT.to_string());
+        sections.push(CLAUDE_ARTIFACT_DELIVERY_PROMPT.to_string());
     }
     #[cfg(windows)]
     sections.push(super::windows_shell::prompt());

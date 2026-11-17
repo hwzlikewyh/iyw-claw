@@ -104,7 +104,11 @@ pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {
         (AgentDistribution::Binary { .. }, "binary") => require_artifact(offer)?,
         (AgentDistribution::Npx { package, .. }, "npm") => {
             validate_npm_components(package, &offer.delivery.components)?;
-            validate_trusted_node_requirement(agent, &offer.delivery.node_required)?;
+            validate_trusted_node_requirement(
+                agent,
+                &offer.version,
+                &offer.delivery.node_required,
+            )?;
         }
         (AgentDistribution::Uvx { package, .. }, "uvx") => {
             validate_uvx_components(package, &offer.delivery.components)?
@@ -119,9 +123,16 @@ pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {
 
 fn validate_trusted_node_requirement(
     agent: crate::models::agent::AgentType,
+    version: &str,
     offered: &str,
 ) -> Result<(), String> {
-    let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent) else {
+    // 旧版受管 recipe 发布时声明 Node 22；运行时仍按客户端要求校验 Node 24。
+    let minimum = if agent == crate::models::agent::AgentType::ClaudeCode && version == "0.73.0" {
+        Some("22.0.0")
+    } else {
+        crate::acp::trusted_agents::minimum_node_version(agent)
+    };
+    let Some(required) = minimum else {
         return Ok(());
     };
     let offered = Version::parse(offered.trim())
