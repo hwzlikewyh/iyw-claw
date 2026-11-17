@@ -1,0 +1,53 @@
+name: Managed Yuanshan Bundles
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [build/managed-yuanshan-bundles]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: managed-yuanshan-bundles-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    name: Bundle ${{ matrix.target }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      EXPECTED_TARGET: ${{ matrix.target }}
+      EXPECTED_ARCH: ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: windows, arch: x86_64, runner: windows-latest}
+          - {target: windows, arch: aarch64, runner: windows-11-arm}
+          - {target: macos, arch: x86_64, runner: macos-15-intel}
+          - {target: macos, arch: aarch64, runner: macos-latest}
+          - {target: linux, arch: x86_64, runner: ubuntu-22.04}
+          - {target: linux, arch: aarch64, runner: ubuntu-24.04-arm}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install exact kernel and verify native execution
+        run: node .github/scripts/agent-bundles/prepare.mjs
+      - name: Archive and verify relocated package
+        run: python .github/scripts/agent-bundles/archive.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-acp-0.108.0-${{ matrix.target }}-${{ matrix.arch }}
+          path: artifacts/managed-yuanshan/*
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error

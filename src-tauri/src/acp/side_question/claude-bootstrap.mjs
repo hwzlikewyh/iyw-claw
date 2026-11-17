@@ -13,6 +13,7 @@ const loadInternal = (name) => import(pathToFileURL(join(dirname(entrypoint), na
 const version = JSON.parse(
   readFileSync(join(dirname(entrypoint), "../package.json"), "utf8")
 ).version
+const usesProtocolRouter = ["0.107.3", "0.108.0"].includes(version)
 
 async function runLatestAcp(logger, onAgent) {
   const [protocol, server, transport, v1, v2] = await Promise.all([
@@ -38,8 +39,8 @@ async function runLatestAcp(logger, onAgent) {
 
 // 只为已核验的受管版本安装原生侧问扩展。
 if (
-  !["0.73.0", "0.98.0", "0.107.3"].includes(version) ||
-  (version === "0.107.3" && process.env.CLAUDE_AGENT_ACP_PROTOCOL === "v2") ||
+  !["0.73.0", "0.98.0", "0.107.3", "0.108.0"].includes(version) ||
+  (usesProtocolRouter && process.env.CLAUDE_AGENT_ACP_PROTOCOL === "v2") ||
   process.argv.some((arg) => ["--cli", "--version", "-v"].includes(arg))
 ) {
   // Preserve ordinary sessions on newer packages; absence of our RPC is explicit.
@@ -51,7 +52,7 @@ if (
       : "@agentclientprotocol/sdk/unstable"
   )
   let runAcp
-  if (version === "0.107.3") {
+  if (usesProtocolRouter) {
     runAcp = async (logger) => ({
       connection: await runLatestAcp(logger, (created) => {
         agent = created
