@@ -35,28 +35,32 @@ export function PluginAppHost(props: PluginAppHostProps) {
   })
   const t = useTranslations("Folder.chat.contentParts.pluginApp")
   if (oversized) return <OversizedApp />
-  if (failed)
-    return (
-      <div role="alert" className="p-3 text-sm text-muted-foreground">
-        {t("unavailable")}
-      </div>
-    )
   return (
     <>
-      <iframe
-        ref={iframe}
-        title="Plugin app"
-        data-fit={props.fill ? "panel" : undefined}
-        sandbox="allow-scripts"
-        srcDoc={buildPluginAppProxyDocument(props.resourceMeta)}
-        className={
-          props.fill
-            ? "h-full w-full border-0"
-            : props.displayMode === "fullscreen"
-              ? "h-[calc(100dvh-3rem)] w-full border-0"
-              : "h-[360px] w-full border-0"
-        }
-      />
+      <div className={props.fill ? "relative h-full min-h-0" : "relative"}>
+        {failed && (
+          <div
+            role="alert"
+            className="absolute inset-x-0 top-0 z-10 bg-background p-3 text-sm text-muted-foreground"
+          >
+            {t("unavailable")}
+          </div>
+        )}
+        <iframe
+          ref={iframe}
+          title="Plugin app"
+          data-fit={props.fill ? "panel" : undefined}
+          sandbox="allow-scripts"
+          srcDoc={buildPluginAppProxyDocument(props.resourceMeta)}
+          className={
+            props.fill
+              ? "h-full w-full border-0"
+              : props.displayMode === "fullscreen"
+                ? "h-[calc(100dvh-3rem)] w-full border-0"
+                : "h-[360px] w-full border-0"
+          }
+        />
+      </div>
       <PluginAppDownloadDialog {...download} />
     </>
   )

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Loader2, Maximize2, Minimize2, X } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { PluginAppHost } from "@/components/message/plugin-app-host"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,8 @@ import type { PluginPanelTab } from "./use-plugin-panels"
 import { usePluginPanelAuthority } from "./use-plugin-panel-authority"
 import { usePluginPanelDialog } from "./use-plugin-panel-dialog"
 import type { PluginPanelSyncState } from "@/lib/plugin-panel"
+import { PanelToolbar, SyncError } from "./plugin-panel-toolbar"
+import { toast } from "sonner"
 
 const APP_READY_TIMEOUT_MS = 60_000
 
@@ -18,18 +20,20 @@ export function PluginPanelFrame({
   sync,
   refresh,
   moving,
-  mode = "panel",
   onClose,
   onOpenComplete,
+  onRetry,
+  onDetach,
 }: {
   tab: PluginPanelTab
   visible: boolean
   sync?: PluginPanelSyncState
   refresh?: () => void
   moving?: boolean
-  mode?: "panel" | "main"
   onClose?: () => Promise<boolean>
   onOpenComplete?: () => void
+  onRetry?: () => Promise<void>
+  onDetach?: () => Promise<boolean>
 }) {
   const [fullscreen, setFullscreen] = useState(false)
   const authorityLost = usePluginPanelAuthority(tab)
@@ -42,7 +46,10 @@ export function PluginPanelFrame({
     onOpenCompleteRef.current = onOpenComplete
   }, [onOpenComplete])
   const completeOpening = useCallback(() => onOpenCompleteRef.current?.(), [])
-  const dialog = usePluginPanelDialog(visible && mode === "panel", expanded)
+  useEffect(() => {
+    if (revoked) completeOpening()
+  }, [completeOpening, revoked])
+  const dialog = usePluginPanelDialog(visible, expanded)
   useAppReadyTimeout(
     visible && !revoked,
     ready,
@@ -58,30 +65,17 @@ export function PluginPanelFrame({
       refresh={refresh}
       fullscreen={fullscreen}
       setFullscreen={setFullscreen}
-      main={mode === "main"}
       onClose={onClose}
       ready={ready}
       failed={failed}
       setReady={setReady}
       setFailed={setFailed}
       onOpenComplete={completeOpening}
+      onRetry={onRetry}
+      onDetach={onDetach}
+      moving={moving}
     />
   )
-  if (mode === "main")
-    return (
-      <section
-        aria-label={tab.label}
-        inert={!visible || moving || undefined}
-        className={
-          expanded
-            ? "fixed inset-0 z-[80] flex h-dvh w-screen flex-col bg-background text-foreground"
-            : "pointer-events-auto absolute inset-0 z-[80] flex h-full w-full flex-col bg-background text-foreground"
-        }
-        style={{ display: visible ? "flex" : "none" }}
-      >
-        {content}
-      </section>
-    )
   return (
     <dialog
       ref={dialog}
@@ -128,13 +122,15 @@ function PanelContent({
   refresh,
   fullscreen,
   setFullscreen,
-  main,
   onClose,
   ready,
   failed,
   setReady,
   setFailed,
   onOpenComplete,
+  onRetry,
+  onDetach,
+  moving,
 }: {
   tab: PluginPanelTab
   revoked: boolean | undefined
@@ -142,21 +138,17 @@ function PanelContent({
   refresh?: () => void
   fullscreen: boolean
   setFullscreen: (value: boolean) => void
-  main: boolean
   onClose?: () => Promise<boolean>
   ready: boolean
   failed: boolean
   setReady: (value: boolean) => void
   setFailed: (value: boolean) => void
   onOpenComplete?: () => void
+  onRetry?: () => Promise<void>
+  onDetach?: () => Promise<boolean>
+  moving?: boolean
 }) {
   const t = useTranslations("PluginPanels")
-  if (revoked)
-    return (
-      <p role="alert" className="p-4 text-sm text-muted-foreground">
-        {t("revoked")}
-      </p>
-    )
   return (
     <>
       {sync?.error && <SyncError refresh={refresh} />}
@@ -165,16 +157,26 @@ function PanelContent({
         fullscreen={fullscreen}
         toggle={() => setFullscreen(!fullscreen)}
         close={
-          main && onClose
+          onClose
             ? async () => {
                 if (!window.confirm(t("closeConfirm"))) return
                 if (!(await onClose())) window.alert(t("closeFailed"))
               }
             : undefined
         }
+        detach={
+          onDetach
+            ? () => {
+                void onDetach().then((success) => {
+                  if (!success) toast.error(t("moveFailed"))
+                })
+              }
+            : undefined
+        }
+        moving={moving}
       />
       <div className="relative min-h-0 flex-1">
-        {tab.kind === "studio-url" ? (
+        {revoked ? null : tab.kind === "studio-url" ? (
           <iframe
             src={tab.url}
             title={tab.label}
@@ -184,6 +186,7 @@ function PanelContent({
             referrerPolicy="no-referrer"
             onLoad={() => {
               setReady(true)
+              setFailed(false)
               onOpenComplete?.()
             }}
             onError={() => {
@@ -198,6 +201,7 @@ function PanelContent({
             toolUpdate={sync?.update}
             onReady={() => {
               setReady(true)
+              setFailed(false)
               onOpenComplete?.()
             }}
             onFailure={() => {
@@ -211,7 +215,7 @@ function PanelContent({
             }}
           />
         )}
-        {!ready && !failed && (
+        {!revoked && !ready && !failed && (
           <div
             className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground"
             role="status"
@@ -221,72 +225,29 @@ function PanelContent({
             <span>{t("openingApp", { name: tab.label })}</span>
           </div>
         )}
-        {failed && (
-          <p
+        {(failed || revoked) && (
+          <div
             role="alert"
             className="absolute inset-x-0 bottom-3 mx-auto w-fit rounded-md border bg-background px-3 py-2 text-sm text-destructive shadow-sm"
           >
-            {t(tab.kind === "mcp-app" ? "startupFailed" : "startupTimedOut", {
-              name: tab.label,
-            })}
-          </p>
+            {revoked
+              ? t("revoked")
+              : t(
+                  tab.kind === "mcp-app" ? "startupFailed" : "startupTimedOut",
+                  { name: tab.label }
+                )}
+            {onRetry && (
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => void onRetry()}
+              >
+                {t("retry")}
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </>
-  )
-}
-
-function SyncError({ refresh }: { refresh?: () => void }) {
-  const t = useTranslations("PluginPanels")
-  return (
-    <div
-      role="status"
-      className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground"
-    >
-      <span>{t("syncFailed")}</span>
-      <Button size="xs" variant="link" onClick={refresh}>
-        {t("refresh")}
-      </Button>
-    </div>
-  )
-}
-
-function PanelToolbar({
-  label,
-  fullscreen,
-  toggle,
-  close,
-}: {
-  label: string
-  fullscreen: boolean
-  toggle: () => void
-  close?: () => void
-}) {
-  const t = useTranslations("PluginPanels")
-  return (
-    <div className="flex h-8 shrink-0 items-center justify-between border-b px-2 max-md:h-11">
-      <span className="truncate text-xs">{label}</span>
-      <div className="flex shrink-0 items-center gap-1">
-        {close && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={t("closeApp", { name: label })}
-            onClick={close}
-          >
-            <X />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="max-md:size-11"
-          aria-label={t(fullscreen ? "restore" : "maximize")}
-          onClick={toggle}
-        >
-          {fullscreen ? <Minimize2 /> : <Maximize2 />}
-        </Button>
-      </div>
-    </div>
   )
 }

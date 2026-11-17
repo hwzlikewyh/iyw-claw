@@ -99,3 +99,13 @@ export async function loadReferenceFiles(root: string, signal: AbortSignal) {
   }
   return files
 }
+
+/** 空查询只展示当前目录；输入名称后再扫描子目录。 */
+export async function loadReferenceRoot(root: string, signal: AbortSignal) {
+  const result = await readDirectory(
+    root,
+    { path: "", depth: 0, rules: [] },
+    signal
+  )
+  return result.entries
+}

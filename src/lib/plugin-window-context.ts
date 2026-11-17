@@ -1,5 +1,9 @@
 import { useTabStore } from "@/stores/tab-store"
 import type { PromptDraft } from "@/lib/types"
+import {
+  draftPluginTab,
+  onDraftPluginContextChanged,
+} from "./plugin-draft-context"
 
 export interface PluginWindowContext {
   windowId: string
@@ -54,11 +58,18 @@ export function readPluginWindowContext(conversationId: number) {
   }
   const store = useTabStore.getState()
   const tab = store.rawTabs.find((item) => item.id === store.activeTabId)
-  if (!tab || tab.conversationId !== conversationId) return null
+  const draftTabId =
+    conversationId < 0 ? draftPluginTab(conversationId) : undefined
+  if (
+    !tab ||
+    (draftTabId ? tab.id !== draftTabId : tab.conversationId !== conversationId)
+  )
+    return null
   const context = entries.get(tab.id)?.context()
-  if (!context || context.conversationId !== conversationId) return null
+  if (!context || (!draftTabId && context.conversationId !== conversationId))
+    return null
   windowId ??= crypto.randomUUID()
-  return { ...context, windowId, tabId: tab.id }
+  return { ...context, conversationId, windowId, tabId: tab.id }
 }
 
 export async function sendPluginWindowMessage(
@@ -81,11 +92,13 @@ export async function sendPluginWindowMessage(
 
 export function onPluginWindowContextChanged(listener: () => void) {
   listeners.add(listener)
+  const stopDraft = onDraftPluginContextChanged(listener)
   const unsubscribe = useTabStore.subscribe((state, previous) => {
     if (state.activeTabId !== previous.activeTabId) listener()
   })
   return () => {
     listeners.delete(listener)
+    stopDraft()
     unsubscribe()
   }
 }

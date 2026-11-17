@@ -30,6 +30,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       IYW_CLAW_SKIP_SIDECAR: "1"
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+      APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,10 +52,16 @@ jobs:
       - name: Install bundle dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf zstd rpm cpio
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf zstd rpm cpio xdg-utils desktop-file-utils
           pnpm install --frozen-lockfile --ignore-scripts
       - name: Restore verified application and resources from signed DEB
         run: node .release-workflow/.github/scripts/release/rebundle-linux-deb.mjs restore
+      - name: Bundle installable DEB without compiling
+        timeout-minutes: 15
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles deb --config src-tauri/tauri.ci.conf.json
       - name: Bundle primary AppImage without compiling
         timeout-minutes: 20
         env:
@@ -63,6 +70,9 @@ jobs:
         run: node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json
       - name: Bundle RPM using fast compression without compiling
         timeout-minutes: 20
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles rpm --config src-tauri/tauri.ci.conf.json
           rpm -qp --qf '%{NAME} %{VERSION} %{ARCH} %{PAYLOADCOMPRESSOR}\n' src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm

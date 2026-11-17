@@ -1,12 +1,15 @@
 import { getActiveRemoteConnectionId, getShellTransport } from "./transport"
-import type { PluginPanelChoice } from "./plugin-panel"
+import { OPENFILM_STUDIO_APP_KEY, type PluginPanelChoice } from "./plugin-panel"
 import { createPluginWindowRelay } from "./plugin-window-relay"
 
 export async function openPluginPanelWindow(
   app: PluginPanelChoice,
-  conversationId: number
+  conversationId: number | null
 ) {
-  const relay = createPluginWindowRelay(conversationId)
+  const relay =
+    conversationId == null || app.appKey === OPENFILM_STUDIO_APP_KEY
+      ? null
+      : createPluginWindowRelay(conversationId)
   try {
     return await getShellTransport().call<string>(
       "open_plugin_panel_window",
@@ -17,14 +20,14 @@ export async function openPluginPanelWindow(
           appKey: app.appKey,
           expectedVersion: app.version,
           label: app.label,
-          relayId: relay.id,
+          relayId: relay?.id ?? "",
         },
         remoteConnectionId: getActiveRemoteConnectionId(),
       },
       { timeoutMs: 800_000 }
     )
   } catch (error) {
-    relay.dispose()
+    relay?.dispose()
     throw error
   }
 }

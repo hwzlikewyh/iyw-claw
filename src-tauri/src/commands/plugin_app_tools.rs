@@ -160,9 +160,18 @@ pub(super) async fn route_app_tool(
     )
     .await
     .map_err(|error| plugin_error("plugin_app_unavailable", error.to_string()))?;
+    let conversation_id = if instance.conversation_id < 0 {
+        super::draft_workspace(&db.conn, instance.conversation_id)
+            .await
+            .map_err(|error| plugin_error("plugin_app_unavailable", error.message))?
+            .conversation_id
+            .map_or(instance.conversation_id, i64::from)
+    } else {
+        instance.conversation_id
+    };
     router
         .invoke_app_tool(crate::plugin_runtime::types::PluginAppToolCall {
-            conversation_id: instance.conversation_id,
+            conversation_id,
             plugin_slug: instance.plugin_slug,
             plugin_version: instance.plugin_version,
             app_key: instance.app_key,

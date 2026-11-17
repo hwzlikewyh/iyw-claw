@@ -18,7 +18,10 @@ type PreparedConversation = Awaited<
   ReturnType<typeof prepareConnectorConversation>
 >
 
-export function useKnowledgeSelection(tabId: string, onSaved: () => void) {
+export function useKnowledgeSelection(
+  tabId: string,
+  onSaved: (selection: KnowledgeSelection) => void
+) {
   const t = useTranslations("CloudKnowledge")
   const conversationId = useTabStore(
     (state) =>
@@ -113,7 +116,7 @@ interface SaveContext {
   busy: boolean
   setBusy: (busy: boolean) => void
   setError: (error: string) => void
-  onSaved: () => void
+  onSaved: (selection: KnowledgeSelection) => void
   title: string
 }
 
@@ -123,7 +126,7 @@ function useSaveSelection(context: SaveContext) {
     const { data, generation, prepared } = context
     if (!data || context.busy || saving.current) return
     if (context.conversationId == null && !data.selected.length) {
-      context.onSaved()
+      context.onSaved(data)
       return
     }
     saving.current = true
@@ -132,14 +135,14 @@ function useSaveSelection(context: SaveContext) {
     context.setError("")
     try {
       const id = await prepareConversation(context)
-      await saveKnowledgeSelection(id, data)
+      const saved = await saveKnowledgeSelection(id, data)
       if (
         generation.current !== request ||
         !conversationMatches(context.tabId, id)
       )
         return
       prepared.current?.bind()
-      context.onSaved()
+      context.onSaved(saved)
     } catch (cause) {
       if (generation.current === request)
         context.setError(knowledgeError(cause))

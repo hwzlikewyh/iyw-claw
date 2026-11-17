@@ -54,6 +54,10 @@ export function verifyEnvironmentRuntime(path, target) {
     return
   }
   if (target.endsWith("-apple-darwin") && process.platform === "darwin") {
+    const architecture = target.startsWith("aarch64-") ? "arm64" : "x86_64"
+    const architectures = execFileSync("lipo", ["-archs", path], { encoding: "utf8" }).trim().split(/\s+/)
+    if (!architectures.includes(architecture))
+      throw new Error(`environment helper architecture mismatch: expected ${architecture}`)
     const dependencies = execFileSync("otool", ["-L", path], {
       encoding: "utf8",
     })
@@ -86,6 +90,11 @@ export function verifyEnvironmentHelper(path, target, version) {
     `[verify-sidecar-bundle] environment helper: path=${path} version=${version} size=${stats.size} sha256=${digest}`
   )
   verifyEnvironmentRuntime(path, target)
+  if (process.platform === "darwin" && process.arch === "x64" && target === "aarch64-apple-darwin") {
+    // Intel 无法执行 ARM64，构建阶段已验证 Mach-O 架构与依赖；留给原生 ARM 验收运行身份。
+    console.log("[verify-sidecar-bundle] ARM64 runtime execution deferred to native macOS verification")
+    return
+  }
   const output = execFileSync(path, ["--version"], {
     encoding: "utf8",
     windowsHide: true,

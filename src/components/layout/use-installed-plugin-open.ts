@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useTabStore } from "@/stores/tab-store"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
 import { preparePluginUse, type PluginUseContext } from "@/lib/plugin-use"
 import {
@@ -17,7 +18,9 @@ import {
 } from "@/lib/plugin-panel"
 import { onPluginApplicationOpen } from "@/lib/plugin-preparation-events"
 import { getTransport } from "@/lib/transport"
+import { draftPluginContext } from "@/lib/plugin-draft-context"
 import { toErrorMessage } from "@/lib/app-error"
+import { toast } from "sonner"
 import type { PluginPreparation } from "@/lib/plugin-preparation"
 import type { usePluginPanelTabs } from "./use-plugin-panel-tabs"
 
@@ -35,20 +38,44 @@ interface PluginOpenContext {
 export function useInstalledPluginOpen(tabs: Tabs) {
   const t = useTranslations("PluginPreparation")
   const route = useWorkbenchRoute()
+  const { setOpen } = useAuxPanelContext()
   const page = useInteractivePage()
   const state = useOpenState(tabs)
   const open = async (app: PluginPanelChoice) => {
     const tabId = useTabStore.getState().activeTabId
     if (!tabId || state.running.current) return
     const transport = getTransport()
+    const sourceTab = useTabStore
+      .getState()
+      .tabs.find((tab) => tab.id === tabId)
     const current = () =>
       state.alive.current &&
       getTransport() === transport &&
-      useTabStore.getState().activeTabId === tabId
+      useTabStore.getState().activeTabId === tabId &&
+      useTabStore
+        .getState()
+        .tabs.some(
+          (tab) =>
+            tab.id === tabId &&
+            tab.agentType === sourceTab?.agentType &&
+            tab.isChat === sourceTab?.isChat &&
+            (tab.folderId === sourceTab?.folderId ||
+              (sourceTab?.isChat &&
+                sourceTab.conversationId == null &&
+                tab.conversationId != null &&
+                tab.workingDir === draftPluginContext(tabId)?.directory)) &&
+            (!sourceTab?.workingDir || tab.workingDir === sourceTab.workingDir)
+        )
     state.running.current = true
     state.setBusy(true)
     state.setError("")
+    state.setOpeningApp({
+      app,
+      tabId,
+      conversationId: sourceTab?.conversationId ?? null,
+    })
     route.openConversations()
+    setOpen(true)
     try {
       await openPluginChoice(app, {
         tabId,
@@ -60,15 +87,24 @@ export function useInstalledPluginOpen(tabs: Tabs) {
         unavailable: t("unavailable"),
       })
     } catch (cause) {
-      if (current()) state.setError(toErrorMessage(cause))
+      if (current()) {
+        state.setError(toErrorMessage(cause))
+        toast.error(toErrorMessage(cause))
+      }
       logFailure(app.pluginSlug, cause)
     } finally {
       state.running.current = false
+      state.setOpeningApp(null)
       if (state.alive.current) state.setBusy(false)
     }
   }
   usePluginOpenRequests(open)
-  return { open, busy: state.busy, error: state.error }
+  return {
+    open,
+    busy: state.busy,
+    error: state.error,
+    openingApp: state.openingApp,
+  }
 }
 
 async function openPluginChoice(
@@ -96,7 +132,6 @@ async function openPluginChoice(
   if (!tab) return
   if (tab.conversationId == null) {
     deferComposerPlugin(context.tabId, app)
-    return
   }
   await openPreparedApp(
     app,
@@ -114,6 +149,11 @@ async function openPluginChoice(
 }
 
 function useOpenState(tabs: Tabs) {
+  const [openingApp, setOpeningApp] = useState<{
+    app: PluginPanelChoice
+    tabId: string
+    conversationId: number | null
+  } | null>(null)
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("")
   const latest = useRef(tabs),
@@ -128,7 +168,17 @@ function useOpenState(tabs: Tabs) {
       alive.current = false
     }
   }, [])
-  return { busy, error, setBusy, setError, latest, alive, running }
+  return {
+    busy,
+    error,
+    setBusy,
+    setError,
+    latest,
+    alive,
+    running,
+    openingApp,
+    setOpeningApp,
+  }
 }
 
 function usePluginOpenRequests(
@@ -173,7 +223,11 @@ async function openPreparedApp(
       entry.pluginSlug === app.pluginSlug && entry.appKey === app.appKey
   )
   if (!choice || choice.state !== "available") throw Error(options.unavailable)
-  selectComposerPlugin(context.tabId, choice)
+  const tab = useTabStore
+    .getState()
+    .tabs.find((item) => item.id === context.tabId)
+  if (tab?.conversationId == null) deferComposerPlugin(context.tabId, choice)
+  else selectComposerPlugin(context.tabId, choice)
   await options.open(choice, ready.conversationId)
 }
 

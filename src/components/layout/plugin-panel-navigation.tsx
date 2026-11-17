@@ -161,7 +161,7 @@ function AppTab({
             onClick={() => {
               if (!consumeDrag()) {
                 setActiveTab(`app:${tab.id}`)
-                setOpen(false)
+                setOpen(true)
               }
             }}
           >
@@ -191,7 +191,7 @@ function AppTab({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {isDesktop() && tab.kind === "mcp-app" && (
+        {isDesktop() && (
           <ContextMenuItem disabled={closing || moving} onSelect={move}>
             <SquareArrowOutUpRight className="size-3.5" />
             {pluginText("detachApp")}

@@ -4,6 +4,11 @@ name: Warm Desktop Build Cache
 # 复用正式发布的 target、features、profile 和精确补丁身份；只编译。
 on:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Optional exact application commit for a comparable benchmark
+        required: false
+        type: string
   push:
     branches: [main, ci/cache-probe]
     paths:
@@ -20,7 +25,7 @@ on:
       - .github/workflows/build-cache-probe.yml
 
 concurrency:
-  group: desktop-cache-warmup-${{ github.ref }}
+  group: desktop-cache-warmup-${{ inputs.source_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -37,6 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
       - uses: pnpm/action-setup@v4
         with:
@@ -73,7 +79,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
+      - name: Checkout current verification tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .build-tools
+          sparse-checkout: src-tauri/scripts
+          sparse-checkout-cone-mode: false
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -104,7 +118,9 @@ jobs:
       - name: Stage desktop sidecars
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
       - name: Verify staged sidecars
-        run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
+        run: |
+          cp .build-tools/src-tauri/scripts/environment-helper-runtime.mjs src-tauri/scripts/environment-helper-runtime.mjs
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
       - name: Compile application
         timeout-minutes: 130
         env:
@@ -116,6 +132,13 @@ jobs:
         uses: ./.github/actions/build-timings
         with:
           target: ${{ matrix.target }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-probe-resources-${{ matrix.target }}
+          path: ${{ runner.temp }}/desktop-build-${{ matrix.target }}.log
+          if-no-files-found: ignore
+          retention-days: 7
       - if: always()
         uses: ./.github/actions/save-sccache
 
@@ -136,6 +159,8 @@ jobs:
     steps:
       - run: git config --global core.longpaths true
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           run_install: false

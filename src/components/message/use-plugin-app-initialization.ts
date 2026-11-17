@@ -20,6 +20,7 @@ export function usePluginAppInitialization(
   }, [instanceId, enabled])
   const ready = useCallback(() => {
     initialized.current = true
+    setFailure(null)
     setReadyInstance(instanceId)
     clearTimeout(timer.current)
   }, [instanceId])

@@ -13,7 +13,7 @@ pub struct PluginWindowState(Mutex<HashMap<String, Ready>>);
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginPanelWindowRequest {
-    pub conversation_id: i64,
+    pub conversation_id: Option<i64>,
     pub plugin_slug: String,
     pub app_key: String,
     pub expected_version: String,
@@ -67,22 +67,27 @@ pub async fn open_plugin_panel_window(
         tracing::warn!(plugin = %request.plugin_slug, %error, "[plugin-window] open failed");
         return Err(error);
     }
-    tracing::info!(plugin = %request.plugin_slug, conversation_id = request.conversation_id, "[plugin-window] ready");
+    tracing::info!(plugin = %request.plugin_slug, conversation_id = ?request.conversation_id, "[plugin-window] ready");
     Ok(label)
 }
 
 fn route(request: &PluginPanelWindowRequest) -> Result<String, AppCommandError> {
-    if request.conversation_id <= 0
+    let studio = request.plugin_slug == "iyw-openfilm" && request.app_key == "iyw-openfilm-studio";
+    if request.conversation_id == Some(0)
+        || (!studio && request.conversation_id.is_none())
         || request.plugin_slug.trim().is_empty()
         || request.app_key.trim().is_empty()
         || request.expected_version.trim().is_empty()
-        || uuid::Uuid::parse_str(&request.relay_id).is_err()
+        || (!studio && uuid::Uuid::parse_str(&request.relay_id).is_err())
     {
         return Err(invalid("插件窗口参数无效"));
     }
     Ok(format!(
         "plugin-window?conversationId={}&pluginSlug={}&appKey={}&version={}&label={}&relayId={}",
-        request.conversation_id,
+        request
+            .conversation_id
+            .map(|id| id.to_string())
+            .unwrap_or_default(),
         urlencoding::encode(&request.plugin_slug),
         urlencoding::encode(&request.app_key),
         urlencoding::encode(&request.expected_version),

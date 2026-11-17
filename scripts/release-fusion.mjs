@@ -9,6 +9,7 @@ import {
 
 const UPLOAD_TIMEOUT = 20 * 60 * 1000
 const ROLLOUT_PERCENT = 1
+const UPLOAD_CONCURRENCY = 2
 // 与正式发布矩阵一致，所有目标均上传已签名的专用制品。
 const PLATFORMS = [
   ["windows", "x86_64", "nsis", "x64-setup.exe"],
@@ -240,6 +241,26 @@ async function uploadArtifact(api, releaseId, input) {
   sameArtifact(completed.artifact, input)
 }
 
+async function uploadArtifacts(api, releaseId, inputs) {
+  let next = 0
+  let failed = false
+  const workers = Array.from({ length: UPLOAD_CONCURRENCY }, async () => {
+    while (!failed && next < inputs.length) {
+      const input = inputs[next++]
+      try {
+        await uploadArtifact(api, releaseId, input)
+      } catch (error) {
+        failed = true
+        throw error
+      }
+    }
+  })
+  // 等待已开始的另一份上传完成，再报告失败；重试只补未通过校验的制品。
+  const results = await Promise.allSettled(workers)
+  const failure = results.find(result => result.status === "rejected")
+  if (failure) throw failure.reason
+}
+
 async function verifyUpdateCatalog(api, release, inputs) {
   for (const input of inputs) {
     const route = `/app-updates/v1/check/${input.target}/${input.arch}`
@@ -278,7 +299,7 @@ export async function publishFusion({ repo, version, directory }) {
     api,
     releasePolicy(version, release.body || `原助理 ${version}`)
   )
-  for (const input of inputs) await uploadArtifact(api, value.id, input)
+  await uploadArtifacts(api, value.id, inputs)
   const path = `/admin/api/app-releases/${value.id}`
   const ready = await api(path)
   assertPolicy(ready.release, version)

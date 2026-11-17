@@ -8,20 +8,18 @@ import {
 } from "react"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useTranslations } from "next-intl"
-import { toast } from "sonner"
 import { useTabStore } from "@/contexts/tab-context"
 import { getTransport } from "@/lib/transport"
-import {
-  launchPluginPanel,
-  openOpenfilmStudio,
-  OPENFILM_STUDIO_APP_KEY,
-  readPluginPanels,
-  type PluginPanelChoice,
-} from "@/lib/plugin-panel"
+import { readPluginPanels, type PluginPanelChoice } from "@/lib/plugin-panel"
 import { openPluginPanelWindow } from "@/lib/plugin-panel-window"
 import type { PluginAppOpenResponse } from "@/lib/api"
 import { requestPluginAppTeardown } from "@/lib/plugin-app-teardown"
 import { pluginPanelError } from "./use-plugin-panel-choices"
+import {
+  draftPluginTab,
+  onDraftPluginContextChanged,
+} from "@/lib/plugin-draft-context"
+import { openPanel } from "./plugin-panel-launch"
 
 interface PluginPanelTabBase {
   id: string
@@ -39,10 +37,10 @@ export type McpPluginPanelTab = PluginPanelTabBase & {
 export type PluginPanelTab =
   | McpPluginPanelTab
   | (PluginPanelTabBase & { kind: "studio-url"; url: string })
-const MAX_TABS = 8
 interface PluginPanelOpening {
   app: PluginPanelChoice
   conversationId: number | null
+  tabId: string | null
 }
 
 export function usePluginPanelTabs(
@@ -59,38 +57,77 @@ export function usePluginPanelTabs(
     >(null),
     [error, setError] = useState("")
   const [transport] = useState(getTransport)
-  const lifecycle = usePanelLifecycle(conversationId)
+  const lifecycle = usePanelLifecycle()
   const panel = useAuxPanelContext()
+  const latestPanel = useRef(panel)
+  useEffect(() => {
+    latestPanel.current = panel
+  }, [panel])
   const { setActiveTab, setOpen } = panel
   const close = usePanelClose({ panel, setTabs, setError, lifecycle, tabs })
   useEffect(() => {
     const ids = new Set(conversations.split(",").map(Number))
-    const timer = setTimeout(
-      () =>
-        setTabs((values) =>
-          values.filter(
-            (tab) => tab.conversationId === null || ids.has(tab.conversationId)
-          )
-        ),
-      0
-    )
-    return () => clearTimeout(timer)
+    const prune = () =>
+      setTabs((values) =>
+        values.filter(
+          (tab) =>
+            tab.conversationId === null ||
+            ids.has(tab.conversationId) ||
+            (tab.conversationId < 0 &&
+              useTabStore
+                .getState()
+                .rawTabs.some(
+                  (item) => item.id === draftPluginTab(tab.conversationId!)
+                ))
+        )
+      )
+    const timer = setTimeout(prune, 0)
+    const stop = onDraftPluginContextChanged(prune)
+    return () => {
+      clearTimeout(timer)
+      stop()
+    }
   }, [conversations])
   const open = (
     app: PluginPanelChoice,
     targetConversationId = conversationId
   ) => {
     const busyTarget = targetConversationId ?? "standalone"
+    const sourceTabId = useTabStore.getState().activeTabId
+    const source = useTabStore
+      .getState()
+      .tabs.find((tab) => tab.id === sourceTabId)
     return openPanel({
       app,
       conversationId: targetConversationId,
       tabs,
       transport,
       lifecycle: lifecycle.current,
+      current: () =>
+        getTransport() === transport &&
+        useTabStore.getState().activeTabId === sourceTabId &&
+        useTabStore
+          .getState()
+          .tabs.some(
+            (tab) =>
+              tab.id === sourceTabId &&
+              (!source?.workingDir || tab.workingDir === source.workingDir) &&
+              tab.agentType === source?.agentType
+          ),
       setOpening: (opening) =>
-        setOpeningApp(
-          opening ? { app, conversationId: targetConversationId } : null
-        ),
+        setOpeningApp((current) => {
+          if (opening)
+            return {
+              app,
+              conversationId: targetConversationId,
+              tabId: sourceTabId,
+            }
+          return current?.tabId === sourceTabId &&
+            current.app.pluginSlug === app.pluginSlug &&
+            current.app.appKey === app.appKey
+            ? null
+            : current
+        }),
       startupTimedOut: () => t("startupTimedOut", { name: app.label }),
       setBusy: (value) =>
         setBusyConversation((current) =>
@@ -101,51 +138,67 @@ export function usePluginPanelTabs(
         const state = useTabStore.getState()
         const standaloneStudio =
           tab.kind === "studio-url" && tab.conversationId === null
+        const draftTabId =
+          tab.conversationId != null && tab.conversationId < 0
+            ? draftPluginTab(tab.conversationId)
+            : undefined
         const stillOpen = standaloneStudio
           ? state.tabs.some((item) => item.id === state.activeTabId)
-          : state.tabs.some(
-              (item) => item.conversationId === targetConversationId
+          : state.tabs.some((item) =>
+              draftTabId
+                ? item.id === draftTabId
+                : item.conversationId === targetConversationId
             )
         if (!stillOpen) return false
+        const activeConversationId = state.tabs.find(
+          (item) => item.id === state.activeTabId
+        )?.conversationId
+        if (
+          !standaloneStudio &&
+          (draftTabId
+            ? draftTabId !== state.activeTabId
+            : targetConversationId !== activeConversationId)
+        )
+          return false
         setTabs((values) =>
           values.some((value) => value.id === tab.id)
             ? values
             : [...values, tab]
         )
-        const activeConversationId = state.tabs.find(
-          (item) => item.id === state.activeTabId
-        )?.conversationId
-        if (targetConversationId !== activeConversationId) return false
         setActiveTab(`app:${tab.id}`)
-        setOpen(false)
+        setOpen(true)
         return true
       },
       select: (id) => {
         setActiveTab(`app:${id}`)
-        setOpen(false)
+        setOpen(true)
       },
     })
   }
   const detach = async (tab: PluginPanelTab) => {
-    if (tab.kind !== "mcp-app") return false
     if (detaching.current) return false
     detaching.current = true
     setDetachingId(tab.id)
     try {
-      const apps = await readPluginPanels(tab.conversationId, transport)
+      const conversation = tab.conversationId
+      const apps = await readPluginPanels(conversation, transport)
       const app = apps.find(
         (item) =>
           item.pluginSlug === tab.pluginSlug && item.appKey === tab.appKey
       )
       if (!app || app.state !== "available")
         throw Error("插件状态已变化，请重新打开")
-      if (!(await requestPluginAppTeardown(tab.id)))
+      if (!lifecycle.current.alive || getTransport() !== transport)
+        throw Error("工作区已变化，请重新打开插件")
+      if (tab.kind === "mcp-app" && !(await requestPluginAppTeardown(tab.id)))
         throw Error("插件尚未完成保存，原页面已保留")
       if (getTransport() !== transport)
         throw Error("工作区已变化，请重新打开插件")
-      await openPluginPanelWindow(app, tab.conversationId)
+      await openPluginPanelWindow(app, conversation)
+      if (!lifecycle.current.alive || getTransport() !== transport) return true
       setTabs((values) => values.filter((item) => item.id !== tab.id))
-      if (panel.activeTab === `app:${tab.id}`) panel.openTab("home")
+      if (latestPanel.current.activeTab === `app:${tab.id}`)
+        latestPanel.current.openTab("home")
       return true
     } catch (cause) {
       setError(pluginPanelError(cause))
@@ -161,7 +214,8 @@ export function usePluginPanelTabs(
     finishOpening: (tab: PluginPanelTab) =>
       setOpeningApp((current) =>
         current?.app.pluginSlug === tab.pluginSlug &&
-        current.app.appKey === tab.appKey
+        current.app.appKey === tab.appKey &&
+        current.conversationId === tab.conversationId
           ? null
           : current
       ),
@@ -202,14 +256,17 @@ function usePanelClose(input: {
     setTabs((values) => values.filter((tab) => tab.id !== id))
     if (current) setError("")
     if (current && panel.activeTab === `app:${id}`) {
-      panel.setActiveTab("home")
-      panel.setOpen(false)
+      panel.openTab("home")
     }
     return true
   }, [])
 }
 
-function usePanelLifecycle(conversationId: number | null) {
+function usePanelLifecycle() {
+  const scope = useTabStore((state) => {
+    const tab = state.tabs.find((item) => item.id === state.activeTabId)
+    return `${state.activeTabId}:${tab?.agentType}`
+  })
   const lifecycle = useRef({
     alive: true,
     generation: 0,
@@ -222,121 +279,6 @@ function usePanelLifecycle(conversationId: number | null) {
     return () => {
       active.alive = false
     }
-  }, [conversationId])
+  }, [scope])
   return lifecycle
-}
-
-interface OpeningContext {
-  app: PluginPanelChoice
-  conversationId: number | null
-  tabs: PluginPanelTab[]
-  transport: ReturnType<typeof getTransport>
-  lifecycle: {
-    alive: boolean
-    generation: number
-    runningGeneration: number | null
-  }
-  setOpening: (opening: boolean) => void
-  startupTimedOut: () => string
-  setBusy: (busy: boolean) => void
-  setError: (error: string) => void
-  commit: (tab: PluginPanelTab) => boolean
-  select: (id: string) => void
-}
-
-async function openPanel(context: OpeningContext) {
-  const { app, conversationId, lifecycle } = context
-  const isOpenfilmStudio = app.appKey === OPENFILM_STUDIO_APP_KEY
-  if (
-    lifecycle.runningGeneration === lifecycle.generation ||
-    (!conversationId && !isOpenfilmStudio)
-  )
-    return
-  const existing = context.tabs.find(
-    (tab) =>
-      tab.pluginSlug === app.pluginSlug &&
-      tab.appKey === app.appKey &&
-      (tab.conversationId === conversationId ||
-        (isOpenfilmStudio &&
-          tab.kind === "studio-url" &&
-          tab.conversationId === null))
-  )
-  if (existing) {
-    context.select(existing.id)
-    return
-  }
-  if (context.tabs.length >= MAX_TABS) {
-    context.setError("PluginPanels.limit")
-    return
-  }
-  lifecycle.runningGeneration = lifecycle.generation
-  context.setOpening(true)
-  context.setBusy(true)
-  context.setError("")
-  const generation = lifecycle.generation
-  let committed = false
-  try {
-    if (app.appKey === OPENFILM_STUDIO_APP_KEY) {
-      const { url } = await openOpenfilmStudio(
-        conversationId,
-        app,
-        context.transport
-      )
-      if (!lifecycle.alive || getTransport() !== context.transport) return
-      committed = context.commit({
-        id: `studio:${conversationId ?? "standalone"}:${app.pluginSlug}`,
-        label: app.label,
-        pluginSlug: app.pluginSlug,
-        appKey: app.appKey,
-        conversationId,
-        kind: "studio-url",
-        url,
-      })
-      return
-    }
-    if (conversationId == null) return
-    const response = await launchPluginPanel(
-      conversationId,
-      app,
-      context.transport
-    )
-    if (!lifecycle.alive || lifecycle.generation !== generation) {
-      await context.transport.call("plugin_app_teardown", {
-        request: { instanceId: response.launch.instanceId, conversationId },
-      })
-      return
-    }
-    committed = context.commit({
-      id: response.launch.instanceId,
-      label: app.label,
-      pluginSlug: app.pluginSlug,
-      appKey: app.appKey,
-      conversationId,
-      kind: "mcp-app",
-      response,
-    })
-  } catch (cause) {
-    if (lifecycle.alive && lifecycle.generation === generation) {
-      const message = pluginOpenError(app, cause, context.startupTimedOut)
-      context.setError(message)
-      toast.error(message)
-    }
-  } finally {
-    if (lifecycle.runningGeneration === generation)
-      lifecycle.runningGeneration = null
-    context.setBusy(false)
-    if (!committed) context.setOpening(false)
-  }
-}
-
-function pluginOpenError(
-  app: PluginPanelChoice,
-  cause: unknown,
-  startupTimedOut: () => string
-) {
-  const message = pluginPanelError(cause)
-  return app.appKey === OPENFILM_STUDIO_APP_KEY &&
-    message.toLocaleLowerCase().includes("timed out")
-    ? startupTimedOut()
-    : message
 }

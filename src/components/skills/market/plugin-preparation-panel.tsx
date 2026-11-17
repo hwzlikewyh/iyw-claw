@@ -59,8 +59,9 @@ export function PluginPreparationPanel(props: Props) {
 
 function PreparationContent(props: ContextProps) {
   const t = useTranslations("PluginPreparation")
-  const state = usePluginPreparation(props.marketSkillId, props.conversationId)
   const context = usePluginWorkspace(props.tabId)
+  const conversationId = props.conversationId ?? context.contextId
+  const state = usePluginPreparation(props.marketSkillId, conversationId)
   const [recovering, setRecovering] = useState(false)
   const [versionsOpen, setVersionsOpen] = useState(false)
   const versionText = useTranslations("PluginVersions")
@@ -72,7 +73,7 @@ function PreparationContent(props: ContextProps) {
       <PreparationSummary state={state} contextError={context.error} />
       <PluginConnectorPreparationList
         id={props.marketSkillId}
-        conversationId={props.conversationId}
+        conversationId={conversationId}
         state={state}
       />
       <PreparationActions

@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process"
-import { chmodSync, closeSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { join, resolve, sep } from "node:path"
 import { downloadReleaseFile, requireReleaseSource, sha256, uploadDraftFile } from "./github-assets.mjs"
 import { verifyMinisign } from "./verify-minisign.mjs"
+import { readDebControl } from "./linux-deb-control.mjs"
 
 const target = "aarch64-unknown-linux-gnu"
 const version = process.env.VERSION
@@ -29,6 +30,7 @@ async function codeDigest(binary) {
 
 async function restore() {
   const release = requireReleaseSource(context)
+  console.log(`[release-context] ${context.tag} source=${context.sourceRef} draft=${context.releaseId}`)
   const name = `iyw-claw_${version}_arm64.deb`
   for (const fileName of [name, `${name}.sig`]) {
     const assets = release.assets.filter(asset => asset.name === fileName)
@@ -37,7 +39,8 @@ async function restore() {
   }
   const deb = join(directory, name)
   await verify(deb)
-  const field = name => execFileSync("dpkg-deb", ["--field", deb, name], { encoding: "utf8" }).trim()
+  const control = readDebControl(deb)
+  const field = name => control.match(new RegExp(`^${name}:\\s*(.+)$`, "m"))?.[1].trim()
   if (field("Version") !== version || field("Architecture") !== "arm64") throw new Error("DEB platform or version mismatch")
   const extracted = join(directory, "extracted")
   execFileSync("dpkg-deb", ["--extract", deb, extracted], { stdio: "inherit" })
@@ -66,17 +69,17 @@ async function restore() {
 async function verifyContents(path, kind, directory) {
   const extracted = join(directory, `verified-${kind}`)
   mkdirSync(extracted, { recursive: true })
-  if (kind === "appimage") {
+  if (kind === "deb") {
+    execFileSync("dpkg-deb", ["--extract", path, extracted], { stdio: "inherit" })
+    const name = execFileSync("dpkg-deb", ["--field", path, "Package"], { encoding: "utf8" }).trim()
+    if (name !== "iyw-claw") throw new Error("invalid DEB package identity")
+  } else if (kind === "appimage") {
     chmodSync(path, 0o755)
     execFileSync(resolve(path), ["--appimage-extract"], { cwd: extracted, stdio: "ignore" })
   } else {
-    const archive = join(extracted, "payload.cpio")
-    const output = openSync(archive, "w")
-    try { execFileSync("rpm2cpio", [path], { stdio: ["ignore", output, "inherit"] }) }
-    finally { closeSync(output) }
-    const input = openSync(archive, "r")
-    try { execFileSync("cpio", ["-id", "--quiet"], { cwd: extracted, stdio: [input, "ignore", "inherit"] }) }
-    finally { closeSync(input) }
+    // 用发行版自己的 rpm 实际安装到隔离根目录，保留包摘要和负载检查。
+    execFileSync("sudo", ["rpm", "--root", extracted, "--initdb"], { stdio: "inherit" })
+    execFileSync("sudo", ["rpm", "--root", extracted, "--install", "--nodeps", "--noscripts", path], { stdio: "inherit" })
   }
   const binary = kind === "appimage" ? join(extracted, "squashfs-root/usr/bin/iyw-claw") : join(extracted, "usr/bin/iyw-claw")
   // Tauri 写入包类型标记、linuxdeploy 改写 RPATH，验证代码段可排除这些正常打包变动。
@@ -87,7 +90,7 @@ async function verifyContents(path, kind, directory) {
 async function publish() {
   requireReleaseSource(context)
   const root = join("src-tauri/target", target, "release/bundle")
-  for (const [kind, suffix] of [["appimage", "AppImage"], ["rpm", "rpm"]]) {
+  for (const [kind, suffix] of [["deb", "deb"], ["appimage", "AppImage"], ["rpm", "rpm"]]) {
     const files = readdirSync(join(root, kind)).filter(name => name.endsWith(`.${suffix}`))
     if (files.length !== 1) throw new Error(`expected one ${kind}`)
     const output = join(directory, `iyw-claw_${version}_arm64.${suffix}`)
