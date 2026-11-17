@@ -42,6 +42,7 @@ struct Inner {
     typing: TypingController,
     session_bridge: Arc<Mutex<SessionBridge>>,
     delivery: std::sync::OnceLock<Arc<super::outbound::Runtime>>,
+    reply_routes: super::reply_routes::ReplyRoutes,
 }
 
 pub struct ChatChannelManager {
@@ -71,6 +72,7 @@ impl ChatChannelManager {
                 typing: TypingController::default(),
                 session_bridge: Arc::new(Mutex::new(SessionBridge::new())),
                 delivery: std::sync::OnceLock::new(),
+                reply_routes: super::reply_routes::ReplyRoutes::default(),
             }),
         }
     }
@@ -84,6 +86,10 @@ impl ChatChannelManager {
 
     pub fn command_sender(&self) -> mpsc::Sender<IncomingCommand> {
         self.inner.command_tx.clone()
+    }
+
+    pub(crate) fn reply_routes(&self) -> &super::reply_routes::ReplyRoutes {
+        &self.inner.reply_routes
     }
 
     pub(crate) fn session_bridge(&self) -> Arc<Mutex<SessionBridge>> {
@@ -258,6 +264,7 @@ impl ChatChannelManager {
     }
 
     pub async fn remove_channel(&self, id: i32) -> Result<(), ChatChannelError> {
+        self.inner.reply_routes.remove_channel(id);
         let candidate = self
             .inner
             .channels

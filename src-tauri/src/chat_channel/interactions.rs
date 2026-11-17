@@ -1,5 +1,5 @@
 mod action;
-mod question;
+pub(super) mod question;
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
