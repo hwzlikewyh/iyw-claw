@@ -2,6 +2,7 @@ import { getTransport } from "@/lib/transport"
 import type { PluginAppOpenResponse } from "@/lib/api"
 
 export const OPENFILM_STUDIO_APP_KEY = "iyw-openfilm-studio"
+const OPENFILM_STUDIO_TIMEOUT_MS = 75_000
 
 export interface PluginPanelUpdate {
   cursor: string
@@ -62,13 +63,17 @@ export const openOpenfilmStudio = (
   app: PluginPanelChoice,
   transport = getTransport()
 ) =>
-  transport.call<{ url: string }>("plugin_openfilm_studio", {
-    request: {
-      conversationId,
-      pluginSlug: app.pluginSlug,
-      expectedVersion: app.version,
+  transport.call<{ url: string }>(
+    "plugin_openfilm_studio",
+    {
+      request: {
+        conversationId,
+        pluginSlug: app.pluginSlug,
+        expectedVersion: app.version,
+      },
     },
-  })
+    { timeoutMs: OPENFILM_STUDIO_TIMEOUT_MS }
+  )
 export const launchPluginPanel = (
   conversationId: number,
   app: PluginPanelChoice,

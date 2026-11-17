@@ -8,7 +8,7 @@ use crate::app_error::AppCommandError;
 use crate::plugin_runtime::registry;
 
 const OPENFILM_PLUGIN_SLUG: &str = "iyw-openfilm";
-const OPEN_TIMEOUT: Duration = Duration::from_secs(30);
+const OPEN_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -140,10 +140,21 @@ async fn run_openfilm(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    tokio::time::timeout(OPEN_TIMEOUT, command.output())
-        .await
-        .map_err(|_| AppCommandError::configuration_invalid("OpenFilm Studio startup timed out"))?
-        .map_err(|error| AppCommandError::configuration_invalid(error.to_string()))
+    match tokio::time::timeout(OPEN_TIMEOUT, command.output()).await {
+        Ok(result) => {
+            result.map_err(|error| AppCommandError::configuration_invalid(error.to_string()))
+        }
+        Err(_) => {
+            tracing::error!(
+                plugin = OPENFILM_PLUGIN_SLUG,
+                timeout_seconds = OPEN_TIMEOUT.as_secs(),
+                "OpenFilm Studio startup timed out"
+            );
+            Err(AppCommandError::configuration_invalid(
+                "OpenFilm Studio startup timed out",
+            ))
+        }
+    }
 }
 
 fn node_entrypoint(entrypoint: &Path) -> Result<PathBuf, AppCommandError> {

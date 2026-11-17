@@ -92,6 +92,12 @@ function PluginToolsList({
               (panels.conversationId !== null ||
                 row.app.appKey === OPENFILM_STUDIO_APP_KEY)
             }
+            opening={
+              (row.app &&
+                panels.openingApp?.app.appKey === row.app.appKey &&
+                panels.openingApp.app.pluginSlug === row.slug) ||
+              (Boolean(row.tool) && selection.busy)
+            }
             onSelect={() => {
               if (
                 row.app &&
@@ -117,11 +123,13 @@ function ToolRow({
   row,
   busy,
   canOpen,
+  opening,
   onSelect,
 }: {
   row: PluginRow
   busy: boolean
   canOpen: boolean
+  opening: boolean
   onSelect: () => void
 }) {
   const t = useTranslations("PluginPanels")
@@ -139,13 +147,21 @@ function ToolRow({
       <Button
         size="xs"
         variant="outline"
-        disabled={busy}
+        disabled={busy || opening}
+        aria-busy={opening}
         onClick={onSelect}
         title={
-          canOpen ? t("openNamed", { name: row.label }) : t("conversationOnly")
+          opening
+            ? t("openingApp", { name: row.label })
+            : canOpen
+              ? t("openNamed", { name: row.label })
+              : t("conversationOnly")
         }
       >
-        {t(canOpen ? "open" : "addToConversation")}
+        {opening ? (
+          <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+        ) : null}
+        {t(opening ? "opening" : canOpen ? "open" : "addToConversation")}
       </Button>
     </li>
   )
