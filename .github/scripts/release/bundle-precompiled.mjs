@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { runObserved } from "./observe-command.mjs"
 import { fixDebControl } from "./linux-deb-control.mjs"
+import { rpmBundleConfig } from "./linux-rpm-config.mjs"
 
 // tauri-action 固定传入 build；通过其 tauriScript 扩展点只执行官方 bundle。
 const [command, ...args] = process.argv.slice(2)
@@ -35,7 +36,7 @@ const rpm = target.includes("linux") && args[args.indexOf("--bundles") + 1] === 
 // 旧 rpm-rs 在短写时反复散列剩余大块数据；2.12.5 使用修复后的 rpm 0.30。
 // 仅更新独立 RPM 打包器，不改变已编译应用或其他平台的 CLI。
 if (rpm)
-  args.push("--config", JSON.stringify({bundle:{linux:{rpm:{compression:{type:"zstd",level:1}}}}}))
+  args.push("--config", JSON.stringify(rpmBundleConfig()))
 const bundler = rpm ? "pnpm" : process.execPath
 const bundleArgs = rpm ? ["dlx", "@tauri-apps/cli@2.12.5", "bundle", ...args] : [cli, "bundle", ...args]
 await runObserved(bundler, bundleArgs, {
