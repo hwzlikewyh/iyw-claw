@@ -36,7 +36,7 @@ export function CollapsedPluginRail({
   return createPortal(
     <nav
       aria-label={t("openedApps")}
-      className="flex h-full w-11 flex-col items-center gap-1 overflow-y-auto border-l bg-sidebar py-2"
+      className="pointer-events-none flex h-full w-9 flex-col items-center gap-1 overflow-y-auto py-2"
     >
       {tabs.map((tab) => (
         <PluginRailButton
@@ -72,8 +72,8 @@ function PluginRailButton({
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="size-9 shrink-0 rounded-md"
+          size="icon-xs"
+          className="pointer-events-auto size-7 shrink-0 rounded-md"
           aria-label={t("openNamed", { name })}
           disabled={moving}
           onClick={open}
