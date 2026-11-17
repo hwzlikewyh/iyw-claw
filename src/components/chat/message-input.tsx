@@ -1,5 +1,6 @@
 "use client"
 
+import { ConversationSkillMenu } from "@/components/chat/conversation-skills"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { isDesktop } from "@/lib/platform"
 import Image from "next/image"
@@ -3754,41 +3755,11 @@ export function MessageInput({
                           </div>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger
-                          disabled={enabledSkills.length === 0}
-                        >
-                          <BookOpenText className="size-4" />
-                          {t("skills")}
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent
-                          className="min-w-44 overflow-y-auto"
-                          style={{
-                            maxWidth: "min(20rem, calc(100vw - 1rem))",
-                            maxHeight:
-                              "min(32rem, var(--radix-dropdown-menu-content-available-height))",
-                          }}
-                        >
-                          {enabledSkills.map((skill) => (
-                            <DropdownMenuItem
-                              key={`${skill.scope}-${skill.id}`}
-                              onClick={() => handleSkillMenuSelect(skill)}
-                            >
-                              <BookOpenText className="size-4" />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate">
-                                  {skill.name || skill.id}
-                                </span>
-                                {skill.description && (
-                                  <span className="block truncate text-xs text-muted-foreground">
-                                    {skill.description}
-                                  </span>
-                                )}
-                              </span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
+                      <ConversationSkillMenu
+                        skills={enabledSkills}
+                        disabled={enabledSkills.length === 0}
+                        onSelect={handleSkillMenuSelect}
+                      />
                       {/* A custom-dir pi can't have skills managed by iyw-claw's
                           default-dir store, so hide these shortcuts instead of
                           offering ones that lock with a Settings path the

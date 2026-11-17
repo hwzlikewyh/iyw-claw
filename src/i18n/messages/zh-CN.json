@@ -2592,6 +2592,8 @@
         "forkAndSend": "分叉发送",
         "slashCommands": "斜杠命令",
         "skills": "技能",
+        "skillsSearch": "搜索名称、ID 或描述…",
+        "skillsNoResults": "没有匹配的技能",
         "slashSearchPlaceholder": "搜索命令...",
         "slashSearchEmpty": "没有匹配的命令",
         "experts": "专家",

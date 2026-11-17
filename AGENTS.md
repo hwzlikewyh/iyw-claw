@@ -24,6 +24,13 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 - 新增或修改业务流程时，日志应尽量详细，至少覆盖必要的请求上下文、关键状态变化、分支决策、外部调用结果及完整错误原因，确保问题可定位、流程可追踪。
 - 日志级别应与事件严重程度匹配，优先使用结构化字段；不得记录密码、令牌、密钥、完整个人信息等敏感数据，必要时先脱敏。
 
+## 远程仓库与主分支
+
+- **GitHub 仓库 `hwzlikewyh/iyw-claw` 的主分支是 `main`**；用户要求合并到 GitHub 主分支时，目标必须是 `refs/heads/main`。
+- 内网仓库 `http://192.168.1.97:8081/python/iyw-claw.git` 使用 `master`；不要用它的默认分支推断 GitHub 的主分支。
+- 本机 `origin` 的 fetch 地址指向内网，push 地址可能同时包含内网和 GitHub。推送前检查 `git remote -v` 和目标仓库的 `git ls-remote --symref <url> HEAD`，明确目标仓库及分支。
+- 仅向 GitHub 交付时，使用 GitHub URL 和明确的 refspec，例如 `git push https://github.com/hwzlikewyh/iyw-claw.git HEAD:refs/heads/main`，避免用 `git push origin` 将同名分支推送到两个仓库。
+
 ## 架构
 
 ### 双模式运行
