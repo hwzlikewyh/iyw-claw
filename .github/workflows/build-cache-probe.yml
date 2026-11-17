@@ -81,6 +81,13 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
+      - name: Checkout current verification tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .build-tools
+          sparse-checkout: src-tauri/scripts
+          sparse-checkout-cone-mode: false
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -111,7 +118,9 @@ jobs:
       - name: Stage desktop sidecars
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
       - name: Verify staged sidecars
-        run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
+        run: |
+          cp .build-tools/src-tauri/scripts/environment-helper-runtime.mjs src-tauri/scripts/environment-helper-runtime.mjs
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
       - name: Compile application
         timeout-minutes: 130
         env:
