@@ -4025,10 +4025,21 @@ impl ConnectionManager {
         question_id: &str,
         answer: QuestionAnswer,
     ) -> Result<(), AcpError> {
+        self.try_answer_question(conn_id, question_id, answer)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn try_answer_question(
+        &self,
+        conn_id: &str,
+        question_id: &str,
+        answer: QuestionAnswer,
+    ) -> Result<bool, AcpError> {
         let mut pending = self.pending_questions.lock().await;
         let Some(entry) = pending.get(question_id) else {
             // Already answered / canceled / gone elsewhere — idempotent success.
-            return Ok(());
+            return Ok(false);
         };
         if entry.parent_connection_id != conn_id {
             return Err(AcpError::protocol("Question belongs to another session"));
@@ -4055,14 +4066,15 @@ impl ConnectionManager {
             "Question response accepted"
         );
         drop(pending);
-        // Ignore a dropped receiver: the listener may have abandoned the wait
-        // (peer-close) at the same instant; the resolved-event below still clears
-        // the card.
-        let _ = entry.sender.send(outcome);
-        if let Some((state, emitter)) = self
-            .get_state_and_emitter(&entry.parent_connection_id)
-            .await
-        {
+        // 渠道答案若撞上超时，会转为原对话的后续输入。
+        let accepted = entry.sender.send(outcome).is_ok();
+        self.emit_question_resolved(&entry.parent_connection_id, question_id)
+            .await;
+        Ok(accepted)
+    }
+
+    async fn emit_question_resolved(&self, conn_id: &str, question_id: &str) {
+        if let Some((state, emitter)) = self.get_state_and_emitter(conn_id).await {
             emit_with_state(
                 &state,
                 &emitter,
@@ -4072,7 +4084,6 @@ impl ConnectionManager {
             )
             .await;
         }
-        Ok(())
     }
 
     /// Cancel a pending `ask_user_question` because its MCP call was

@@ -102,7 +102,10 @@ pub(super) async fn answer_text(
     )
 }
 
-fn parse_answer(questions: &[QuestionSpec], text: &str) -> Result<QuestionAnswer, String> {
+pub(crate) fn parse_answer(
+    questions: &[QuestionSpec],
+    text: &str,
+) -> Result<QuestionAnswer, String> {
     if text == "/skip" {
         return Ok(QuestionAnswer {
             answers: vec![],

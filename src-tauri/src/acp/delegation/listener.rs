@@ -1094,16 +1094,10 @@ impl DelegationListener {
                 self.questions.cancel_question(&parent, &question_id).await;
                 return Ok(());
             },
-            _ = &mut timeout => (None, true),
+            _ = &mut timeout => timeout_question_answer(&mut answer_rx),
         };
         if timed_out {
-            tracing::warn!(
-                parent_connection_id = %parent,
-                question_id = %question_id,
-                timeout_seconds = ASK_USER_QUESTION_TIMEOUT.as_secs(),
-                elapsed_ms = wait_started.elapsed().as_millis(),
-                "[delegation] ask_user_question timed out without an answer"
-            );
+            log_question_timeout(&parent, &question_id, wait_started);
             self.questions.cancel_question(&parent, &question_id).await;
         }
         let response = if timed_out {
@@ -2140,6 +2134,26 @@ impl DelegationListener {
         };
         self.broker.start_delegation(delegation_req).await
     }
+}
+
+fn timeout_question_answer<T>(
+    answer_rx: &mut tokio::sync::oneshot::Receiver<T>,
+) -> (Option<T>, bool) {
+    answer_rx.close();
+    match answer_rx.try_recv() {
+        Ok(answer) => (Some(answer), false),
+        Err(_) => (None, true),
+    }
+}
+
+fn log_question_timeout(parent: &str, question_id: &str, started: std::time::Instant) {
+    tracing::warn!(
+        parent_connection_id = %parent,
+        question_id,
+        timeout_seconds = ASK_USER_QUESTION_TIMEOUT.as_secs(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "[delegation] ask_user_question timed out without an answer"
+    );
 }
 
 async fn abort_connections(connections: &mut JoinSet<()>) {

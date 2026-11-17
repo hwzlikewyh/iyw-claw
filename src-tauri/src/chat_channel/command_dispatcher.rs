@@ -180,6 +180,19 @@ pub fn spawn_command_dispatcher(
                 continue;
             }
 
+            if let Some(message) = super::reply_routes::forward(
+                &cmd,
+                &route.target_id,
+                (&db_conn, &manager, &conn_mgr),
+            )
+            .await
+            {
+                send_dispatch_message(&db_conn, &manager, cmd.channel_id,
+                    super::command_response::DispatchMessage::Rich(message),
+                    cmd.target.clone(), Some(&trace_id)).await;
+                continue;
+            }
+
             if let Some(message) = super::interactions::handle(&cmd, &conn_mgr).await {
                 send_dispatch_message(&db_conn, &manager, cmd.channel_id,
                     super::command_response::DispatchMessage::Rich(message),

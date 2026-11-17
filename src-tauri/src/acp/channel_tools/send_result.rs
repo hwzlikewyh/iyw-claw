@@ -46,6 +46,8 @@ pub(super) fn map_send_error(error: crate::chat_channel::error::ChatChannelError
         crate::chat_channel::error::ChatChannelError::DeliveryDeferred(_)
     ) {
         "CHANNEL_DELIVERY_QUEUED".to_string()
+    } else if value.contains("DELIVERY_UNKNOWN") || value.contains("NETWORK_RESULT_UNKNOWN") {
+        "CHANNEL_DELIVERY_UNKNOWN".to_string()
     } else if value.contains("TARGET_CONTEXT_EXPIRED") {
         "TARGET_CONTEXT_EXPIRED".to_string()
     } else if matches!(
