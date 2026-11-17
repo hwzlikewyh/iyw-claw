@@ -1,6 +1,6 @@
 [package]
 name = "codex-app-server-client"
-version = "0.167.1"
+version = "0.169.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -11,51 +11,62 @@ doctest = false
 
 [dependencies.codex-app-server]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-app-server-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-app-server-transport]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-arg0]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+
+[dependencies.codex-cloud-client]
+git = "https://github.com/openai/codex.git"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+
+[dependencies.codex-login]
+git = "https://github.com/openai/codex.git"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-core]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-exec-server]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-feedback]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-uds]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-rustls-provider]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+
+[dependencies.color-eyre]
+version = "0.6.3"
 
 [dependencies.futures]
 version = "0.3"
@@ -68,13 +79,16 @@ features = [ "rc",]
 [dependencies.serde_json]
 version = "1"
 
+[dependencies.thiserror]
+version = "2.0.17"
+
 [dependencies.tokio]
 version = "1"
 features = [ "sync", "time", "rt",]
 
 [dependencies.tokio-tungstenite]
 git = "https://github.com/openai-oss-forks/tokio-tungstenite"
-rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186"
+rev = "7447c427513cfe685f236e1ac0513c4ea3dd9c0b"
 features = [ "proxy", "rustls-tls-native-roots",]
 
 [dependencies.toml]

@@ -9,14 +9,13 @@ use codex_attachment_store::{
     InlineAttachmentStore, ResolveFuture, ResolveRequest, UploadFuture, UploadRequest,
     UploadResult,
 };
-use codex_http_client::{HttpClient, HttpClientFactory};
+use codex_http_client::{ClientRouteClass, HttpClient, HttpClientFactory};
+use codex_login::default_client::{ClientRedirectPolicy, create_client_for_route};
 use http::HeaderMap;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use super::{
-    ClientRedirectPolicy, ClientRouteClass, ClientRouting, ModelClient, create_client_for_route,
-};
+use super::{ClientRouting, ModelClient};
 
 const IMAGE_API_PATH: &str = "/images/input/prepare";
 pub(crate) const IMAGE_ID_PREFIX: &str = "iyw-image-v1-";

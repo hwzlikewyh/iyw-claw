@@ -114,6 +114,9 @@ pub fn quote_windows_arg(arg: &str) -> String {
 /// Build a Windows command line for CreateProcess-style APIs.
 #[cfg(target_os = "windows")]
 pub fn argv_to_command_line(argv: &[String]) -> String {
+    if let Some(command_line) = crate::cmd_script_command_line(argv) {
+        return command_line;
+    }
     argv.iter()
         .map(|arg| quote_windows_arg(arg))
         .collect::<Vec<_>>()

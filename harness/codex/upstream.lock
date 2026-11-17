@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/openai/codex.git",
-  "ref": "rust-v0.167.1",
-  "tagObject": "595a35e837a1b6752e60a5de85b89adf415b0ccb",
-  "commit": "0a94398fa60c4fac0e7659e4213a0a36e613dd46",
+  "ref": "rust-v0.169.0",
+  "tagObject": "a41fe5b443652cbdbee57717fbb9fd78d8d8b32a",
+  "commit": "d32063f96c2dff1dc96af839b3952abb6acfeda4",
   "license": "Apache-2.0",
   "components": [
     "codex-rs/app-server",
@@ -16,11 +16,15 @@
     },
     {
       "repository": "https://github.com/openai-oss-forks/tokio-tungstenite",
-      "commit": "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186"
+      "commit": "7447c427513cfe685f236e1ac0513c4ea3dd9c0b"
     },
     {
       "repository": "https://github.com/openai-oss-forks/tungstenite-rs",
-      "commit": "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f"
+      "commit": "bc589d684755a8c02da0fc7e58d0861cbfc306f1"
+    },
+    {
+      "repository": "https://github.com/transact-rs/sqlx",
+      "commit": "10462fa4414c6c7f1ed1d39bb31678e3b726878c"
     }
   ],
   "localPatches": [

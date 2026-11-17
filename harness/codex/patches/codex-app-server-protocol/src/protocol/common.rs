@@ -477,6 +477,26 @@ enum GetAccountRateLimitsParamsTypeScript {
     Undefined,
 }
 
+/// Preserve null and explicit undefined params while adding provider selection to gateway reads.
+#[allow(dead_code)]
+#[derive(TS)]
+#[ts(untagged)]
+enum GatewayOAuthReadParamsTypeScript {
+    Params(Option<v2::GatewayOAuthReadParams>),
+    #[ts(type = "undefined")]
+    Undefined,
+}
+
+/// Preserve null and explicit undefined params while adding provider selection to gateway login.
+#[allow(dead_code)]
+#[derive(TS)]
+#[ts(untagged)]
+enum GatewayOAuthLoginParamsTypeScript {
+    Params(Option<v2::GatewayOAuthLoginParams>),
+    #[ts(type = "undefined")]
+    Undefined,
+}
+
 client_request_definitions! {
     Initialize => "initialize" {
         params: v1::InitializeParams,
@@ -874,6 +894,7 @@ client_request_definitions! {
     },
     ThreadItemsList => "thread/items/list" {
         params: v2::ThreadItemsListParams,
+        inspect_params: true,
         // Explicitly concurrent: this primarily reads append-only rollout storage.
         serialization: None,
         response: v2::ThreadItemsListResponse,
@@ -897,6 +918,12 @@ client_request_definitions! {
         params: v2::ThreadInjectItemsParams,
         serialization: thread_id(params.thread_id),
         response: v2::ThreadInjectItemsResponse,
+    },
+    #[experimental("thread/prepareApprovedPlan")]
+    ThreadPrepareApprovedPlan => "thread/prepareApprovedPlan" {
+        params: v2::ThreadPrepareApprovedPlanParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadPrepareApprovedPlanResponse,
     },
     SkillsList => "skills/list" {
         params: v2::SkillsListParams,
@@ -1070,6 +1097,7 @@ client_request_definitions! {
     #[experimental("turn/settings/update")]
     TurnSettingsUpdate => "turn/settings/update" {
         params: v2::TurnSettingsUpdateParams,
+        inspect_params: true,
         serialization: thread_id(params.thread_id),
         response: v2::TurnSettingsUpdateResponse,
     },
@@ -1138,12 +1166,12 @@ client_request_definitions! {
         response: v2::ModelListResponse,
     },
     GatewayOAuthRead => "account/gatewayOAuth/read" {
-        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        params: #[ts(optional, as = "Option<GatewayOAuthReadParamsTypeScript>", inline)] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableGatewayOAuthReadParams,
         serialization: None,
         response: v2::GatewayOAuthReadResponse,
     },
     GatewayOAuthLogin => "account/gatewayOAuth/login" {
-        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        params: #[ts(optional, as = "Option<GatewayOAuthLoginParamsTypeScript>", inline)] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableGatewayOAuthLoginParams,
         serialization: None,
         response: v2::GatewayOAuthLoginResponse,
     },
@@ -1151,6 +1179,16 @@ client_request_definitions! {
         params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
         serialization: None,
         response: v2::GatewayOAuthCancelResponse,
+    },
+    ModelProviderList => "modelProvider/list" {
+        params: v2::ModelProviderListParams,
+        serialization: global_shared_read("config"),
+        response: v2::ModelProviderListResponse,
+    },
+    ModelProviderConfigWrite => "modelProvider/config/write" {
+        params: v2::ModelProviderConfigWriteParams,
+        serialization: global("config"),
+        response: v2::ModelProviderConfigWriteResponse,
     },
     ModelProviderCapabilitiesRead => "modelProvider/capabilities/read" {
         params: v2::ModelProviderCapabilitiesReadParams,
@@ -1366,6 +1404,12 @@ client_request_definitions! {
         params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
         serialization: global("account-auth"),
         response: v2::LogoutAccountResponse,
+    },
+
+    GetAccountSecuritySetup => "account/securitySetup/read" {
+        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        serialization: None,
+        response: v2::GetAccountSecuritySetupResponse,
     },
 
     GetAccountRateLimits => "account/rateLimits/read" {
