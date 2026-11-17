@@ -41,3 +41,11 @@ RPM 已使用 gzip level 1 但仍超时，上游 tauri#11478、rpm-rs/rpm-rs#297
 
 当前 0.1.350 运行中的任务不能热更新工作流；不取消或重复完整构建，修复走独立验证。
 不降低应用功能，不使用无签名制品，不更改已发布标签，不启用付费 larger runner。
+
+后续回读：原 Intel 编译最终 151.2 分钟；旧 ARM64 RPM 最终 110.3 分钟，随后
+AppImage 因缺少 xdg-mime 失败，现已补齐 xdg-utils/desktop-file-utils。独立打包已实测
+DEB 30 秒、AppImage 114 秒。RPM 仅换 Zstd 仍慢，正验证使用 rpm 0.30 的 CLI 2.12.5。
+
+旧 DEB 还包含非法中文 Package 字段；保留 Tauri 编译时确定的资源目录，仅修正包控制
+字段为 iyw-claw，避免中文桌面显示名与 Linux 包管理标识混用，重签后再发布。
+输入 DEB、输出包均验证固定公钥 minisign、摘要和提取后的应用代码段；不执行应用重编译。

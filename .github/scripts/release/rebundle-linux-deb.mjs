@@ -30,6 +30,7 @@ async function codeDigest(binary) {
 
 async function restore() {
   const release = requireReleaseSource(context)
+  console.log(`[release-context] ${context.tag} source=${context.sourceRef} draft=${context.releaseId}`)
   const name = `iyw-claw_${version}_arm64.deb`
   for (const fileName of [name, `${name}.sig`]) {
     const assets = release.assets.filter(asset => asset.name === fileName)
