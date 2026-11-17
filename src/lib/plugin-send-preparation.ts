@@ -21,6 +21,7 @@ export async function prepareDeferredPluginForSend(
     .tabs.find((tab) => tab.id === tabId)?.conversationId
   const current = () =>
     getTransport() === transport &&
+    usePluginComposerContext.getState().entries[tabId]?.selected === selected &&
     useTabStore
       .getState()
       .tabs.some(

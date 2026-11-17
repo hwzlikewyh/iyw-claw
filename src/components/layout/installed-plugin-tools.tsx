@@ -7,6 +7,7 @@ import { useComposerPlugins } from "@/components/chat/use-composer-plugins"
 import { useComposerPluginSelection } from "@/components/chat/use-composer-plugin-selection"
 import { Button } from "@/components/ui/button"
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
+import { deferComposerPlugin } from "@/lib/plugin-composer-context"
 import {
   OPENFILM_STUDIO_APP_KEY,
   type PluginPanelChoice,
@@ -58,6 +59,7 @@ function PluginToolsList({
   selection: ReturnType<typeof useComposerPluginSelection>
 }) {
   const t = useTranslations("PluginPanels")
+  const route = useWorkbenchRoute()
   const metadata = usePluginPresentation()
   const tools = panels.loading || panels.catalogError ? [] : catalog.choices
   const choices = pluginRows(panels.choices, tools)
@@ -91,8 +93,18 @@ function PluginToolsList({
                 row.app.appKey === OPENFILM_STUDIO_APP_KEY)
             }
             onSelect={() => {
-              if (row.app) void panels.open(row.app)
-              else if (row.tool) void selection.select(row.tool)
+              if (
+                row.app &&
+                panels.conversationId === null &&
+                row.app.appKey !== OPENFILM_STUDIO_APP_KEY
+              ) {
+                const activeTabId = useTabStore.getState().activeTabId
+                if (!activeTabId) return
+                deferComposerPlugin(activeTabId, row.app)
+                route.openConversations()
+              } else if (row.app) {
+                void panels.open(row.app)
+              } else if (row.tool) void selection.select(row.tool)
             }}
           />
         ))}

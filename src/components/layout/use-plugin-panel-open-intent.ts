@@ -12,8 +12,12 @@ import {
 import { onNewConversationOpened } from "@/stores/tab-store"
 import { pluginPanelError } from "./use-plugin-panel-choices"
 import { usePluginMarketNavigation } from "./use-plugin-market-navigation"
-import { selectComposerPlugin } from "@/lib/plugin-composer-context"
+import {
+  deferComposerPlugin,
+  selectComposerPlugin,
+} from "@/lib/plugin-composer-context"
 import { usePluginPanelRegistry } from "@/stores/plugin-panel-registry"
+import { OPENFILM_STUDIO_APP_KEY } from "@/lib/plugin-panel"
 
 interface OpenIntent {
   tabId: string
@@ -52,6 +56,23 @@ export function usePluginPanelOpenIntent(options: Options) {
 
   const open = async (app: PluginPanelChoice) => {
     if (!tabId || pending.current) return
+    if (!options.conversationId && app.appKey !== OPENFILM_STUDIO_APP_KEY) {
+      deferComposerPlugin(tabId, app)
+      route.openConversations()
+      openTab("home")
+      return
+    }
+    if (!options.conversationId) {
+      deferComposerPlugin(tabId, app)
+      route.openConversations()
+      openTab("home")
+      const transport = getTransport()
+      const current = () =>
+        getTransport() === transport &&
+        useTabStore.getState().activeTabId === tabId
+      await latest.current.options.open(app, current)
+      return
+    }
     selectComposerPlugin(tabId, app)
     const request: OpenIntent = {
       tabId,
@@ -78,12 +99,14 @@ export function usePluginPanelOpenIntent(options: Options) {
   useApplicationOpenRequest(async (app) => {
     route.openConversations()
     if (tabId) selectComposerPlugin(tabId, app)
-    const existing = usePluginPanelRegistry.getState().panels.find(
-      (entry) =>
-        entry.conversationId === options.conversationId &&
-        entry.pluginSlug === app.pluginSlug &&
-        entry.appKey === app.appKey
-    )
+    const existing = usePluginPanelRegistry
+      .getState()
+      .panels.find(
+        (entry) =>
+          entry.conversationId === options.conversationId &&
+          entry.pluginSlug === app.pluginSlug &&
+          entry.appKey === app.appKey
+      )
     if (existing) {
       openTab(`app:${existing.id}`)
       return
