@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
-import { createPortal } from "react-dom"
 import { Loader2 } from "lucide-react"
 
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
@@ -10,7 +9,7 @@ import { AuxPanelHome } from "./aux-panel-home"
 import { TaskArtifactsTab } from "./aux-panel-artifacts-tab"
 import { FileTreeTab } from "./aux-panel-file-tree-tab"
 import { useIywAccount } from "@/contexts/iyw-account-context"
-import { onTransportChange } from "@/lib/transport"
+import { isDesktop, onTransportChange } from "@/lib/transport"
 import { isPluginPanelVisibleForConversation } from "@/lib/plugin-panel"
 import { usePluginPanels } from "./use-plugin-panels"
 import { PluginPanelFrame } from "./plugin-panel-frame"
@@ -49,17 +48,17 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
   const pluginText = useTranslations("PluginPanels")
   const { isOpen, activeTab } = useAuxPanelContext()
   const panels = usePluginPanels()
-  const [mainPluginHost, setMainPluginHost] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    // 主工作区在并列布局提交后提供 Portal 容器。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMainPluginHost(document.getElementById("workspace-main-plugin-host"))
-  }, [])
   const activeApp = panels.tabs.find(
     (tab) =>
       `app:${tab.id}` === activeTab &&
       isPluginPanelVisibleForConversation(tab, panels.conversationId)
   )
+  const opening =
+    panels.openingApp?.tabId === panels.tabId ? panels.openingApp : null
+  const preparing =
+    opening &&
+    (activeApp?.pluginSlug !== opening.app.pluginSlug ||
+      activeApp?.appKey !== opening.app.appKey)
 
   return (
     <>
@@ -70,64 +69,43 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
         style={isOpen ? { display: "flex" } : undefined}
       >
         <AuxPanelNavigation label={t("label")} panels={panels} />
-        {(activeTab === "home" || activeTab.startsWith("app:")) && (
-          <AuxPanelHome panels={panels} />
-        )}
-        {activeTab === "artifacts" && <TaskArtifactsTab />}
-        {activeTab === "file_tree" && <FileTreeTab />}
-        {panels.tabs.map((tab) => {
-          const selected = activeApp?.id === tab.id
-          const frame = (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {(activeTab === "home" ||
+            (activeTab.startsWith("app:") && !activeApp)) && (
+            <AuxPanelHome panels={panels} />
+          )}
+          {activeTab === "artifacts" && <TaskArtifactsTab />}
+          {activeTab === "file_tree" && <FileTreeTab />}
+          {panels.tabs.map((tab) => (
             <PluginPanelFrame
+              key={tab.id}
               tab={tab}
-              mode="main"
-              visible={selected}
+              visible={isOpen && activeApp?.id === tab.id}
               sync={panels.updates.states[tab.id]}
               refresh={panels.updates.refresh}
               moving={panels.detachingId === tab.id}
               onClose={() => panels.close(tab.id)}
               onRetry={() => panels.retry(tab.id)}
+              onDetach={isDesktop() ? () => panels.detach(tab) : undefined}
               onOpenComplete={() => panels.finishOpening(tab)}
             />
-          )
-          if (mainPluginHost) return createPortal(frame, mainPluginHost, tab.id)
-          return (
-            <div key={tab.id} className="hidden">
-              <PluginPanelFrame
-                tab={tab}
-                visible={false}
-                sync={panels.updates.states[tab.id]}
-                refresh={panels.updates.refresh}
-                moving={panels.detachingId === tab.id}
-                onClose={() => panels.close(tab.id)}
-                onRetry={() => panels.retry(tab.id)}
-                onOpenComplete={() => panels.finishOpening(tab)}
-              />
-            </div>
-          )
-        })}
-      </aside>
-      {mainPluginHost &&
-      !activeApp &&
-      panels.openingApp?.tabId === panels.tabId &&
-      panels.openingApp != null
-        ? createPortal(
+          ))}
+          {preparing && opening && (
             <div
-              className="pointer-events-auto absolute inset-0 z-[90] flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground"
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-sidebar text-sm text-muted-foreground"
               role="status"
               aria-live="polite"
             >
               <Loader2 className="size-5 animate-spin" aria-hidden="true" />
               <span>
                 {pluginText("pluginOpening", {
-                  name: panels.openingApp.app.label,
+                  name: opening.app.label,
                 })}
               </span>
-            </div>,
-            mainPluginHost,
-            "plugin-opening"
-          )
-        : null}
+            </div>
+          )}
+        </div>
+      </aside>
     </>
   )
 }

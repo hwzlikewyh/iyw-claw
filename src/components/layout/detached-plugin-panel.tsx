@@ -15,6 +15,11 @@ import {
 import { reportPluginWindowReady } from "@/lib/plugin-panel-window"
 import type { McpPluginPanelTab } from "./use-plugin-panel-tabs"
 import { getTransport } from "@/lib/transport"
+import {
+  OPENFILM_STUDIO_APP_KEY,
+  type PluginPanelChoice,
+} from "@/lib/plugin-panel"
+import { DetachedStudioPanel } from "./detached-studio-panel"
 
 export function DetachedPluginPanel() {
   const params = useSearchParams()
@@ -30,10 +35,19 @@ export function DetachedPluginPanel() {
     }),
     [params]
   )
-  const connected = usePluginWindowRelay(
-    params.get("relayId") ?? "",
-    input.conversationId
-  )
+  if (input.appKey === OPENFILM_STUDIO_APP_KEY)
+    return <DetachedStudioPanel input={input} />
+  return <McpPluginWindow input={input} relayId={params.get("relayId") ?? ""} />
+}
+
+function McpPluginWindow({
+  input,
+  relayId,
+}: {
+  input: PluginPanelChoice & { conversationId: number }
+  relayId: string
+}) {
+  const connected = usePluginWindowRelay(relayId, input.conversationId)
   const { tab, error } = useDetachedPluginLoad(input, connected)
   const t = useTranslations("PluginPanels")
   return (

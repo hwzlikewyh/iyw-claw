@@ -406,10 +406,6 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
-      <div
-        id="workspace-main-plugin-host"
-        className="pointer-events-none absolute inset-0 z-30"
-      />
       {!isConversations ? (
         <div className="absolute inset-0 z-40 bg-background">
           <WorkbenchRoutePage />
@@ -451,10 +447,6 @@ function MobileWorkspaceContent({ children }: { children: React.ReactNode }) {
           </section>
         )}
       </div>
-      <div
-        id="workspace-main-plugin-host"
-        className="pointer-events-none absolute inset-0 z-30"
-      />
       {!isConversations ? (
         <div className="absolute inset-0 z-40 bg-background">
           <WorkbenchRoutePage />

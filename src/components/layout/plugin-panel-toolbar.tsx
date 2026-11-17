@@ -1,7 +1,13 @@
 "use client"
 
 import { useTranslations } from "next-intl"
-import { Maximize2, Minimize2, X } from "lucide-react"
+import {
+  Loader2,
+  Maximize2,
+  Minimize2,
+  SquareArrowOutUpRight,
+  X,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export function SyncError({ refresh }: { refresh?: () => void }) {
@@ -24,17 +30,22 @@ export function PanelToolbar({
   fullscreen,
   toggle,
   close,
+  detach,
+  moving,
 }: {
   label: string
   fullscreen: boolean
   toggle: () => void
   close?: () => void
+  detach?: () => void
+  moving?: boolean
 }) {
   const t = useTranslations("PluginPanels")
   return (
     <div className="flex h-8 shrink-0 items-center justify-between border-b px-2 max-md:h-11">
       <span className="truncate text-xs">{label}</span>
       <div className="flex shrink-0 items-center gap-1">
+        {detach && <DetachButton onClick={detach} moving={moving} />}
         {close && (
           <Button
             variant="ghost"
@@ -56,5 +67,33 @@ export function PanelToolbar({
         </Button>
       </div>
     </div>
+  )
+}
+
+function DetachButton({
+  onClick,
+  moving,
+}: {
+  onClick: () => void
+  moving?: boolean
+}) {
+  const t = useTranslations("PluginPanels")
+  const label = t(moving ? "openingWindow" : "detachApp")
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      disabled={moving}
+      aria-busy={moving}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      {moving ? (
+        <Loader2 className="animate-spin" />
+      ) : (
+        <SquareArrowOutUpRight />
+      )}
+    </Button>
   )
 }

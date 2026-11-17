@@ -9,6 +9,7 @@ import {
   type PluginWindowContext,
 } from "./plugin-window-context"
 import type { PromptDraft } from "./types"
+import { retainDraftPluginContext } from "./plugin-draft-context"
 
 const HEARTBEAT_MS = 5_000
 const REQUEST_TIMEOUT_MS = 30_000
@@ -25,6 +26,7 @@ type RelayMessage =
   | { kind: "result"; id: string; error?: string }
 
 export function createPluginWindowRelay(conversationId: number) {
+  const releaseDraft = retainDraftPluginContext(conversationId)
   const id = crypto.randomUUID()
   const channel = new BroadcastChannel(`plugin-window:${id}`)
   const transport = getTransport()
@@ -48,6 +50,7 @@ export function createPluginWindowRelay(conversationId: number) {
     clearInterval(timer)
     unsubscribe()
     channel.close()
+    releaseDraft()
   }
   channel.onmessage = ({ data }: MessageEvent<RelayMessage>) => {
     touched = Date.now()

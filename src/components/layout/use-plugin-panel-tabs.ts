@@ -18,7 +18,6 @@ import { pluginPanelError } from "./use-plugin-panel-choices"
 import {
   draftPluginTab,
   onDraftPluginContextChanged,
-  persistedPluginConversation,
 } from "@/lib/plugin-draft-context"
 import { openPanel } from "./plugin-panel-launch"
 
@@ -60,6 +59,10 @@ export function usePluginPanelTabs(
   const [transport] = useState(getTransport)
   const lifecycle = usePanelLifecycle()
   const panel = useAuxPanelContext()
+  const latestPanel = useRef(panel)
+  useEffect(() => {
+    latestPanel.current = panel
+  }, [panel])
   const { setActiveTab, setOpen } = panel
   const close = usePanelClose({ panel, setTabs, setError, lifecycle, tabs })
   useEffect(() => {
@@ -163,23 +166,21 @@ export function usePluginPanelTabs(
             : [...values, tab]
         )
         setActiveTab(`app:${tab.id}`)
-        setOpen(false)
+        setOpen(true)
         return true
       },
       select: (id) => {
         setActiveTab(`app:${id}`)
-        setOpen(false)
+        setOpen(true)
       },
     })
   }
   const detach = async (tab: PluginPanelTab) => {
-    if (tab.kind !== "mcp-app") return false
     if (detaching.current) return false
     detaching.current = true
     setDetachingId(tab.id)
     try {
-      const conversation = persistedPluginConversation(tab.conversationId)
-      if (conversation == null) throw Error("发送消息后可将插件移到独立窗口")
+      const conversation = tab.conversationId
       const apps = await readPluginPanels(conversation, transport)
       const app = apps.find(
         (item) =>
@@ -187,13 +188,17 @@ export function usePluginPanelTabs(
       )
       if (!app || app.state !== "available")
         throw Error("插件状态已变化，请重新打开")
-      if (!(await requestPluginAppTeardown(tab.id)))
+      if (!lifecycle.current.alive || getTransport() !== transport)
+        throw Error("工作区已变化，请重新打开插件")
+      if (tab.kind === "mcp-app" && !(await requestPluginAppTeardown(tab.id)))
         throw Error("插件尚未完成保存，原页面已保留")
       if (getTransport() !== transport)
         throw Error("工作区已变化，请重新打开插件")
       await openPluginPanelWindow(app, conversation)
+      if (!lifecycle.current.alive || getTransport() !== transport) return true
       setTabs((values) => values.filter((item) => item.id !== tab.id))
-      if (panel.activeTab === `app:${tab.id}`) panel.openTab("home")
+      if (latestPanel.current.activeTab === `app:${tab.id}`)
+        latestPanel.current.openTab("home")
       return true
     } catch (cause) {
       setError(pluginPanelError(cause))
@@ -251,8 +256,7 @@ function usePanelClose(input: {
     setTabs((values) => values.filter((tab) => tab.id !== id))
     if (current) setError("")
     if (current && panel.activeTab === `app:${id}`) {
-      panel.setActiveTab("home")
-      panel.setOpen(false)
+      panel.openTab("home")
     }
     return true
   }, [])

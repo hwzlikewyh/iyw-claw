@@ -17,6 +17,7 @@ const entries = new Map<string, Entry>()
 const pending = new Map<string, Promise<number>>()
 const directories = new Map<string, Promise<string>>()
 const listeners = new Set<() => void>()
+const windowReferences = new Map<number, number>()
 let generation = 0
 
 export function draftPluginContext(tabId: string) {
@@ -48,6 +49,28 @@ export function onDraftPluginContextChanged(listener: () => void) {
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
+  }
+}
+
+// 独立窗口保留临时工作区，关闭来源草稿不会撤销该窗口的插件租约。
+export function retainDraftPluginContext(contextId: number) {
+  const tabId = draftPluginTab(contextId)
+  const entry = tabId ? draftPluginContext(tabId) : undefined
+  if (!entry) return () => {}
+  windowReferences.set(contextId, (windowReferences.get(contextId) ?? 0) + 1)
+  let retained = true
+  return () => {
+    if (!retained) return
+    retained = false
+    const count = (windowReferences.get(contextId) ?? 1) - 1
+    if (count > 0) windowReferences.set(contextId, count)
+    else windowReferences.delete(contextId)
+    if (
+      !count &&
+      entries.get(entry.tabId) === entry &&
+      !useTabStore.getState().rawTabs.some((tab) => tab.id === entry.tabId)
+    )
+      void release(entry)
   }
 }
 
@@ -180,6 +203,7 @@ export function watchDraftPluginContexts() {
   return useTabStore.subscribe((state) => {
     for (const entry of entries.values()) {
       const tab = state.rawTabs.find((item) => item.id === entry.tabId)
+      if (!tab && windowReferences.has(entry.id)) continue
       if (
         !tab ||
         tab.agentType !== entry.agent ||

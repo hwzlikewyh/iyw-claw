@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useTabStore } from "@/stores/tab-store"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
 import { preparePluginUse, type PluginUseContext } from "@/lib/plugin-use"
 import {
@@ -37,6 +38,7 @@ interface PluginOpenContext {
 export function useInstalledPluginOpen(tabs: Tabs) {
   const t = useTranslations("PluginPreparation")
   const route = useWorkbenchRoute()
+  const { setOpen } = useAuxPanelContext()
   const page = useInteractivePage()
   const state = useOpenState(tabs)
   const open = async (app: PluginPanelChoice) => {
@@ -73,6 +75,7 @@ export function useInstalledPluginOpen(tabs: Tabs) {
       conversationId: sourceTab?.conversationId ?? null,
     })
     route.openConversations()
+    setOpen(true)
     try {
       await openPluginChoice(app, {
         tabId,

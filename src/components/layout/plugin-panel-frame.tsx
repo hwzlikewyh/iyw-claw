@@ -10,6 +10,7 @@ import { usePluginPanelAuthority } from "./use-plugin-panel-authority"
 import { usePluginPanelDialog } from "./use-plugin-panel-dialog"
 import type { PluginPanelSyncState } from "@/lib/plugin-panel"
 import { PanelToolbar, SyncError } from "./plugin-panel-toolbar"
+import { toast } from "sonner"
 
 const APP_READY_TIMEOUT_MS = 60_000
 
@@ -19,20 +20,20 @@ export function PluginPanelFrame({
   sync,
   refresh,
   moving,
-  mode = "panel",
   onClose,
   onOpenComplete,
   onRetry,
+  onDetach,
 }: {
   tab: PluginPanelTab
   visible: boolean
   sync?: PluginPanelSyncState
   refresh?: () => void
   moving?: boolean
-  mode?: "panel" | "main"
   onClose?: () => Promise<boolean>
   onOpenComplete?: () => void
   onRetry?: () => Promise<void>
+  onDetach?: () => Promise<boolean>
 }) {
   const [fullscreen, setFullscreen] = useState(false)
   const authorityLost = usePluginPanelAuthority(tab)
@@ -48,7 +49,7 @@ export function PluginPanelFrame({
   useEffect(() => {
     if (revoked) completeOpening()
   }, [completeOpening, revoked])
-  const dialog = usePluginPanelDialog(visible && mode === "panel", expanded)
+  const dialog = usePluginPanelDialog(visible, expanded)
   useAppReadyTimeout(
     visible && !revoked,
     ready,
@@ -64,7 +65,6 @@ export function PluginPanelFrame({
       refresh={refresh}
       fullscreen={fullscreen}
       setFullscreen={setFullscreen}
-      main={mode === "main"}
       onClose={onClose}
       ready={ready}
       failed={failed}
@@ -72,23 +72,10 @@ export function PluginPanelFrame({
       setFailed={setFailed}
       onOpenComplete={completeOpening}
       onRetry={onRetry}
+      onDetach={onDetach}
+      moving={moving}
     />
   )
-  if (mode === "main")
-    return (
-      <section
-        aria-label={tab.label}
-        inert={!visible || moving || undefined}
-        className={
-          expanded
-            ? "fixed inset-0 z-[80] flex h-dvh w-screen flex-col bg-background text-foreground"
-            : "pointer-events-auto absolute inset-0 z-[80] flex h-full w-full flex-col bg-background text-foreground"
-        }
-        style={{ display: visible ? "flex" : "none" }}
-      >
-        {content}
-      </section>
-    )
   return (
     <dialog
       ref={dialog}
@@ -135,7 +122,6 @@ function PanelContent({
   refresh,
   fullscreen,
   setFullscreen,
-  main,
   onClose,
   ready,
   failed,
@@ -143,6 +129,8 @@ function PanelContent({
   setFailed,
   onOpenComplete,
   onRetry,
+  onDetach,
+  moving,
 }: {
   tab: PluginPanelTab
   revoked: boolean | undefined
@@ -150,7 +138,6 @@ function PanelContent({
   refresh?: () => void
   fullscreen: boolean
   setFullscreen: (value: boolean) => void
-  main: boolean
   onClose?: () => Promise<boolean>
   ready: boolean
   failed: boolean
@@ -158,6 +145,8 @@ function PanelContent({
   setFailed: (value: boolean) => void
   onOpenComplete?: () => void
   onRetry?: () => Promise<void>
+  onDetach?: () => Promise<boolean>
+  moving?: boolean
 }) {
   const t = useTranslations("PluginPanels")
   return (
@@ -168,13 +157,23 @@ function PanelContent({
         fullscreen={fullscreen}
         toggle={() => setFullscreen(!fullscreen)}
         close={
-          main && onClose
+          onClose
             ? async () => {
                 if (!window.confirm(t("closeConfirm"))) return
                 if (!(await onClose())) window.alert(t("closeFailed"))
               }
             : undefined
         }
+        detach={
+          onDetach
+            ? () => {
+                void onDetach().then((success) => {
+                  if (!success) toast.error(t("moveFailed"))
+                })
+              }
+            : undefined
+        }
+        moving={moving}
       />
       <div className="relative min-h-0 flex-1">
         {revoked ? null : tab.kind === "studio-url" ? (
