@@ -1,6 +1,5 @@
 "use client"
 
-import { FolderSearch } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { Button } from "@/components/ui/button"
@@ -9,26 +8,29 @@ import type { ProjectReferenceSelection } from "./project-reference-artifacts"
 
 interface ProjectReferenceFooterProps {
   selected: ProjectReferenceSelection | null
-  onBrowseFolder: () => void
+  onCancel: () => void
   onConfirm: () => void
 }
 
 export function ProjectReferenceFooter({
   selected,
-  onBrowseFolder,
+  onCancel,
   onConfirm,
 }: ProjectReferenceFooterProps) {
   const t = useTranslations("Folder.chat.messageInput.projectReference")
+  const common = useTranslations("Folder.common")
   return (
     <DialogFooter className="items-center sm:justify-between">
-      <Button variant="ghost" onClick={onBrowseFolder}>
-        <FolderSearch className="size-4" />
-        {t("browseFolder")}
-      </Button>
+      <span
+        className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+        title={selected?.path}
+      >
+        {selected?.name ?? t("nothingSelected")}
+      </span>
       <div className="flex min-w-0 items-center gap-2">
-        <span className="max-w-52 truncate text-xs text-muted-foreground">
-          {selected?.name ?? t("nothingSelected")}
-        </span>
+        <Button variant="outline" onClick={onCancel}>
+          {common("cancel")}
+        </Button>
         <Button disabled={!selected} onClick={onConfirm}>
           {t("confirm")}
         </Button>

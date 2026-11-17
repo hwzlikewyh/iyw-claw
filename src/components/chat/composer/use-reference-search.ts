@@ -12,6 +12,7 @@ import {
 } from "@/lib/api"
 import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
 import type { AcpAgentInfo, DbConversationSummary } from "@/lib/types"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 import {
   agentToSuggestion,
@@ -193,7 +194,7 @@ export interface UseReferenceSearchOptions {
  * on window focus) updates the refs but leaves `search` identity untouched — the
  * open panel keeps its results and the user's selection (R7).
  *
- * 成果、文件和会话在首次 `@` 搜索时加载，并等待结果后填充菜单。
+ * 空查询仅读取当前目录，输入名称后才检索深层文件。
  * 文件请求在当前输入框内复用；停用或切换目录时取消并释放。
  * 会话列表缓存仍在窗口重新聚焦时失效。
  */
@@ -204,7 +205,7 @@ export function useReferenceSearch({
 }: UseReferenceSearchOptions): ReferenceSearch {
   const path = defaultPath || null
 
-  const { load: loadFiles } = useFileTree({
+  const { load: loadFiles, loadRoot } = useFileTree({
     folderPath: path ?? undefined,
     enabled,
     automatic: false,
@@ -223,6 +224,7 @@ export function useReferenceSearch({
   // (see the doc comment). Initialized from the first render so the refs are
   // sane even before the sync effect below runs.
   const loadFilesRef = useRef(loadFiles)
+  const loadRootRef = useRef(loadRoot)
   const agentsRef = useRef(presentedAgents)
   const pathRef = useRef(path)
   const enabledRef = useRef(enabled)
@@ -238,7 +240,8 @@ export function useReferenceSearch({
     pathRef.current = path
     enabledRef.current = enabled
     loadFilesRef.current = loadFiles
-  }, [path, enabled, loadFiles])
+    loadRootRef.current = loadRoot
+  }, [path, enabled, loadFiles, loadRoot])
 
   useEffect(() => {
     agentsRef.current = presentedAgents
@@ -273,8 +276,14 @@ export function useReferenceSearch({
     // Lazy session fetch. On rejection the cache entry is cleared (not cached as
     // an empty result) so the next `@` retries instead of wedging on `[]`.
     const sessionsKey = "all"
+    const workspace = useAppWorkspaceStore.getState()
     let sessionsEntry = sessionsRef.current
-    if (sessionsEntry?.key !== sessionsKey) {
+    if (!workspace.conversationsLoading && !workspace.conversationsError) {
+      sessionsEntry = {
+        key: sessionsKey,
+        promise: Promise.resolve(workspace.conversations),
+      }
+    } else if (sessionsEntry?.key !== sessionsKey) {
       const created: NonNullable<typeof sessionsRef.current> = {
         key: sessionsKey,
         promise: listAllConversations().catch(() => {
@@ -301,10 +310,10 @@ export function useReferenceSearch({
       artifactsRef.current = artifactsPromise
     }
 
-    // 打开引用菜单后才读取文件；连续输入复用当前请求，首次结果也包含文件。
+    // 首屏不等待整棵目录树；连续输入仍复用完整搜索请求。
     const [sessions, files, artifacts] = await Promise.all([
       sessionsEntry.promise,
-      loadFilesRef.current(),
+      query.trim() ? loadFilesRef.current() : loadRootRef.current(),
       artifactsPromise,
     ])
     // Discard this result if it can no longer be trusted for the live panel: a
