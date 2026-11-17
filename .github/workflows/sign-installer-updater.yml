@@ -1,0 +1,48 @@
+name: Sign Published Installer For Updater
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_url:
+        description: Fusion installer artifact download URL
+        required: true
+        type: string
+      sha256:
+        description: Expected SHA-256 of the published installer
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  sign:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Download and verify published installer
+        env:
+          ARTIFACT_URL: ${{ inputs.artifact_url }}
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_URL" =~ ^https://gateway\.iyw\.cn/iyw-fusion-api/app-updates/artifacts/[1-9][0-9]*/download$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          curl --fail --location --proto '=https' --proto-redir '=https' --max-time 180 "$ARTIFACT_URL" --output installer.exe
+          printf '%s  installer.exe\n' "$EXPECTED_SHA256" | sha256sum --check --status
+      - name: Sign installer with desktop updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm dlx @tauri-apps/cli@2.11.4 signer sign installer.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-updater-signature
+          path: installer.exe.sig
+          if-no-files-found: error
+          retention-days: 7
