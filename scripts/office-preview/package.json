@@ -1,0 +1,14 @@
+{
+  "name": "iyw-office-preview-resources",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": {
+    "@univerjs/presets": "0.25.1",
+    "@univerjs/preset-sheets-core": "0.25.1",
+    "@univerjs/preset-sheets-drawing": "0.25.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": { "esbuild": "0.25.12" }
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "../_schema.json",
+  "format": "docx",
+  "element": "bookmark",
+  "parent": "body|paragraph|run",
+  "operations": {
+    "add": true,
+    "set": true,
+    "get": true,
+    "query": true,
+    "remove": true
+  },
+  "paths": {
+    "stable":     ["/bookmarkStart[@name=NAME]"],
+    "positional": ["/bookmarkStart[N]"]
+  },
+  "note": "Bookmarks are BookmarkStart/End pairs. Name must be addressable: no whitespace, no '/[]\"', no leading '@' or single quote. Duplicate names rejected at Add. Use --wrap to wrap an existing element (bookmarkStart before it, bookmarkEnd after it). Use --range-paths for atomic split+bookmark at char offsets.",
+  "add_modes": {
+    "positional": "Insert bookmarkStart/End pair at parent path. With 'text' prop: wraps a run. Without: empty pair.",
+    "wrap": "Add --wrap <path> to wrap a target element. bookmarkStart goes before the target, bookmarkEnd after it. Supports: Run (inline wrap), Paragraph (bookmark inside paragraph), TableCell (redirect to cell's first paragraph).",
+    "range_paths": "Add --range-paths '/body/p[1][start..end]' for atomic operation: split runs at char offsets and insert bookmarkStart/End around the highlighted region in one DOM pass. Optionally set color/bgColor on the wrapped content."
+  },
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "bookmark name (required). Letters, digits, '.', '_', '-' only.",
+      "add": true, "set": true, "get": true,
+      "examples": ["--properties name=chapter1"],
+      "readback": "name as stored on BookmarkStart",
+      "enforcement": "strict"
+    },
+    "text": {
+      "type": "string",
+      "description": "optional bookmark-covered text. Without this, only an empty Start/End pair is inserted. With 'text' on positional add: creates a run wrapped by bookmark.",
+      "add": true, "set": true, "get": false,
+      "examples": ["--properties text=\"Chapter 1 title\""],
+      "readback": "not a distinct key — lives on wrapped runs",
+      "enforcement": "strict"
+    },
+    "id": {
+      "type": "string",
+      "description": "OOXML bookmark id (w:bookmarkStart/@w:id). Auto-generated (max existing + 1) by default. Can be specified as a custom integer on Add. Updatable on Set (updates both BookmarkStart and paired BookmarkEnd).",
+      "add": true, "set": true, "get": true,
+      "examples": ["--properties id=42"],
+      "readback": "numeric bookmark id as stored on BookmarkStart",
+      "enforcement": "report"
+    },
+    "endPara": {
+      "type": "integer",
+      "description": "cross-paragraph BookmarkEnd offset. 0 = same paragraph (default). N > 0 = BookmarkEnd placed N paragraphs downstream from BookmarkStart's enclosing paragraph.",
+      "add": true, "set": false, "get": false,
+      "examples": ["--properties endPara=2"],
+      "readback": "offset inferred from BookmarkEnd position",
+      "enforcement": "strict"
+    }
+  }
+}

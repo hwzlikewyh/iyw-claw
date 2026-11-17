@@ -1,0 +1,45 @@
+[package]
+name = "iyw-office-engine"
+version = "0.1.31"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+handler-common = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+oxml = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+docx-handler = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+xlsx-handler = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+pptx-handler = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+pdf-handler = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+hcd-core = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+hcd-formats = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+clap = { version = "4", features = ["derive", "string"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+colored = "2"
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+lopdf = "0.34"
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+futures = "0.3"
+async-stream = "0.3"
+office_oxide = "=0.1.17"
+tempfile = "3"
+ironpress = { version = "=1.6.0", default-features = false }
+unicode-segmentation = "1.13"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+quick-xml = { version = "0.37", features = ["serialize"] }
+zip = "2"
+jsonwebtoken = "9.3"
+sha2 = "0.10"
+base64 = "0.22"
+regex = "1"
+object_store = { version = "0.12", features = ["aws"] }
+tokio-postgres = "0.7"

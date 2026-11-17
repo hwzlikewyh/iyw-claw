@@ -1,0 +1,17 @@
+{
+  "repository": "RainLib/OfficeCLI-rust",
+  "version": "0.1.31",
+  "commit": "7916bb354aaa9b25cb7c3d5270a6a2f441d84878",
+  "changes": [
+    "Capability-aware asset URLs",
+    "Host-driven reload and viewport restoration",
+    "Read-only embedded grid entry"
+  ],
+  "sources": {
+    "examples/hdoc/xlsx-univer-viewer/src/adapter.ts": "08d1ec562d7c1c50c8a271ec4887426ac89178c2b4b92894937e217985e2833e",
+    "examples/hdoc/xlsx-univer-viewer/src/hcd.ts": "50c3c56ba5dbe496368df351f896fed1a85c4a72b54d789c2ad9e95ecd822e2b",
+    "examples/hdoc/xlsx-univer-viewer/src/hcd-parser.ts": "8b7bed73901220cc4bbb843e7a95afd7a80c040732a83b96ffa13e37990d718e",
+    "examples/hdoc/lazy-viewer/viewer.js": "fe233b61e9497ea8d5f0a0b8467a257945cfef9d19784e9eff9dadb93192909d",
+    "LICENSE": "01ac3e9a41fbe85d8311b49ab0b5e124a41cfee921bb5caf98023707a9270ee2"
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "$schema": "../_schema.json",
+  "format": "docx",
+  "element": "picture",
+  "parent": "paragraph",
+  "operations": {
+    "add": true,
+    "set": true,
+    "get": true,
+    "query": true,
+    "remove": true
+  },
+  "paths": {
+    "positional": [
+      "/body/p[@paraId=X]/r[N]"
+    ]
+  },
+  "note": "Aliases: image, img. 'src' is required (alias 'path'). Image source resolved via ImageSource — accepts file path, URL, data-URI, or raw bytes. SVGs auto-generate a PNG fallback.",
+  "extends": [
+    "_shared/picture",
+    "_shared/picture.docx-pptx",
+    "_shared/picture.docx-xlsx"
+  ],
+  "properties": {
+    "anchor": {
+      "type": "bool",
+      "add": true,
+      "set": false,
+      "get": true,
+      "description": "true to create a floating (anchored) picture instead of inline. Required to enable wrap/hPosition/vPosition/hRelative/vRelative/behindText.",
+      "examples": [
+        "--prop anchor=true --prop wrap=square"
+      ],
+      "readback": "true on floating pictures",
+      "enforcement": "report"
+    },
+    "wrap": {
+      "type": "string",
+      "add": true,
+      "set": true,
+      "get": true,
+      "description": "text wrapping mode for floating picture (none, square, tight, topandbottom, through). For 'behind text', use wrap=none + behindText=true.",
+      "examples": [
+        "--prop wrap=square"
+      ],
+      "readback": "wrap token",
+      "enforcement": "report"
+    },
+    "behindText": {
+      "type": "bool",
+      "add": true,
+      "set": true,
+      "get": true,
+      "description": "true when the picture floats behind text (anchor @behindDoc=1).",
+      "readback": "true on behind-text floats",
+      "enforcement": "report"
+    },
+    "hPosition": {
+      "type": "length",
+      "add": true,
+      "set": true,
+      "get": true,
+      "description": "absolute horizontal anchor position in cm (positionH/posOffset).",
+      "examples": [
+        "--prop hPosition=3cm"
+      ],
+      "readback": "length in cm (e.g. `5.0cm`)",
+      "enforcement": "report"
+    },
+    "vPosition": {
+      "type": "length",
+      "add": true,
+      "set": true,
+      "get": true,
+      "description": "absolute vertical anchor position in cm (positionV/posOffset).",
+      "examples": [
+        "--prop vPosition=4cm"
+      ],
+      "readback": "length in cm (e.g. `4.0cm`)",
+      "enforcement": "report"
+    },
+    "hRelative": {
+      "type": "string",
+      "add": true,
+      "set": true,
+      "get": true,
+      "description": "horizontal anchor reference frame (e.g. page, margin, column, character).",
+      "readback": "OOXML positionH @relativeFrom token",
+      "enforcement": "report"
+    },
+    "vRelative": {
+      "type": "string",
+      "add": true,
+      "set": true,
+      "get": true,
+      "description": "vertical anchor reference frame (e.g. page, margin, paragraph, line).",
+      "readback": "OOXML positionV @relativeFrom token",
+      "enforcement": "report"
+    },
+    "width": {
+      "type": "length",
+      "description": "width — cm length (extent.Cy/Cx in EMU formatted to cm).",
+      "add": true,
+      "set": true,
+      "get": true,
+      "examples": [
+        "--prop width=5",
+        "--prop width=3in"
+      ],
+      "readback": "length string",
+      "enforcement": "report"
+    },
+    "height": {
+      "type": "length",
+      "description": "height — cm length (extent.Cy/Cx in EMU formatted to cm).",
+      "add": true,
+      "set": true,
+      "get": true,
+      "examples": [
+        "--prop height=5",
+        "--prop height=2in"
+      ],
+      "readback": "length string",
+      "enforcement": "report"
+    }
+  }
+}

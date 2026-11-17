@@ -1,0 +1,581 @@
+mod add;
+mod add_part;
+mod batch;
+mod config;
+mod convert;
+mod create;
+mod dump;
+mod extract_text;
+mod format_handler_session;
+mod get;
+pub(crate) mod hdoc;
+mod hdoc_raster_pdf;
+mod help;
+mod html_convert;
+mod import;
+mod info;
+mod install;
+mod load_skill;
+mod merge;
+mod move_element;
+mod plugin_process;
+mod plugins;
+mod query;
+mod raw;
+mod raw_set;
+mod refresh;
+mod remove;
+mod save;
+mod set;
+mod skills;
+mod swap;
+mod validate;
+mod view;
+mod watch_client;
+
+pub use watch_client::{default_id, get_json, post_json, resolve_port};
+
+pub use format_handler_session::FormatHandlerProxy;
+pub use plugin_process::resolve_format_handler;
+
+use clap::Args;
+use handler_common::{DocumentHandler, DocumentNode, HandlerError};
+
+/// Serialize read-only node results using the C# CLI's stable JSON contract.
+///
+/// `get`, `get selected`, and `query` deliberately share this shape so an
+/// automation can always read paths from `.data.results`, regardless of
+/// whether it requested one node or many.
+pub fn nodes_json_envelope(nodes: &[DocumentNode]) -> Result<String, HandlerError> {
+    Ok(json_data_envelope(
+        serde_json::json!({
+            "matches": nodes.len(),
+            "results": nodes,
+        }),
+        true,
+    ))
+}
+
+/// Wrap structured JSON using the C# CLI's top-level success contract.
+pub fn json_data_envelope(data: serde_json::Value, success: bool) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "success": success,
+        "data": data,
+    }))
+    .expect("JSON envelope contains only serializable values")
+}
+
+/// C# `WrapEnvelopeText` with optional Rust-only structured extensions.
+pub fn json_text_envelope(
+    message: &str,
+    extensions: serde_json::Map<String, serde_json::Value>,
+) -> String {
+    let mut envelope = serde_json::Map::new();
+    envelope.insert("success".to_string(), serde_json::Value::Bool(true));
+    envelope.insert(
+        "data".to_string(),
+        serde_json::Value::String(message.to_string()),
+    );
+    envelope.insert(
+        "message".to_string(),
+        serde_json::Value::String(message.to_string()),
+    );
+    envelope.extend(extensions);
+    serde_json::to_string_pretty(&serde_json::Value::Object(envelope))
+        .expect("JSON envelope contains only serializable values")
+}
+
+/// Add the C# success envelope to a command result unless it already has one.
+///
+/// Handlers may return structured JSON or a plain-text status. The latter uses
+/// `data` and `message`, matching C# `WrapEnvelopeText` for script stability.
+pub fn ensure_json_success_envelope(output: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(output) {
+        Ok(value)
+            if value
+                .get("success")
+                .and_then(serde_json::Value::as_bool)
+                .is_some() =>
+        {
+            output.to_string()
+        }
+        Ok(value) => json_data_envelope(value, true),
+        Err(_) => serde_json::to_string_pretty(&serde_json::json!({
+            "success": true,
+            "data": output,
+            "message": output,
+        }))
+        .expect("JSON envelope contains only serializable values"),
+    }
+}
+
+/// Format an unexpected command failure in the C# JSON error-envelope shape.
+pub fn json_error_envelope(error: &HandlerError) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "success": false,
+        "error": {
+            "error": error.to_string(),
+            "code": json_error_code(error),
+        },
+    }))
+    .expect("JSON envelope contains only serializable values")
+}
+
+/// Map Rust's typed failures onto the C# JSON error-code vocabulary. Keeping
+/// this enum-driven avoids classifying a localized or handler-specific message
+/// as an internal error merely because its wording changed.
+fn json_error_code(error: &HandlerError) -> &'static str {
+    match error {
+        HandlerError::PathNotFound(_) => "not_found",
+        HandlerError::InvalidPath(_) => "invalid_path",
+        HandlerError::InvalidArgument(_) => "invalid_value",
+        HandlerError::UnsupportedType(_) => "unsupported_type",
+        HandlerError::UnsupportedMode(_) => "unsupported_feature",
+        HandlerError::UnsupportedProperty(_) => "unsupported_property",
+        HandlerError::OpenError(_) => "corrupt_input",
+        HandlerError::SaveError(_) | HandlerError::IoError(_) => "io_error",
+        HandlerError::ValidationError(_) => "validation_error",
+        HandlerError::JsonError(_) | HandlerError::OperationFailed(_) => "internal_error",
+    }
+}
+
+/// Return the business outcome carried by an already rendered JSON envelope.
+pub fn json_envelope_succeeded(output: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(output)
+        .ok()
+        .and_then(|value| value.get("success").and_then(serde_json::Value::as_bool))
+        .unwrap_or(true)
+}
+
+/// Build a JSON value of the handler's current text+offset map.
+///
+/// Used by mutating commands (`set`, `add`, `batch`) to return the freshly
+/// re-extracted `TextOffsetMap` so callers can re-address elements after a
+/// range edit changed the underlying node structure.
+pub fn offset_map_value(handler: &dyn DocumentHandler) -> Option<serde_json::Value> {
+    handler
+        .extract_text_with_offsets()
+        .ok()
+        .and_then(|m| serde_json::to_value(m).ok())
+}
+
+pub use add::AddCommand;
+pub use add_part::AddPartCommand;
+pub use batch::BatchCommand;
+pub use config::{handle_config, ConfigCommand};
+pub use convert::{parse_engine, ConvertCommand};
+pub use create::CreateCommand;
+pub use dump::DumpCommand;
+pub use extract_text::ExtractTextCommand;
+pub use get::GetCommand;
+pub use hdoc::{handle_hdoc, HdocCommand};
+pub use help::HelpCommand;
+pub use import::ImportCommand;
+pub use info::InfoCommand;
+pub use install::InstallCommand;
+pub use load_skill::LoadSkillCommand;
+pub use merge::MergeCommand;
+pub use move_element::MoveCommand;
+pub use plugins::PluginsCommand;
+pub use query::QueryCommand;
+pub use raw::RawCommand;
+pub use raw_set::RawSetCommand;
+pub use refresh::RefreshCommand;
+pub use remove::RemoveCommand;
+pub use save::SaveCommand;
+pub use set::SetCommand;
+pub use skills::SkillsCommand;
+pub use swap::SwapCommand;
+pub use validate::ValidateCommand;
+pub use view::ViewCommand;
+
+// ─── Resident / Watch / MCP commands ───────────────────────────────────
+
+/// Open a document in resident mode (keeps handler in memory for fast subsequent commands)
+#[derive(Args)]
+pub struct OpenCommand {
+    /// Document file path
+    pub file: String,
+}
+
+/// Close a document in resident mode (stops the background server)
+#[derive(Args)]
+pub struct CloseCommand {
+    /// Document file path
+    pub file: String,
+}
+
+/// Start a live preview HTTP server for the document
+#[derive(Args)]
+pub struct WatchCommand {
+    /// Document file path
+    pub file: String,
+
+    /// Port to serve on (default: 26315)
+    #[arg(short, long)]
+    pub port: Option<u16>,
+
+    /// Unique ID for this document in shared port mode
+    #[arg(short, long)]
+    pub id: Option<String>,
+}
+
+/// Stop a running watch server for the document
+#[derive(Args)]
+pub struct UnwatchCommand {
+    /// Document file path
+    pub file: String,
+
+    /// Port the watch server is running on (default: 26315)
+    #[arg(short, long)]
+    pub port: Option<u16>,
+}
+
+/// Mark a document element with advisory properties (operates on running watch)
+#[derive(Args)]
+pub struct MarkCommand {
+    /// Document file path
+    pub file: String,
+
+    /// DOM path to the element to mark (e.g. /body/p[1])
+    pub path: String,
+
+    /// Mark property: find=..., color=..., note=..., tofix=..., regex=true
+    #[arg(long)]
+    pub prop: Option<Vec<String>>,
+
+    /// Port the watch server is running on (default: 26315)
+    #[arg(short, long)]
+    pub port: Option<u16>,
+
+    /// Document id registered with the watch server (default: file stem)
+    #[arg(short, long)]
+    pub id: Option<String>,
+}
+
+/// Remove marks from a document element (operates on running watch)
+#[derive(Args)]
+pub struct UnmarkCommand {
+    /// Document file path
+    pub file: String,
+
+    /// Element path to unmark
+    #[arg(long)]
+    pub path: Option<String>,
+
+    /// Remove all marks for this file
+    #[arg(long)]
+    pub all: bool,
+
+    /// Port the watch server is running on (default: 26315)
+    #[arg(short, long)]
+    pub port: Option<u16>,
+
+    /// Document id registered with the watch server (default: file stem)
+    #[arg(short, long)]
+    pub id: Option<String>,
+}
+
+/// List all marks on a document (operates on running watch)
+#[derive(Args)]
+pub struct MarksCommand {
+    /// Document file path
+    pub file: String,
+
+    /// Port the watch server is running on (default: 26315)
+    #[arg(short, long)]
+    pub port: Option<u16>,
+
+    /// Document id registered with the watch server (default: file stem)
+    #[arg(short, long)]
+    pub id: Option<String>,
+}
+
+/// Scroll the running watch viewer to an element (operates on running watch)
+#[derive(Args)]
+pub struct GotoCommand {
+    /// Document file path
+    pub file: String,
+
+    /// Element path to scroll to (e.g. /body/p[5])
+    pub path: String,
+
+    /// Port the watch server is running on (default: 26315)
+    #[arg(short, long)]
+    pub port: Option<u16>,
+
+    /// Document id registered with the watch server (default: file stem)
+    #[arg(short, long)]
+    pub id: Option<String>,
+}
+
+/// Internal: print the Unix socket path for a file's resident server
+#[derive(Args)]
+pub struct SocketPathCommand {
+    /// Document file path
+    pub file: String,
+}
+
+/// Start an MCP stdio server for AI agent integration
+#[derive(Args)]
+pub struct McpCommand {
+    /// `list`, a target name, or `uninstall <target>`; omit to start the stdio server.
+    #[arg(trailing_var_arg = true)]
+    pub args: Vec<String>,
+}
+
+#[derive(clap::Subcommand)]
+pub enum Command {
+    /// View document content (text, outline, annotated, html, svg)
+    View(ViewCommand),
+    /// Get a specific element by path (e.g. '/page[1]/text[1]', '/body/p[2]')
+    Get(GetCommand),
+    /// Query elements by type (paragraph, table, image, text-block, page)
+    Query(QueryCommand),
+    /// Set properties on a specific element (text, font, size, color, style)
+    Set(SetCommand),
+    /// Add a new element (paragraph, table, slide, image)
+    Add(AddCommand),
+    /// Create a new document part and return its relationship ID
+    AddPart(AddPartCommand),
+    /// Remove an element at a path
+    Remove(RemoveCommand),
+    /// Move an element to a new position
+    Move(MoveCommand),
+    /// Swap two elements in the document
+    Swap(SwapCommand),
+    /// Refresh derived fields (TOC, cross-references)
+    Refresh(RefreshCommand),
+    /// View raw XML/PDF content of a part
+    Raw(RawCommand),
+    /// Modify raw XML/PDF content
+    RawSet(RawSetCommand),
+    /// Validate document structure
+    Validate(ValidateCommand),
+    /// Save changes back to the file
+    Save(SaveCommand),
+    /// Extract text with offset→path mapping for AI agent positioning
+    ExtractText(ExtractTextCommand),
+    /// Create a blank document (docx, xlsx, pptx, pdf)
+    Create(CreateCommand),
+    /// Dump document structure to JSON
+    Dump(DumpCommand),
+    /// Convert legacy Office formats (.doc, .xls, .ppt) to modern (.docx, .xlsx, .pptx)
+    Convert(ConvertCommand),
+    /// Read or update OfficeCLI compatibility settings
+    Config(ConfigCommand),
+    /// Run commands from inline JSON, a file, or stdin
+    Batch(BatchCommand),
+    /// Show info about the tool or document topics
+    Info(InfoCommand),
+    /// Merge template placeholders with JSON data
+    Merge(MergeCommand),
+    /// Show schema-driven capability reference
+    Help(HelpCommand),
+    /// Import CSV/TSV data into an Excel sheet
+    Import(ImportCommand),
+    /// Convert supported documents to and from the chunked HTML Canonical Document format
+    Hdoc(HdocCommand),
+    /// Manage and inspect installed plugins
+    Plugins(PluginsCommand),
+    /// Install officecli binary, skills, and MCP configuration
+    Install(InstallCommand),
+    /// Read a bundled workflow skill without installing it
+    #[command(name = "load_skill")]
+    LoadSkill(LoadSkillCommand),
+    /// List and install agent skill definitions
+    Skills(SkillsCommand),
+    /// Open a document in resident mode (keeps handler in memory for fast subsequent commands)
+    Open(OpenCommand),
+    /// Close a document in resident mode (stops the background server)
+    Close(CloseCommand),
+    /// Start a live preview HTTP server for the document
+    Watch(WatchCommand),
+    /// Stop a running watch server for the document
+    Unwatch(UnwatchCommand),
+    /// Attach an advisory mark to a document element via the watch process
+    #[command(hide = true)]
+    Mark(MarkCommand),
+    /// Remove marks from the watch process
+    #[command(hide = true)]
+    Unmark(UnmarkCommand),
+    /// List all marks currently held by the watch process
+    #[command(hide = true)]
+    Marks(MarksCommand),
+    /// Scroll the running watch viewer to the given element
+    #[command(hide = true)]
+    Goto(GotoCommand),
+    /// Internal: print Unix socket path for a document's resident server
+    #[command(hide = true)]
+    _SocketPath(SocketPathCommand),
+    /// Start an MCP stdio server for AI agent integration
+    Mcp(McpCommand),
+}
+
+// Re-export handler functions
+pub use add::handle_add;
+pub use add_part::handle_add_part;
+pub use batch::handle_batch;
+pub use convert::handle_convert;
+pub use create::handle_create;
+pub use dump::handle_dump;
+pub use extract_text::handle_extract_text;
+pub use get::handle_get;
+pub use help::handle_help;
+pub use import::handle_import;
+pub use info::handle_info;
+pub use install::handle_install;
+pub use load_skill::handle_load_skill;
+pub use merge::handle_merge;
+pub use move_element::handle_move;
+pub use plugins::handle_plugins;
+pub use query::handle_query;
+pub use raw::handle_raw;
+pub use raw_set::handle_raw_set;
+pub use refresh::handle_refresh;
+pub use remove::handle_remove;
+pub use save::handle_save;
+pub use set::handle_set;
+pub use skills::handle_skills;
+pub use swap::handle_swap;
+pub use validate::handle_validate_with_status;
+pub use view::handle_view;
+
+// ─── Watch subcommand handlers (mark/unmark/marks/goto) ──────────────────
+
+/// Handle `mark` command — attach advisory mark to element via watch
+pub fn handle_mark(cmd: MarkCommand, json: bool) -> Result<String, HandlerError> {
+    let requested_path = cmd.path.clone();
+    let mut entry = serde_json::json!({ "path": requested_path });
+    if let Some(props) = &cmd.prop {
+        let mut find = None;
+        let mut color = None;
+        let mut note = None;
+        let mut tofix = None;
+        let mut regex = false;
+        for p in props {
+            if let Some(eq) = p.find('=') {
+                let key = &p[..eq];
+                let val = &p[eq + 1..];
+                match key.to_lowercase().as_str() {
+                    "find" => find = Some(val.to_string()),
+                    "color" => color = Some(val.to_string()),
+                    "note" => note = Some(val.to_string()),
+                    "tofix" => tofix = Some(val.to_string()),
+                    "regex" => regex = val.eq_ignore_ascii_case("true") || val == "1",
+                    _ => eprintln!("Warning: unknown property '{}' for mark, ignored. Known: find, color, note, tofix, regex.", key),
+                }
+            }
+        }
+        entry["find"] = serde_json::json!(find);
+        entry["color"] = serde_json::json!(color);
+        entry["note"] = serde_json::json!(note);
+        entry["tofix"] = serde_json::json!(tofix);
+        entry["regex"] = serde_json::json!(regex);
+    }
+    let port = resolve_port(cmd.port);
+    let id = cmd.id.clone().unwrap_or_else(|| default_id(&cmd.file));
+    let paths = if requested_path.eq_ignore_ascii_case("selected") {
+        get_json(port, &format!("/{id}/selection"))?
+            .get("paths")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| {
+                HandlerError::OperationFailed("invalid watch selection response".to_string())
+            })?
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        vec![requested_path.clone()]
+    };
+    if paths.is_empty() {
+        return Err(HandlerError::OperationFailed(
+            "no elements are currently selected".to_string(),
+        ));
+    }
+    let mut results = Vec::new();
+    for path in paths {
+        entry["path"] = serde_json::Value::String(path);
+        results.push(post_json(port, &format!("/{id}/mark"), &entry)?);
+    }
+    let result = results.last().cloned().unwrap_or_default();
+    if json {
+        Ok(serde_json::json!({"marked": results}).to_string())
+    } else {
+        let id = result.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let total = result
+            .get("total_marks")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        Ok(format!(
+            "Marked {} (id={}, {} marks total on this document)",
+            requested_path, id, total
+        ))
+    }
+}
+
+/// Handle `unmark` command — remove marks from elements
+pub fn handle_unmark(cmd: UnmarkCommand, json: bool) -> Result<String, HandlerError> {
+    if !cmd.all && cmd.path.is_none() {
+        return Err(HandlerError::InvalidArgument(
+            "Must specify either --path <p> or --all.".to_string(),
+        ));
+    }
+    if cmd.all && cmd.path.is_some() {
+        return Err(HandlerError::InvalidArgument(
+            "Specify either --path or --all, not both.".to_string(),
+        ));
+    }
+    let body = serde_json::json!({
+        "path": cmd.path,
+        "all": cmd.all,
+    });
+    let port = resolve_port(cmd.port);
+    let id = cmd.id.clone().unwrap_or_else(|| default_id(&cmd.file));
+    let result = post_json(port, &format!("/{}/unmark", id), &body)?;
+    let removed = result.get("removed").and_then(|v| v.as_u64()).unwrap_or(0);
+    if json {
+        Ok(result.to_string())
+    } else if cmd.all {
+        Ok(format!("Removed {} mark(s) (all)", removed))
+    } else {
+        Ok(format!(
+            "Removed {} mark(s) from {}",
+            removed,
+            cmd.path.as_deref().unwrap_or("")
+        ))
+    }
+}
+
+/// Handle `marks` command — list all marks
+pub fn handle_marks(cmd: MarksCommand, json: bool) -> Result<String, HandlerError> {
+    let port = resolve_port(cmd.port);
+    let id = cmd.id.clone().unwrap_or_else(|| default_id(&cmd.file));
+    let result = get_json(port, &format!("/{}/marks", id))?;
+    let marks = result
+        .get("marks")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    if json {
+        Ok(result.to_string())
+    } else if marks == 0 {
+        Ok(format!("No marks on {}", cmd.file))
+    } else {
+        Ok(format!("{} mark(s) on {}", marks, cmd.file))
+    }
+}
+
+/// Handle `goto` command — scroll watch viewer to element
+pub fn handle_goto(cmd: GotoCommand, json: bool) -> Result<String, HandlerError> {
+    let body = serde_json::json!({ "path": cmd.path });
+    let port = resolve_port(cmd.port);
+    let id = cmd.id.clone().unwrap_or_else(|| default_id(&cmd.file));
+    let result = post_json(port, &format!("/{}/goto", id), &body)?;
+    if json {
+        Ok(result.to_string())
+    } else {
+        Ok(format!("Scrolled to {}", cmd.path))
+    }
+}

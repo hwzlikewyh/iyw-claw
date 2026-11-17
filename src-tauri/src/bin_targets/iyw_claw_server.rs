@@ -32,6 +32,7 @@ fn configured_server_token() -> Option<String> {
 }
 
 fn main() -> ExitCode {
+    if iyw_claw_lib::office_embedded::dispatch_early() { return ExitCode::SUCCESS; }
     // Capture our own executable path before anything can rename it (an
     // in-place upgrade swaps the binary mid-run; `current_exe()` would then
     // resolve to a `" (deleted)"` path on Linux). Cheap, single-shot.

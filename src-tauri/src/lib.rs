@@ -19,6 +19,7 @@ pub mod logging;
 pub mod models;
 mod network;
 pub mod office_watch;
+pub mod office_embedded;
 pub mod parsers;
 pub mod paths;
 pub mod pet_sessions;
