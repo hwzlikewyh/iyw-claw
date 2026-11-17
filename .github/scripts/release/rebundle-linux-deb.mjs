@@ -3,6 +3,7 @@ import { chmodSync, closeSync, copyFileSync, cpSync, existsSync, mkdirSync, open
 import { join, resolve, sep } from "node:path"
 import { downloadReleaseFile, requireReleaseSource, sha256, uploadDraftFile } from "./github-assets.mjs"
 import { verifyMinisign } from "./verify-minisign.mjs"
+import { readDebControl } from "./linux-deb-control.mjs"
 
 const target = "aarch64-unknown-linux-gnu"
 const version = process.env.VERSION
@@ -37,7 +38,8 @@ async function restore() {
   }
   const deb = join(directory, name)
   await verify(deb)
-  const field = name => execFileSync("dpkg-deb", ["--field", deb, name], { encoding: "utf8" }).trim()
+  const control = readDebControl(deb)
+  const field = name => control.match(new RegExp(`^${name}:\\s*(.+)$`, "m"))?.[1].trim()
   if (field("Version") !== version || field("Architecture") !== "arm64") throw new Error("DEB platform or version mismatch")
   const extracted = join(directory, "extracted")
   execFileSync("dpkg-deb", ["--extract", deb, extracted], { stdio: "inherit" })
@@ -66,7 +68,11 @@ async function restore() {
 async function verifyContents(path, kind, directory) {
   const extracted = join(directory, `verified-${kind}`)
   mkdirSync(extracted, { recursive: true })
-  if (kind === "appimage") {
+  if (kind === "deb") {
+    execFileSync("dpkg-deb", ["--extract", path, extracted], { stdio: "inherit" })
+    const name = execFileSync("dpkg-deb", ["--field", path, "Package"], { encoding: "utf8" }).trim()
+    if (name !== "iyw-claw") throw new Error("invalid DEB package identity")
+  } else if (kind === "appimage") {
     chmodSync(path, 0o755)
     execFileSync(resolve(path), ["--appimage-extract"], { cwd: extracted, stdio: "ignore" })
   } else {
@@ -87,7 +93,7 @@ async function verifyContents(path, kind, directory) {
 async function publish() {
   requireReleaseSource(context)
   const root = join("src-tauri/target", target, "release/bundle")
-  for (const [kind, suffix] of [["appimage", "AppImage"], ["rpm", "rpm"]]) {
+  for (const [kind, suffix] of [["deb", "deb"], ["appimage", "AppImage"], ["rpm", "rpm"]]) {
     const files = readdirSync(join(root, kind)).filter(name => name.endsWith(`.${suffix}`))
     if (files.length !== 1) throw new Error(`expected one ${kind}`)
     const output = join(directory, `iyw-claw_${version}_arm64.${suffix}`)

@@ -55,6 +55,12 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
       - name: Restore verified application and resources from signed DEB
         run: node .release-workflow/.github/scripts/release/rebundle-linux-deb.mjs restore
+      - name: Bundle installable DEB without compiling
+        timeout-minutes: 15
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles deb --config src-tauri/tauri.ci.conf.json
       - name: Bundle primary AppImage without compiling
         timeout-minutes: 20
         env:
@@ -63,6 +69,9 @@ jobs:
         run: node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json
       - name: Bundle RPM using fast compression without compiling
         timeout-minutes: 20
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles rpm --config src-tauri/tauri.ci.conf.json
           rpm -qp --qf '%{NAME} %{VERSION} %{ARCH} %{PAYLOADCOMPRESSOR}\n' src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm
