@@ -6166,8 +6166,14 @@ fn is_max_output_tokens_error(error: &sacp::Error) -> bool {
             .as_ref()
             .and_then(serde_json::Value::as_str)
             .is_some_and(|detail| {
-                detail.starts_with("stream disconnected before completion:")
-                    && detail.contains("reason: max_output_tokens")
+                let detail = detail
+                    .strip_prefix("stream disconnected before completion:")
+                    .unwrap_or(detail)
+                    .trim();
+                detail
+                    .strip_prefix("Incomplete response returned, reason:")
+                    .and_then(|reason| reason.split_whitespace().next())
+                    == Some("max_output_tokens")
             })
 }
 
@@ -7090,7 +7096,7 @@ async fn run_conversation_loop<'a>(
                                         return Err(error);
                                     }
                                     let max_output_tokens = is_max_output_tokens_error(&error);
-                                    if max_output_tokens {
+                                    if max_output_tokens && !is_compaction {
                                         let recovery = {
                                             let snapshot = state.read().await;
                                             auto_continuation::evaluate_interrupted(
@@ -7098,6 +7104,7 @@ async fn run_conversation_loop<'a>(
                                                 "max_output_tokens",
                                                 output_probe.saw_agent_output(),
                                             )
+                                            .filter(|_| snapshot.turn_generation == prompt_generation)
                                             .and_then(|evidence| {
                                                 auto_continuation::next_attempt(&snapshot, evidence.evidence_kind)
                                                     .map(|attempt| (evidence, snapshot.turn_generation, attempt))
