@@ -54,6 +54,12 @@ pub(crate) async fn resolve_request_auth(
                     return Ok(resolved);
                 }
 
+                if let Some(resolved) =
+                    crate::auth::resolve_host_request_auth(&info, manager.as_ref()).await?
+                {
+                    return Ok(resolved);
+                }
+
                 if let Some(bearer) = bearer_auth_for_provider(&info)? {
                     let credential = bearer.token.as_deref().map(CodexAuth::from_api_key);
                     let mut resolved = ResolvedProviderAuth::new(Arc::new(bearer));
@@ -143,7 +149,11 @@ pub async fn resolve_request(
     http_client_factory: HttpClientFactory,
 ) -> Result<ResolvedProviderRequest> {
     let check_auth = provider.runtime_auth().is_none()
-        && crate::provider_uses_first_party_auth_path(provider.info());
+        && (crate::provider_uses_first_party_auth_path(provider.info())
+            || (crate::auth::is_managed_provider(provider.info())
+                && provider
+                    .auth_manager()
+                    .is_some_and(|manager| manager.has_external_auth())));
     crate::prepare_provider_request(provider, check_auth, |state| {
         let scope = scope.clone();
         let http_client_factory = http_client_factory.clone();
