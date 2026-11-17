@@ -4,6 +4,14 @@
 ; 保留普通权限引导以记录原用户和目录，随后通过 runas 提权安装。
 RequestExecutionLevel user
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
+
+; Tauri includes this file before it defines BUNDLEID; custom shortcut macros
+; need the same stable ID as the desktop process.
+!ifndef BUNDLEID
+  !define BUNDLEID "app.iywclaw"
+  !define IYW_CLAW_TEMP_BUNDLEID
+!endif
+
 Var IywClawRoot
 Var IywClawInstallRegistryKey
 Var IywClawElevated
@@ -13,6 +21,10 @@ Var IywClawPermissionError
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
 !include "${__FILEDIR__}\installer-test-mode.nsh"
 !include "${__FILEDIR__}\installer-desktop-shortcut.nsh"
+!ifdef IYW_CLAW_TEMP_BUNDLEID
+  !undef BUNDLEID
+  !undef IYW_CLAW_TEMP_BUNDLEID
+!endif
 !include "${__FILEDIR__}\installer-failure.nsh"
 !include "${__FILEDIR__}\installer-environment.nsh"
 !include "${__FILEDIR__}\installer-permissions.nsh"
