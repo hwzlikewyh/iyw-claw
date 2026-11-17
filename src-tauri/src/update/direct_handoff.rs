@@ -8,7 +8,7 @@ const CAPABILITY_TIMEOUT: Duration = Duration::from_secs(15);
 const HANDOFF_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const HANDOFF_POLL: Duration = Duration::from_millis(250);
 
-async fn verify_capability(path: &Path) -> Result<(), String> {
+async fn verify_capability(path: &Path, update: &Update) -> Result<(), String> {
     let output = tokio::time::timeout(
         CAPABILITY_TIMEOUT,
         crate::process::tokio_command(path)
@@ -21,13 +21,24 @@ async fn verify_capability(path: &Path) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     let value: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|_| "Installer does not support direct payload deployment")?;
-    if !output.status.success()
-        || value["protocol"] != 2
-        || value["payload"] != "app_payload_zip"
-        || value["target"] != "windows"
-        || value["arch"] != "x86_64"
-    {
+    if !output.status.success() || value["protocol"] != 2 {
         return Err("Installer protocol mismatch".into());
+    }
+    let supported = if super::direct_payload::selected(update) {
+        value["payload"] == "app_payload_zip"
+            && value["target"] == "windows"
+            && value["arch"] == "x86_64"
+    } else {
+        let (target, arch) = super::direct_payload::platform();
+        let platform = format!("{target}/{arch}");
+        value["nsis_targets"].as_array().is_some_and(|targets| {
+            targets
+                .iter()
+                .any(|v| v.as_str() == Some(platform.as_str()))
+        })
+    };
+    if !supported {
+        return Err("Installer does not support this update package and platform".into());
     }
     Ok(())
 }
@@ -69,6 +80,11 @@ fn arguments(command: &mut Command, task: &Task, update: &Update) -> Result<(), 
     let root = crate::desktop_bootstrap::resolve_install_root(&current)
         .ok_or("Installed app root is unavailable")?;
     let ext = release::extensions(update).map_err(|e| e.to_string())?;
+    let package_kind = if super::direct_payload::selected(update) {
+        "app_payload_zip"
+    } else {
+        "nsis"
+    };
     command
         .arg("--update-install-dir")
         .arg(root)
@@ -82,7 +98,7 @@ fn arguments(command: &mut Command, task: &Task, update: &Update) -> Result<(), 
             "--update-signature",
             &update.signature,
             "--update-package-kind",
-            "app_payload_zip",
+            package_kind,
             "--update-channel",
             "stable",
         ])
@@ -98,19 +114,26 @@ fn arguments(command: &mut Command, task: &Task, update: &Update) -> Result<(), 
 async fn wait_ready(child: &mut Child, ready: &Path) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + HANDOFF_TIMEOUT;
     while tokio::time::Instant::now() < deadline {
-        if child.try_wait().map_err(|e| e.to_string())?.is_some() {
-            return Err("Installer exited before accepting the update".into());
-        }
         if tokio::fs::metadata(ready)
             .await
-            .is_ok_and(|m| m.len() < 4096)
+            .is_ok_and(|m| m.len() < 64 * 1024)
         {
             if let Ok(bytes) = tokio::fs::read(ready).await {
                 let value = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or_default();
+                if value["protocol"] == 2
+                    && value["error_pid"].as_u64() == child.id().map(u64::from)
+                {
+                    if let Some(error) = value["error"].as_str() {
+                        return Err(error.into());
+                    }
+                }
                 if value["protocol"] == 2 && value["pid"].as_u64() == child.id().map(u64::from) {
                     return Ok(());
                 }
             }
+        }
+        if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+            return Err("Installer exited before accepting the update".into());
         }
         tokio::time::sleep(HANDOFF_POLL).await;
     }
@@ -119,7 +142,7 @@ async fn wait_ready(child: &mut Child, ready: &Path) -> Result<(), String> {
 
 pub(super) async fn launch(task: &Task, update: &Update, silent: bool) -> Result<(), String> {
     let installer = direct_installer::prepare(task, update).await?;
-    verify_capability(&installer.path).await?;
+    verify_capability(&installer.path, update).await?;
     recheck(task, update, silent).await?;
     let directory = tempfile::Builder::new()
         .prefix("iyw-update-handoff-")

@@ -4,12 +4,13 @@ import { execFileSync } from "node:child_process"
 import { packageWindowsPayload } from "../../../src-tauri/scripts/windows-payload.mjs"
 import { uploadDraftFile } from "./github-assets.mjs"
 
-export async function publishBootstrapper({ root, version, context }) {
+export async function publishBootstrapper({ root, version, context, platform = "x64" }) {
   const installer = process.env.IYW_UNIFIED_INSTALLER
   if (!installer) throw new Error("verified standalone installer is required")
   const assets = join(process.env.RUNNER_TEMP, `standalone-installer-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`)
   mkdirSync(assets, { recursive: true })
-  const file = join(assets, `iyw-claw_${version}_x64-bootstrapper.exe`)
+  if (!["x64", "win7-x64", "win7-x86"].includes(platform)) throw new Error("unsupported installer release platform")
+  const file = join(assets, `iyw-claw_${version}_${platform}-bootstrapper.exe`)
   copyFileSync(installer, file)
   execFileSync(process.execPath, [join(root, "node_modules/@tauri-apps/cli/tauri.js"), "signer", "sign", file], { stdio: "inherit", windowsHide: true })
   await uploadDraftFile(context, file)

@@ -30,4 +30,7 @@ try{
     $info=$child.StandardOutput.ReadToEnd() | ConvertFrom-Json
 }finally{$child.Dispose()}
 if($info.protocol -ne 2 -or $info.payload -ne 'app_payload_zip' -or $info.target -ne 'windows' -or $info.arch -ne 'x86_64'){throw 'Installer lacks direct deployment support'}
+foreach($target in @('windows7/x86_64','windows7/i686')) {
+    if($target -notin $info.nsis_targets){throw "Installer lacks unified update support: $target"}
+}
 "IYW_UNIFIED_INSTALLER=$file" >> $env:GITHUB_ENV
