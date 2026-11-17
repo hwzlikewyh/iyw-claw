@@ -49,16 +49,8 @@ async function verifySourceLog(input, jobId) {
     ? response.data
     : Buffer.from(response.data).toString("utf8")
   const context = `[release-context] ${input.tag} source=${input.sourceRef} draft=${input.releaseId}`
-  if (input.rebundled) {
-    const version = input.tag.slice(1)
-    if (!log.includes(`[rebundle] verified existing application; sha256=`)
-      || !log.includes(`; source=${input.sourceRef}`)
-      || !log.includes(`VERSION: ${version}`)
-      || !log.includes(`RELEASE_ID: ${input.releaseId}`)
-      || !log.includes('Verify bundles and publish to the original draft'))
-      throw new Error(`Rebundle job ${jobId} does not verify the expected signed release inputs`)
-    return
-  }
+  if (input.rebundled && !log.includes('[rebundle] verified existing application; sha256='))
+    throw new Error(`Rebundle job ${jobId} does not verify the signed input payload`)
   if (!log.includes(context))
     throw new Error(`Repair job ${jobId} does not verify the expected release source`)
 }
@@ -95,7 +87,8 @@ module.exports = async function verifiedRepairJobs(input) {
       selected = linuxJobs(runId, jobs)
     else if (run.path === ".github/workflows/rebundle-linux-arm64.yml") {
       const build = jobs.find((job) => job.name === "bundle")
-      if (build?.conclusion !== "success") throw new Error(`Linux rebundle ${runId} has not passed`)
+      const verified = build?.steps?.some((step) => step.name === "Verify bundles and publish to the original draft" && step.conclusion === "success")
+      if (build?.conclusion !== "success" || !verified) throw new Error(`Linux rebundle ${runId} has not passed`)
       selected = { build, names: ["build-tauri / Build Linux arm64"], rebundled: true }
     }
     else throw new Error(`Unexpected repair workflow for ${id}`)
