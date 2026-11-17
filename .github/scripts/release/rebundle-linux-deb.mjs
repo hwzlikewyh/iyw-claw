@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { chmodSync, closeSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { join, resolve, sep } from "node:path"
 import { downloadReleaseFile, requireReleaseSource, sha256, uploadDraftFile } from "./github-assets.mjs"
 import { verifyMinisign } from "./verify-minisign.mjs"
@@ -77,13 +77,9 @@ async function verifyContents(path, kind, directory) {
     chmodSync(path, 0o755)
     execFileSync(resolve(path), ["--appimage-extract"], { cwd: extracted, stdio: "ignore" })
   } else {
-    const archive = join(extracted, "payload.cpio")
-    const output = openSync(archive, "w")
-    try { execFileSync("rpm2cpio", [path], { stdio: ["ignore", output, "inherit"] }) }
-    finally { closeSync(output) }
-    const input = openSync(archive, "r")
-    try { execFileSync("cpio", ["-id", "--quiet"], { cwd: extracted, stdio: [input, "ignore", "inherit"] }) }
-    finally { closeSync(input) }
+    // 用发行版自己的 rpm 实际安装到隔离根目录，保留包摘要和负载检查。
+    execFileSync("sudo", ["rpm", "--root", extracted, "--initdb"], { stdio: "inherit" })
+    execFileSync("sudo", ["rpm", "--root", extracted, "--install", "--nodeps", "--noscripts", path], { stdio: "inherit" })
   }
   const binary = kind === "appimage" ? join(extracted, "squashfs-root/usr/bin/iyw-claw") : join(extracted, "usr/bin/iyw-claw")
   // Tauri 写入包类型标记、linuxdeploy 改写 RPATH，验证代码段可排除这些正常打包变动。
