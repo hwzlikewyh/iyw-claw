@@ -1,20 +1,16 @@
 "use client"
 
-import { FileSearch } from "lucide-react"
+import { BookOpenText, FileSearch } from "lucide-react"
 import type { UserResourceDisplay } from "@/lib/adapters/ai-elements-adapter"
+import { knowledgeSourceKind } from "@/lib/knowledge-source-display"
+import { cn } from "@/lib/utils"
 
 interface UserResourceLinksProps {
   resources: UserResourceDisplay[]
   className?: string
 }
 
-/**
- * The attachment summary row shown beneath a user message: one grey chip per
- * attached file. This is the original (pre-rich-composer) attachment style — a
- * plain, non-interactive list that complements the inline file badges now kept
- * in the message prose (markdown-link → ReferenceBadge). Images are handled
- * separately as thumbnails.
- */
+/** 用户消息的附件块；知识库引用只显示来源名称，内部地址保留在消息数据中。 */
 export function UserResourceLinks({
   resources,
   className,
@@ -23,16 +19,30 @@ export function UserResourceLinks({
 
   return (
     <div className={className}>
-      <div className="flex flex-wrap gap-1.5">
-        {resources.map((resource, index) => (
-          <div
-            key={`${resource.uri}-${index}`}
-            className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 py-1 text-xs text-muted-foreground"
-          >
-            <FileSearch className="h-3 w-3" />
-            <span className="max-w-56 truncate">{resource.name}</span>
-          </div>
-        ))}
+      <div className="flex max-w-full flex-wrap gap-1.5">
+        {resources.map((resource, index) => {
+          const knowledge = knowledgeSourceKind(resource.uri) !== null
+          const Icon = knowledge ? BookOpenText : FileSearch
+          return (
+            <div
+              key={`${resource.uri}-${index}`}
+              data-knowledge-reference={knowledge || undefined}
+              title={resource.name}
+              className={cn(
+                "inline-flex min-w-0 max-w-full items-center gap-1 border px-2 py-1 text-xs",
+                knowledge
+                  ? "gap-1.5 rounded-md border-violet-500/25 bg-violet-500/10 font-medium text-violet-700 dark:text-violet-300"
+                  : "rounded-full border-border/70 bg-muted/40 text-muted-foreground"
+              )}
+            >
+              <Icon
+                aria-hidden="true"
+                className={cn("shrink-0", knowledge ? "size-3.5" : "size-3")}
+              />
+              <span className="max-w-56 truncate">{resource.name}</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
