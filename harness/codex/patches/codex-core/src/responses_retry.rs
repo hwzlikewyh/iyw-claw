@@ -51,9 +51,16 @@ pub(crate) fn is_retryable_response_error(provider_name: &str, err: &CodexErr) -
 }
 
 fn is_output_limit_stream_error(err: &CodexErr) -> bool {
-    matches!(err.details(), CodexErrorDetails::Stream(detail) if detail
-        .to_ascii_lowercase()
-        .contains("max_output_tokens"))
+    match err.details() {
+        CodexErrorDetails::ResponseIncomplete(error) => error.reason == "max_output_tokens",
+        CodexErrorDetails::Stream(detail) => {
+            detail
+                .strip_prefix("Incomplete response returned, reason:")
+                .and_then(|reason| reason.split_whitespace().next())
+                == Some("max_output_tokens")
+        }
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
