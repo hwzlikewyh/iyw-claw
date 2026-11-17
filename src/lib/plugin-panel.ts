@@ -1,5 +1,7 @@
 import { getTransport } from "@/lib/transport"
 import type { PluginAppOpenResponse } from "@/lib/api"
+import { draftPluginTab } from "./plugin-draft-context"
+import { useTabStore } from "@/stores/tab-store"
 
 export const OPENFILM_STUDIO_APP_KEY = "iyw-openfilm-studio"
 const OPENFILM_STUDIO_TIMEOUT_MS = 75_000
@@ -39,6 +41,10 @@ export function isPluginPanelVisibleForConversation(
   conversationId: number | null
 ) {
   return (
+    (tab.conversationId != null &&
+      tab.conversationId < 0 &&
+      draftPluginTab(tab.conversationId) ===
+        useTabStore.getState().activeTabId) ||
     tab.conversationId === conversationId ||
     (tab.kind === "studio-url" && tab.conversationId === null)
   )

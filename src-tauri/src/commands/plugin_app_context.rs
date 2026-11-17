@@ -26,6 +26,15 @@ pub(super) async fn conversation_workspace(
     db: &crate::db::AppDatabase,
     conversation_id: i64,
 ) -> Result<PluginAppWorkspace, AppCommandError> {
+    if conversation_id < 0 {
+        let draft = super::draft_workspace(&db.conn, conversation_id).await?;
+        let path = draft.directory.to_string_lossy();
+        return Ok(PluginAppWorkspace {
+            agent_type: draft.agent,
+            workspace_key: crate::commands::skill_inventory::workspace_key(Some(&path)),
+            workspace_dir: draft.directory,
+        });
+    }
     let id = i32::try_from(conversation_id)
         .ok()
         .filter(|id| *id > 0)

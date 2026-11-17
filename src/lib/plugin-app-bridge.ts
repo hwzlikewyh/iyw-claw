@@ -62,6 +62,7 @@ export class PluginAppBridge {
   private readonly onFailure?: () => void
   private port: MessagePort | null = null
   private initialized = false
+  hasReceivedMessage = false
   private active = true
   private teardown = createPluginAppTeardown((message) => this.send(message))
 
@@ -134,6 +135,7 @@ export class PluginAppBridge {
       return
     const request = parseMessage(value)
     if (!request) return
+    this.hasReceivedMessage = true
     try {
       const response = await this.onMessage(request)
       if (!this.active) return

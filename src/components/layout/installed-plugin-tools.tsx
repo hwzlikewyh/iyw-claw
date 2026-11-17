@@ -7,11 +7,7 @@ import { useComposerPlugins } from "@/components/chat/use-composer-plugins"
 import { useComposerPluginSelection } from "@/components/chat/use-composer-plugin-selection"
 import { Button } from "@/components/ui/button"
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
-import { deferComposerPlugin } from "@/lib/plugin-composer-context"
-import {
-  OPENFILM_STUDIO_APP_KEY,
-  type PluginPanelChoice,
-} from "@/lib/plugin-panel"
+import type { PluginPanelChoice } from "@/lib/plugin-panel"
 import type { usePluginPanels } from "./use-plugin-panels"
 import { PluginIcon } from "./plugin-icon"
 import { usePluginPresentation } from "./plugin-presentation"
@@ -59,7 +55,6 @@ function PluginToolsList({
   selection: ReturnType<typeof useComposerPluginSelection>
 }) {
   const t = useTranslations("PluginPanels")
-  const route = useWorkbenchRoute()
   const metadata = usePluginPresentation()
   const tools = panels.loading || panels.catalogError ? [] : catalog.choices
   const choices = pluginRows(panels.choices, tools)
@@ -87,11 +82,7 @@ function PluginToolsList({
             key={row.key}
             row={row}
             busy={selection.busy || panels.busy}
-            canOpen={
-              !!row.app &&
-              (panels.conversationId !== null ||
-                row.app.appKey === OPENFILM_STUDIO_APP_KEY)
-            }
+            canOpen={!!row.app}
             opening={
               (row.app &&
                 panels.openingApp?.app.appKey === row.app.appKey &&
@@ -99,16 +90,7 @@ function PluginToolsList({
               (Boolean(row.tool) && selection.busy)
             }
             onSelect={() => {
-              if (
-                row.app &&
-                panels.conversationId === null &&
-                row.app.appKey !== OPENFILM_STUDIO_APP_KEY
-              ) {
-                const activeTabId = useTabStore.getState().activeTabId
-                if (!activeTabId) return
-                deferComposerPlugin(activeTabId, row.app)
-                route.openConversations()
-              } else if (row.app) {
+              if (row.app) {
                 void panels.open(row.app)
               } else if (row.tool) void selection.select(row.tool)
             }}

@@ -5,6 +5,7 @@ import { readPluginPanels } from "@/lib/plugin-panel"
 import { requestPluginApplicationOpen } from "@/lib/plugin-preparation-events"
 import { onNewConversationOpened } from "@/stores/tab-store"
 import type { PluginPanelTab } from "./use-plugin-panel-tabs"
+import { draftPluginTab } from "@/lib/plugin-draft-context"
 
 export function usePluginPanelRetry(input: {
   tabs: PluginPanelTab[]
@@ -22,15 +23,16 @@ export function usePluginPanelRetry(input: {
   }, [])
   return async (id: string) => {
     const tab = input.tabs.find((item) => item.id === id)
-    if (!tab || tab.kind !== "mcp-app" || running.current) return
+    if (!tab || running.current) return
     running.current = true
     const scope = watchRetryScope(tab, input.transport, alive)
     const current = scope.current
     try {
       if (!current() || !(await input.close(id))) return
-      await input.transport.call("plugin_app_teardown", {
-        request: { instanceId: id, conversationId: tab.conversationId },
-      })
+      if (tab.kind === "mcp-app")
+        await input.transport.call("plugin_app_teardown", {
+          request: { instanceId: id, conversationId: tab.conversationId },
+        })
       if (!current()) return
       const catalog = await readPluginPanels(
         tab.conversationId,
@@ -42,11 +44,10 @@ export function usePluginPanelRetry(input: {
           item.pluginSlug === tab.pluginSlug && item.appKey === tab.appKey
       )
       if (!app || !requestPluginApplicationOpen(app))
-        throw Error("Plugin application is no longer available")
+        throw Error("插件应用已不可用，请刷新插件列表后重试")
     } catch (cause) {
       if (current()) {
         input.onError(String(cause))
-        throw cause
       }
     } finally {
       scope.dispose()
@@ -71,7 +72,13 @@ function watchRetryScope(
       store.activeTabId === tabId &&
       store.tabs.some(
         (item) =>
-          item.id === tabId && item.conversationId === tab.conversationId
+          (item.id === tabId &&
+            (item.conversationId === tab.conversationId ||
+              (tab.kind === "studio-url" && tab.conversationId === null))) ||
+          (item.id === tabId &&
+            tab.conversationId != null &&
+            tab.conversationId < 0 &&
+            draftPluginTab(tab.conversationId) === tabId)
       )
     )
   }

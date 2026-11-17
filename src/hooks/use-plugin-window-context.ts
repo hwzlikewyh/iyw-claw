@@ -10,6 +10,7 @@ import type {
   SessionConfigOptionInfo,
 } from "@/lib/types"
 import { isModelConfigOption } from "@/lib/model-config-groups"
+import { draftPluginContext } from "@/lib/plugin-draft-context"
 
 type WindowInput = {
   tabId: string
@@ -21,7 +22,9 @@ type WindowInput = {
 }
 
 function windowSnapshot(value: WindowInput) {
-  if (value.conversationId == null) return null
+  const conversationId =
+    value.conversationId ?? draftPluginContext(value.tabId)?.id
+  if (conversationId == null) return null
   const option = value.options.find(isModelConfigOption)
   const id =
     value.modelId ||
@@ -31,7 +34,7 @@ function windowSnapshot(value: WindowInput) {
       ? option.kind.options.find((entry) => entry.value === id)?.name
       : ""
   return {
-    conversationId: value.conversationId,
+    conversationId,
     agentLabel: getAgentDisplayName(value.agentType),
     modelId: id || "",
     modelName: name || "",

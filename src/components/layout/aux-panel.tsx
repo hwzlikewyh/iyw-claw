@@ -86,6 +86,7 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
               refresh={panels.updates.refresh}
               moving={panels.detachingId === tab.id}
               onClose={() => panels.close(tab.id)}
+              onRetry={() => panels.retry(tab.id)}
               onOpenComplete={() => panels.finishOpening(tab)}
             />
           )
@@ -99,6 +100,7 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
                 refresh={panels.updates.refresh}
                 moving={panels.detachingId === tab.id}
                 onClose={() => panels.close(tab.id)}
+                onRetry={() => panels.retry(tab.id)}
                 onOpenComplete={() => panels.finishOpening(tab)}
               />
             </div>
@@ -106,7 +108,9 @@ function AuxWorkspace({ railSlot }: { railSlot: HTMLElement | null }) {
         })}
       </aside>
       {mainPluginHost &&
-      panels.openingApp?.conversationId === panels.conversationId
+      !activeApp &&
+      panels.openingApp?.tabId === panels.tabId &&
+      panels.openingApp != null
         ? createPortal(
             <div
               className="pointer-events-auto absolute inset-0 z-[90] flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground"

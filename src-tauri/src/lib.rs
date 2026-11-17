@@ -1683,6 +1683,7 @@ mod tauri_app {
                 plugin_apps_commands::plugin_app_catalog,
                 plugin_apps_commands::plugin_app_sync,
                 plugin_apps_commands::plugin_app_launch,
+                plugin_apps_commands::plugin_app_draft,
                 plugin_apps_commands::plugin_openfilm_studio,
                 plugin_apps_commands::plugin_app_message,
                 plugin_apps_commands::plugin_app_teardown,

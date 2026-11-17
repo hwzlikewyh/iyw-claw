@@ -1,5 +1,6 @@
 import { useTabStore } from "@/stores/tab-store"
 import { getTransport } from "./transport"
+import { prepareDraftPluginContext } from "./plugin-draft-context"
 import {
   changePluginPreparation,
   readPluginPreparation,
@@ -25,10 +26,13 @@ export async function preparePluginUse(
   plugin: { id: string; version: string; label: string },
   context: PluginUseContext
 ) {
-  const conversationId = useTabStore
+  const tab = useTabStore
     .getState()
-    .tabs.find((tab) => tab.id === context.tabId)?.conversationId
-  if (conversationId == null || !context.current()) return null
+    .tabs.find((tab) => tab.id === context.tabId)
+  if (!tab || !context.current()) return null
+  const conversationId =
+    tab.conversationId ?? (await prepareDraftPluginContext(context.tabId))
+  if (!context.current()) return null
   let view = await readPluginPreparation(
     { marketSkillId: plugin.id, conversationId },
     context.transport

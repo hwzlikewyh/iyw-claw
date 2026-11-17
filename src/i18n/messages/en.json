@@ -194,6 +194,7 @@
     "open": "Open",
     "openUnavailable": "This plugin app cannot be opened right now.",
     "opening": "Opening",
+    "retry": "Reopen",
     "openingApp": "Opening {name}…",
     "pluginOpening": "Opening {name}…",
     "startupFailed": "{name} failed to start. Close it and try again.",

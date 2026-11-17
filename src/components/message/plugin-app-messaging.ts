@@ -114,7 +114,7 @@ async function routeMessage(
   }
   if (
     context.message.method === "ui/message" &&
-    usesCurrentPluginWindow(context)
+    (usesCurrentPluginWindow(context) || context.launch.conversationId < 0)
   ) {
     const window = currentPluginWindow(context)
     const authorized = await authorizeMessage({

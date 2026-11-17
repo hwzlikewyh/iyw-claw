@@ -1427,6 +1427,7 @@ pub fn build_router(
         .route("/plugin_app_catalog",post(handlers::plugin_apps::catalog))
         .route("/plugin_app_sync",post(handlers::plugin_apps::sync))
         .route("/plugin_app_launch",post(handlers::plugin_apps::launch))
+        .route("/plugin_app_draft",post(handlers::plugin_apps::draft))
         .route(
             "/plugin_openfilm_studio",
             post(handlers::plugin_apps::open_studio),

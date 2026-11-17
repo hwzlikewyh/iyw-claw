@@ -8,12 +8,14 @@ import { readPluginPanels } from "./plugin-panel"
 import type { PluginPanelChoice } from "./plugin-panel"
 import { requestPluginApplicationOpen } from "./plugin-preparation-events"
 import { getTransport } from "./transport"
+import { bindDraftPluginContext } from "./plugin-draft-context"
 
 // 只有首次发送创建了真实对话后，才准备草稿中选择的插件。
 export async function prepareDeferredPluginForSend(
   tabId: string,
   selected: PluginPanelChoice | undefined
 ) {
+  await bindDraftPluginContext(tabId)
   if (!selected) return
   const transport = getTransport()
   const conversationId = useTabStore
