@@ -1,0 +1,112 @@
+import { BooleanNumber, createUniver, defaultTheme, LocaleType } from "@univerjs/presets"
+import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core"
+import { UniverSheetsDrawingPreset } from "@univerjs/preset-sheets-drawing"
+import messages from "@univerjs/preset-sheets-core/locales/en-US"
+import chineseMessages from "@univerjs/preset-sheets-core/locales/zh-CN"
+import "@univerjs/preset-sheets-core/lib/index.css"
+import "@univerjs/preset-sheets-drawing/lib/index.css"
+import { HcdBundleClient } from "./hcd.ts"
+import { HcdUniverAdapter } from "./adapter.ts"
+import { parseStyleCatalog } from "./hcd-parser.ts"
+
+declare global {
+  interface Window {
+    officeLoad: (base: string) => Promise<void>
+    officeUrl: (value: string | URL) => URL
+    officeGrid?: HcdUniverAdapter
+  }
+}
+
+let dispose: (() => void) | undefined
+let adapter: HcdUniverAdapter | undefined
+let loading = false
+const chinese = (new URLSearchParams(location.search).get("locale") || "").startsWith("zh")
+const locale = chinese ? LocaleType.ZH_CN : LocaleType.EN_US
+
+window.officeLoad = async function (base: string) {
+  if (loading) return
+  loading = true
+  const previous = adapter?.workbook.getActiveSheet()
+  const sheetId = previous?.getSheetId()
+  const position = previous?.getVisibleRange()
+  try {
+    await openGrid(base, sheetId, position)
+  } finally {
+    loading = false
+  }
+}
+
+async function openGrid(base: string, sheetId?: string, position?: { startRow: number; startColumn: number }) {
+  const client = new HcdBundleClient(base)
+  await client.open()
+  const styles = parseStyleCatalog(await client.readStyles())
+  const sheets = client.sheets()
+  if (!sheets.length) throw new Error("No worksheets in this document")
+  const data = sheetData(client)
+  dispose?.()
+  adapter = undefined
+  const instance = createGrid()
+  dispose = () => instance.univer.dispose()
+  const workbook = instance.univerAPI.createWorkbook({
+    id: client.manifest.documentId, name: "Document", appVersion: "0.25.1",
+    locale, styles, sheetOrder: sheets.map((s) => s.sheetId), sheets: data,
+  })
+  await steady(instance.univerAPI)
+  adapter = new HcdUniverAdapter(client, instance.univerAPI, workbook, "readonly", () => {}, styles)
+  await adapter.start()
+  if (sheetId && workbook.getSheetBySheetId(sheetId)) {
+    const sheet = workbook.getSheetBySheetId(sheetId)!
+    workbook.setActiveSheet(sheet)
+    if (position) {
+      sheet.scrollToCell(position.startRow, position.startColumn)
+      await adapter.loadRange(sheetId, position.startRow, position.startRow + 128)
+    }
+  }
+  window.officeGrid = adapter
+}
+
+function sheetData(client: HcdBundleClient) {
+  return Object.fromEntries(client.sheets().map((sheet) => {
+    const descriptors = client.descriptors.filter(({ grid }) => grid?.sheetId === sheet.sheetId)
+    const defaults = client.sheetDefaults(sheet.sheetId)
+    return [sheet.sheetId, {
+      id: sheet.sheetId, name: sheet.sheetName,
+      hidden: sheet.sheetState === "visible" ? BooleanNumber.FALSE : BooleanNumber.TRUE,
+      rowCount: Math.min(1_048_576, Math.max(1000, ...descriptors.map(({ grid }) => grid?.rowEnd ?? 1))),
+      columnCount: Math.min(16_384, Math.max(26, ...descriptors.map(({ grid }) => grid?.columnEnd ?? 1))),
+      defaultColumnWidth: defaults.columnWidth, defaultRowHeight: defaults.rowHeight,
+      freeze: { xSplit: 0, ySplit: 0, startRow: 0, startColumn: 0 },
+      cellData: {}, rowData: {}, columnData: {}, mergeData: [],
+      showGridlines: BooleanNumber.TRUE, rightToLeft: BooleanNumber.FALSE,
+    }]
+  }))
+}
+
+function createGrid() {
+  return createUniver({
+    locale, locales: { [locale]: chinese ? chineseMessages : messages }, theme: defaultTheme,
+    presets: [UniverSheetsCorePreset({
+      container: "app", header: false, toolbar: false, formulaBar: false,
+      contextMenu: false, footer: {
+        sheetBar: true, statisticBar: false, menus: false, zoomSlider: true,
+        addSheetButtonConfig: { show: false },
+      },
+    }), UniverSheetsDrawingPreset()],
+  })
+}
+
+async function steady(api: ReturnType<typeof createUniver>["univerAPI"]) {
+  const target = api.Enum.LifecycleStages.Steady
+  if (api.getCurrentLifecycleStage() >= target) return
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { listener.dispose(); reject(new Error("Worksheet initialization timed out")) }, 10000)
+    const listener = api.addEvent(api.Event.LifeCycleChanged, ({ stage }) => {
+      if (stage !== target) return
+      clearTimeout(timer)
+      listener.dispose()
+      resolve()
+    })
+  })
+}
+
+window.addEventListener("pagehide", () => dispose?.(), { once: true })

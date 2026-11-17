@@ -92,7 +92,7 @@ function DetectionCard({
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold">OfficeCLI</h3>
+            <h3 className="text-sm font-semibold">OfficeCLI-rust</h3>
             {detecting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             ) : healthy ? (
@@ -128,9 +128,6 @@ function DetectionCard({
           {installed && info && (
             <div className="text-[11px] text-muted-foreground mt-1 space-x-3">
               {info.version && <span>{info.version}</span>}
-              {info.path && (
-                <code className="font-mono text-[10px]">{info.path}</code>
-              )}
             </div>
           )}
           {installed && runtimeError && (

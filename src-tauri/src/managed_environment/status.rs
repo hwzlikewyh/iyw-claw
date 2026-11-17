@@ -43,6 +43,7 @@ pub fn init_status_report() -> ManagedEnvironmentStatusReport {
             value
                 .components
                 .iter()
+                .filter(|component| component.component_id != "officecli")
                 .map(|component| component_status(&root, component))
                 .collect::<Vec<_>>()
         })

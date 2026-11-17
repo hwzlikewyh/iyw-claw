@@ -5,6 +5,9 @@
 mod native_share_receiver;
 
 fn main() {
+    if iyw_claw_lib::office_embedded::dispatch_early() {
+        return;
+    }
     if iyw_claw_lib::computer::entry::dispatch_early() {
         return;
     }

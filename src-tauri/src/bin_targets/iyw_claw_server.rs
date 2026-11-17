@@ -32,6 +32,7 @@ fn configured_server_token() -> Option<String> {
 }
 
 fn main() -> ExitCode {
+    if iyw_claw_lib::office_embedded::dispatch_early() { return ExitCode::SUCCESS; }
     if iyw_claw_lib::internal_xinghe_worker::dispatch_early() {
         return ExitCode::SUCCESS;
     }

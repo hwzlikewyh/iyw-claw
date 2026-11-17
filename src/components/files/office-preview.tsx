@@ -1,10 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
 import { FileWarning, Loader2 } from "lucide-react"
 
-import { openSettingsWindow } from "@/lib/api"
 import { usePreviewVisibility } from "./use-preview-resource"
 import { PreviewToolbar } from "./preview-toolbar"
 import {
@@ -15,17 +14,7 @@ import {
 } from "@/lib/transport"
 import { extractAppCommandError } from "@/lib/app-error"
 
-// Machine code the backend stamps into `i18n_params.watchCode` for a missing
-// officecli (mirrors `WatchError::NotInstalled.code()` in office_watch/mod.rs).
-const NOT_INSTALLED = "NOT_INSTALLED"
 const FILE_NOT_READY = "FILE_NOT_READY"
-
-// One-liner that installs OfficeCLI on the *server* host — shown to web/remote
-// users, for whom an "open Settings" desktop link would point at the wrong
-// machine. Mirrors the command the backend's own installer runs
-// (`commands/office_tools.rs`).
-const SERVER_INSTALL_CMD =
-  "curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash"
 
 function watchCodeOf(err: unknown): string | null {
   return extractAppCommandError(err)?.i18n_params?.watchCode ?? null
@@ -66,6 +55,7 @@ function ActiveOfficePreview({
   relPath: string | null
 }) {
   const t = useTranslations("Folder.fileWorkspacePanel")
+  const locale = useLocale()
   const [port, setPort] = useState<number | null>(null)
   const [cap, setCap] = useState<string>("")
   const [errorCode, setErrorCode] = useState<string | null>(null)
@@ -136,13 +126,13 @@ function ActiveOfficePreview({
     if (loopbackDirect) {
       // The Tauri webview loads loopback directly (no mixed-content: the host
       // page is tauri://localhost, also loopback).
-      return `http://127.0.0.1:${port}/`
+      return `http://127.0.0.1:${port}/?cap=${encodeURIComponent(cap)}&locale=${encodeURIComponent(locale)}`
     }
     // Web: route through the reverse proxy on the server that backs this
     // window, carrying the per-watch capability the proxy validates.
     const base = getServerBaseUrl()
-    return `${base}/api/office-watch-proxy/${port}/?cap=${encodeURIComponent(cap)}`
-  }, [port, cap, loopbackDirect])
+    return `${base}/api/office-watch-proxy/${port}/?cap=${encodeURIComponent(cap)}&locale=${encodeURIComponent(locale)}`
+  }, [port, cap, loopbackDirect, locale])
 
   const retry = () => {
     setErrorCode(null)
@@ -162,51 +152,6 @@ function ActiveOfficePreview({
         <div className="max-w-sm text-xs text-muted-foreground">
           {t("officeRemoteDesktopUnsupported")}
         </div>
-      </div>
-    )
-  }
-
-  if (errorCode === NOT_INSTALLED) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <FileWarning className="h-8 w-8 text-muted-foreground" />
-        <div className="text-sm font-medium text-foreground">
-          {t("officeNotInstalled")}
-        </div>
-        {loopbackDirect ? (
-          <>
-            <div className="max-w-sm text-xs text-muted-foreground">
-              {t("officeNotInstalledHint")}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                openSettingsWindow().catch(() => {})
-              }}
-              className="mt-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-primary/8"
-            >
-              {t("officeOpenSettings")}
-            </button>
-          </>
-        ) : (
-          <>
-            {/* Web/remote: officecli must be installed on the server host, not
-                the user's machine — show the exact command to run there. */}
-            <div className="max-w-sm text-xs text-muted-foreground">
-              {t("officeServerInstallHint")}
-            </div>
-            <code className="block max-w-sm select-all rounded-md bg-muted px-3 py-2 text-left text-[11px] text-foreground">
-              {SERVER_INSTALL_CMD}
-            </code>
-            <button
-              type="button"
-              onClick={retry}
-              className="mt-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-primary/8"
-            >
-              {t("officeWatchRetry")}
-            </button>
-          </>
-        )}
       </div>
     )
   }

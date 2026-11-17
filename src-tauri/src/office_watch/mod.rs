@@ -1,56 +1,25 @@
-//! Long-lived `officecli watch` preview servers.
-//!
-//! One `officecli watch <file> --port N` child process per office file,
-//! shared across preview tabs by ref-count, reaped on tab-close /
-//! folder-removal / app-exit.
-//!
-//! ## Why this replaces the old `officecli view html` render path
-//!
-//! The previous preview rendered the file to HTML on every change by
-//! spawning a fresh `officecli view` that **re-read the whole OpenXML(zip)
-//! file**. While an agent edited the same file via officecli (a multi-step
-//! sequence of writes), the preview and the agent became two independent
-//! processes contending for one file on disk — on Windows this hit a file
-//! lock and the agent's edit failed with "file is in use".
-//!
-//! A `watch` server is a single long-lived HTTP + SSE process that officecli
-//! itself drives (it refreshes the browser when *officecli* mutates the doc),
-//! so the agent's edits and the preview no longer race for the file.
-//!
-//! ## Concurrency model (mirrors `workspace_state::WORKSPACE_STREAMS`)
-//!
-//! A process-level `static` registry keyed by the file's canonical path,
-//! with ref-count sharing. Not on `AppState`: the server-mode proxy handler
-//! only has `Extension<Arc<AppState>>` and the desktop command only has
-//! `State`, but both reach a `static` for free, and the pool holds only OS
-//! resources (child handles + ports) so it needs no DB/emitter injection.
+//! 主程序内嵌HCD预览，复用现有会话、能力令牌与回收。
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 pub mod preview_session;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
-use tokio::net::TcpStream;
-use tokio::process::Child;
+
+mod embedded;
+pub(crate) use embedded::snapshot::render as render_snapshot;
+use embedded::Worker as Child;
 
 use crate::app_error::AppCommandError;
 use crate::commands::folders::resolve_tree_path;
-use crate::commands::office_tools::{is_office_path, resolve_officecli};
-use crate::process::tokio_command;
+use crate::commands::office_tools::is_office_path;
 
 // ─── Tunables ───────────────────────────────────────────────────────────
 
-/// Upper bound on how long we wait for a freshly-spawned watch server to
-/// announce readiness (its `Watch: http://…:<port>` stdout line) before giving
-/// up. OfficeCLI renders the initial document before announcing the server, and
-/// complex documents can take well beyond eight seconds on slower machines.
-const READY_TIMEOUT: Duration = Duration::from_secs(60);
-/// Per-attempt TCP connect timeout for the post-announce reachability confirm.
-const READY_CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
-/// Hard cap on concurrent watch processes — a backstop against a pathological
+/// Hard cap on concurrent preview tasks — a backstop against a pathological
 /// burst of tab-opens spawning unbounded officecli processes.
 const MAX_CONCURRENT_WATCHES: usize = 32;
 /// Grace after a web preview's last SSE connection drops before the sweep reaps
@@ -198,17 +167,8 @@ fn lock_watches() -> MutexGuard<'static, HashMap<String, WatchInstance>> {
 /// Reap a child without blocking the caller: kill + `wait()` on a detached task
 /// so no zombie lingers. Falls back to `start_kill` (relying on `kill_on_drop`
 /// + tokio's orphan reaper) when called outside a runtime, e.g. at shutdown.
-fn reap(mut child: Child) {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            handle.spawn(async move {
-                let _ = child.kill().await;
-            });
-        }
-        Err(_) => {
-            let _ = child.start_kill();
-        }
-    }
+fn reap(child: Child) {
+    drop(child);
 }
 
 fn spawn_lock_for(key: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -338,98 +298,6 @@ fn allocate_free_port() -> Result<u16, WatchError> {
     Ok(port)
 }
 
-/// Parse officecli's readiness line, e.g. `Watch: http://localhost:26411`, into
-/// the port it actually bound. Returns `None` for any other stdout line.
-fn parse_watch_port(line: &str) -> Option<u16> {
-    let line = line.trim_start();
-    if !line.starts_with("Watch:") {
-        return None;
-    }
-    // Take the run of digits immediately after the last ':' (tolerates an
-    // optional trailing path like `…:26411/`).
-    let after = line.rsplit(':').next()?;
-    let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-    digits.parse::<u16>().ok()
-}
-
-/// Wait for the freshly-spawned watch to announce readiness on stdout, then
-/// confirm it's reachable. Reading *our child's own stdout* for the
-/// `Watch: http://…:<port>` line positively identifies the listener as this
-/// officecli — closing the gap where the bind-to-`:0`-then-release port could
-/// be snatched by another process between release and officecli binding it
-/// (a TCP-accept probe alone can't tell whose listener answered). On success
-/// the stdout reader is handed to a background drain so a chatty watch can't
-/// dead-lock on a full pipe.
-async fn await_ready(port: u16, child: &mut Child) -> Result<(), WatchError> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| WatchError::StartFailed("no stdout pipe".to_string()))?;
-    let mut lines = BufReader::new(stdout).lines();
-    let deadline = Instant::now() + READY_TIMEOUT;
-
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(WatchError::PortTimeout(
-                "officecli did not announce readiness in time".to_string(),
-            ));
-        }
-        match tokio::time::timeout(remaining, lines.next_line()).await {
-            Ok(Ok(Some(line))) => {
-                let Some(bound) = parse_watch_port(&line) else {
-                    continue; // a non-readiness line (Watching:, Press Ctrl+C, …)
-                };
-                if bound != port {
-                    return Err(WatchError::PortTimeout(format!(
-                        "officecli bound port {bound}, expected {port}"
-                    )));
-                }
-                // Confirm the announced server actually accepts a connection.
-                if tokio::time::timeout(
-                    READY_CONNECT_TIMEOUT,
-                    TcpStream::connect(("127.0.0.1", port)),
-                )
-                .await
-                .map(|r| r.is_ok())
-                .unwrap_or(false)
-                {
-                    // Keep the pipe drained for the child's lifetime.
-                    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
-                    return Ok(());
-                }
-                return Err(WatchError::PortTimeout(
-                    "officecli announced ready but the port did not accept".to_string(),
-                ));
-            }
-            Ok(Ok(None)) => {
-                return Err(WatchError::StartFailed(
-                    "officecli exited before announcing readiness".to_string(),
-                ));
-            }
-            Ok(Err(e)) => return Err(WatchError::StartFailed(e.to_string())),
-            Err(_) => {
-                return Err(WatchError::PortTimeout(
-                    "officecli did not announce readiness in time".to_string(),
-                ));
-            }
-        }
-    }
-}
-
-/// Drain a killed child's stderr (best-effort, time-boxed) for diagnostics.
-async fn drain_stderr(child: &mut Child) -> String {
-    use tokio::io::AsyncReadExt;
-    let Some(mut err) = child.stderr.take() else {
-        return String::new();
-    };
-    let mut buf = Vec::new();
-    let _ = tokio::time::timeout(Duration::from_millis(500), err.read_to_end(&mut buf)).await;
-    String::from_utf8_lossy(&buf).trim().to_string()
-}
-
 // ─── Public API: start / stop / introspection ───────────────────────────
 
 /// Ensure a watch server is running for `path` (relative to `root_path`) and
@@ -474,35 +342,9 @@ pub async fn start_office_watch_core(
     // immediate.
     let canonical_target =
         resolve_office_target_ready(&root_path, &path, file_ready_deadline).await?;
-    let officecli = resolve_officecli().ok_or(WatchError::NotInstalled)?;
     let port = allocate_free_port()?;
-    // Mint the per-watch capability the proxy will authenticate against.
     let cap = uuid::Uuid::new_v4().simple().to_string();
-    let mut child = tokio_command(&officecli)
-        .arg("watch")
-        .arg(&canonical_target)
-        .arg("--port")
-        .arg(port.to_string())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| WatchError::StartFailed(e.to_string()))?;
-
-    if let Err(ready_err) = await_ready(port, &mut child).await {
-        let _ = child.start_kill();
-        let stderr = drain_stderr(&mut child).await;
-        let detail = match (ready_err.to_string(), stderr.as_str()) {
-            (msg, "") => msg,
-            (msg, err) => format!("{msg} — {err}"),
-        };
-        reap(child);
-        return Err(match ready_err {
-            WatchError::PortTimeout(_) => WatchError::PortTimeout(detail),
-            _ => WatchError::StartFailed(detail),
-        });
-    }
+    let child = embedded::spawn(&canonical_target, port, &cap).await?;
 
     // Register. Re-check after the async gap: another task may have won the
     // race for this same file while we were waiting — if so, adopt theirs and

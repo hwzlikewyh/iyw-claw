@@ -83,6 +83,9 @@ tauri-build = { version = "2", features = [], optional = true }
 sha2 = "0.10"
 
 [dependencies]
+hcd-core = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+hcd-formats = { git = "https://github.com/RainLib/OfficeCLI-rust", rev = "7916bb354aaa9b25cb7c3d5270a6a2f441d84878" }
+iyw-office-engine = { path = "vendor/officecli-embedded" }
 iyw-share-core = { path = "share-core", optional = true }
 tauri = { version = "=2.10.2", features = ["devtools", "macos-private-api", "tray-icon", "unstable"], optional = true }
 tauri-plugin-opener = { version = "2", optional = true }

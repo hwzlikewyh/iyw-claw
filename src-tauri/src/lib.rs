@@ -38,6 +38,7 @@ pub mod models;
 pub mod native_page;
 mod network;
 pub mod office_watch;
+pub mod office_embedded;
 pub mod parsers;
 pub mod paths;
 pub mod pet_sessions;

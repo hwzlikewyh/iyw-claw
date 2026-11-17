@@ -48,6 +48,11 @@ impl Context<'_> {
             if !seen.insert(&action.component_id) {
                 bail!("environment plan contains a duplicate component")
             }
+            // 办公引擎已链接进主程序，旧环境计划不再下载独立 OfficeCLI。
+            if action.component_id == "officecli" {
+                emit(&action.component_id, "builtin", 0, 0);
+                continue;
+            }
             match crate::retry::component(&action.component_id, || self.prepare_action(action))
                 .with_context(|| format!("prepare environment component: {}", action.component_id))
             {

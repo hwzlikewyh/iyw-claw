@@ -134,7 +134,7 @@ pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
         "node" | "npm" | "npx" => entrypoint("node", name),
         "git" => entrypoint("git", "git"),
         "uv" | "uvx" => entrypoint("uv", name),
-        "officecli" => entrypoint("officecli", "officecli"),
+        "officecli" => crate::office_embedded::agent_entrypoint().ok(),
         "agent-reach" => entrypoint("agent-reach", "agent-reach"),
         "open-computer-use" => entrypoint("open-computer-use", "open-computer-use"),
         "cua-driver" => entrypoint("cua-driver", "cua-driver"),
@@ -143,6 +143,9 @@ pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn require_tool_entrypoint(name: &str) -> Result<PathBuf, String> {
+    if name == "officecli" {
+        return crate::office_embedded::agent_entrypoint();
+    }
     let root = location::root();
     let snapshot = snapshot::load(&root)?;
     let component = snapshot

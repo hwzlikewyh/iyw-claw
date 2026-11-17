@@ -221,9 +221,10 @@ async fn proxy_inner(
     note_proxy_request(port);
 
     // 2. Build the upstream URL, stripping `cap` so it never reaches officecli.
+    let query = query_without(&raw, "cap");
     let upstream = format!(
-        "http://127.0.0.1:{port}/{rest}{}",
-        query_without(&raw, "cap")
+        "http://127.0.0.1:{port}/{rest}{query}{}cap={cap}",
+        if query.is_empty() { "?" } else { "&" }
     );
 
     // 3. Forward method + curated request headers + body.
