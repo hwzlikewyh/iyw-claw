@@ -32,15 +32,19 @@ export function useNewProject(onCreated: () => void) {
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
   const { openNewConversationTab } = useTabActions()
   const { openConversations } = useWorkbenchRoute()
+  const showError = (message: string) => {
+    setError(message)
+    toast.error(message)
+  }
   const create = async () => {
     if (busy.current) return
     const trimmed = name.trim()
     if (!validProjectName(trimmed)) {
-      setError(t("invalidName"))
+      showError(t("invalidName"))
       return
     }
     if (!parent) {
-      setError(t("chooseParent"))
+      showError(t("chooseParent"))
       return
     }
     busy.current = true
@@ -66,16 +70,24 @@ export function useNewProject(onCreated: () => void) {
       const folder = await openFolder(path)
       if (backend !== getTransport()) return
       openConversations()
-      openNewConversationTab(folder.id, folder.path)
+      const selected = await openNewConversationTab(folder.id, folder.path)
+      if (backend !== getTransport()) return
+      if (!selected) {
+        console.warn("[sidebar-project] created but activation blocked", {
+          folderId: folder.id,
+        })
+        showError(t("projectOpenFailed"))
+        return
+      }
       console.info("[sidebar-project] created and opened", {
         folderId: folder.id,
       })
-      toast.success(t("projectCreated"))
       onCreated()
+      toast.success(t("projectCreated"))
     } catch (reason) {
       const message = toErrorMessage(reason)
       console.error("[sidebar-project] create or open failed", { message })
-      setError(t("projectFailed", { message }))
+      showError(t("projectFailed", { message }))
     } finally {
       busy.current = false
       setPending(false)

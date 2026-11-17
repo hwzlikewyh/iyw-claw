@@ -7,7 +7,10 @@ import {
   useRef,
   useCallback,
 } from "react"
-import { loadReferenceFiles } from "@/lib/reference-file-loader"
+import {
+  loadReferenceFiles,
+  loadReferenceRoot,
+} from "@/lib/reference-file-loader"
 import type { FileTreeNode } from "@/lib/types"
 
 export interface FlatFileEntry {
@@ -68,6 +71,7 @@ interface UseFileTreeResult {
   loading: boolean
   loaded: boolean
   load: () => Promise<FlatFileEntry[]>
+  loadRoot: () => Promise<FlatFileEntry[]>
   reset: () => void
 }
 
@@ -89,10 +93,13 @@ export function useFileTree({
   const [loading, setLoading] = useState(false)
   const [loadedPath, setLoadedPath] = useState<string | null>(null)
   const current = useRef<FileLoad | null>(null)
+  const rootRequest = useRef<FileLoad | null>(null)
 
   const reset = useCallback(() => {
     current.current?.controller.abort()
     current.current = null
+    rootRequest.current?.controller.abort()
+    rootRequest.current = null
     setAllFiles([])
     setLoadedPath(null)
     setLoading(false)
@@ -103,6 +110,8 @@ export function useFileTree({
     return () => {
       current.current?.controller.abort()
       current.current = null
+      rootRequest.current?.controller.abort()
+      rootRequest.current = null
     }
   }, [folderPath, enabled, reset])
 
@@ -140,6 +149,30 @@ export function useFileTree({
     return request.promise
   }, [enabled, folderPath])
 
+  const loadRoot = useCallback((): Promise<FlatFileEntry[]> => {
+    if (!enabled || !folderPath) return Promise.resolve([])
+    if (loadedPath === folderPath && current.current)
+      return current.current.promise
+    if (rootRequest.current?.path === folderPath)
+      return rootRequest.current.promise
+    const controller = new AbortController()
+    const request: FileLoad = {
+      path: folderPath,
+      controller,
+      promise: Promise.resolve([]),
+    }
+    rootRequest.current = request
+    request.promise = loadReferenceRoot(folderPath, controller.signal)
+      .then((files) => (rootRequest.current === request ? files : []))
+      .catch((error) => {
+        if (rootRequest.current === request) rootRequest.current = null
+        if (!controller.signal.aborted)
+          console.error("[reference-files] root load failed", { error })
+        return []
+      })
+    return request.promise
+  }, [enabled, folderPath, loadedPath])
+
   useEffect(() => {
     let canceled = false
     if (automatic && enabled) {
@@ -157,6 +190,7 @@ export function useFileTree({
     loading,
     loaded: loadedPath !== null && loadedPath === folderPath,
     load,
+    loadRoot,
     reset,
   }
 }

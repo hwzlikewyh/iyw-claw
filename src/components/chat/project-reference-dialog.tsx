@@ -1,11 +1,22 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
-import { AlertCircle, Folder, PackageOpen } from "lucide-react"
+import { useState } from "react"
+import {
+  AlertCircle,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  PackageOpen,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 
-import { WorkspaceTreePane } from "@/components/message/workspace-file-tree"
-import { useLazyWorkspaceTree } from "@/components/message/workspace-file-tree-data"
+import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
+import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -15,9 +26,7 @@ import {
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useActiveFolder } from "@/contexts/active-folder-context"
-import { joinFsPath } from "@/lib/path-utils"
-import type { FileTreeNode } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import { isLocalDesktop } from "@/lib/platform"
 import {
   ArtifactReferencePicker,
   useReferenceArtifacts,
@@ -25,6 +34,7 @@ import {
   type ProjectReferenceSelection,
 } from "./project-reference-artifacts"
 import { ProjectReferenceFooter } from "./project-reference-footer"
+import { WorkspaceReferencePicker } from "./project-reference-workspace"
 
 export type { ProjectReferenceSelection } from "./project-reference-artifacts"
 
@@ -50,102 +60,11 @@ function pathName(path: string): string {
   )
 }
 
-function isPathWithinRoot(path: string, rootPath: string): boolean {
-  if (path === rootPath) return true
-  const normalizedRoot = rootPath.replace(/[\\/]+$/, "")
-  return (
-    path.startsWith(`${normalizedRoot}/`) ||
-    path.startsWith(`${normalizedRoot}\\`)
-  )
-}
-
-function findNode(nodes: FileTreeNode[], path: string): FileTreeNode | null {
-  for (const node of nodes) {
-    if (node.path === path) return node
-    if (node.kind === "dir") {
-      const match = findNode(node.children, path)
-      if (match) return match
-    }
-  }
-  return null
-}
-
-function WorkspaceReferencePicker({
-  rootPath,
-  selected,
-  onSelect,
-}: ReferencePickerProps & { rootPath: string }) {
-  const picker = useWorkspacePicker(rootPath, selected, onSelect)
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <WorkspaceRootRow
-        rootPath={rootPath}
-        selected={picker.wholeWorkspaceSelected}
-        onSelect={onSelect}
-      />
-      <div className="flex min-h-0 flex-1">
-        <WorkspaceTreePane
-          {...picker.tree}
-          error={picker.error}
-          pathErrors={picker.pathErrors}
-          rootPath={rootPath}
-          selectedPath={picker.selectedPath}
-          onSelect={picker.selectPath}
-        />
-      </div>
-    </div>
-  )
-}
-
-function useWorkspacePicker(
-  rootPath: string,
-  selected: ProjectReferenceSelection | null,
-  onSelect: ReferencePickerProps["onSelect"]
-) {
-  const t = useTranslations("Folder.chat.messageInput.projectReference")
-  const tree = useLazyWorkspaceTree(rootPath)
-  const pathErrors = useMemo(
-    () =>
-      new Map(
-        [...tree.pathErrors.keys()].map((path) => [path, t("loadError")])
-      ),
-    [t, tree.pathErrors]
-  )
-  const wholeWorkspaceSelected = selected?.path === rootPath
-  const selectedPath =
-    selected && isPathWithinRoot(selected.path, rootPath)
-      ? selected.path.slice(rootPath.length).replace(/^[\\/]/, "")
-      : undefined
-  const selectPath = useCallback(
-    (relativePath: string) => {
-      const node = findNode(tree.nodes, relativePath)
-      if (!node) return
-      onSelect({
-        path: joinFsPath(rootPath, relativePath),
-        name: node.name,
-        kind: node.kind === "dir" ? "dir" : "file",
-      })
-    },
-    [onSelect, rootPath, tree.nodes]
-  )
-
-  return {
-    tree,
-    error: tree.error ? t("loadError") : null,
-    pathErrors,
-    wholeWorkspaceSelected,
-    selectedPath,
-    selectPath,
-  }
-}
-
 function WorkspaceRootRow({
   rootPath,
-  selected,
   onSelect,
 }: {
   rootPath: string
-  selected: boolean
   onSelect: ReferencePickerProps["onSelect"]
 }) {
   const t = useTranslations("Folder.chat.messageInput.projectReference")
@@ -155,13 +74,19 @@ function WorkspaceRootRow({
       onClick={() =>
         onSelect({ path: rootPath, name: pathName(rootPath), kind: "dir" })
       }
-      className={cn(
-        "flex h-10 shrink-0 items-center gap-2 border-b px-3 text-left text-sm hover:bg-muted/50",
-        selected && "bg-muted"
-      )}
+      className="flex w-full items-center gap-3 rounded-md bg-muted/40 px-3 py-3 text-left hover:bg-muted focus-visible:outline focus-visible:outline-ring"
     >
-      <Folder className="size-4 text-blue-500" />
-      <span className="min-w-0 flex-1 truncate">{t("wholeWorkspace")}</span>
+      <Folder className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{t("wholeWorkspace")}</span>
+        <span
+          className="block truncate text-xs text-muted-foreground"
+          title={rootPath}
+        >
+          {rootPath}
+        </span>
+      </span>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
     </button>
   )
 }
@@ -194,6 +119,7 @@ export function ProjectReferenceDialog({
   const [selected, setSelected] = useState<ProjectReferenceSelection | null>(
     null
   )
+  const [browsing, setBrowsing] = useState(false)
 
   const changeOpen = (next: boolean) => {
     if (!next) setSelected(null)
@@ -205,30 +131,60 @@ export function ProjectReferenceDialog({
     changeOpen(false)
   }
   const browseFolder = () => {
+    if (!isLocalDesktop()) {
+      setBrowsing(true)
+      return
+    }
     changeOpen(false)
     void onBrowseFolder()
   }
 
   return (
-    <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="grid h-[min(42rem,calc(100dvh-2rem))] max-w-[min(54rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden rounded-lg p-4 sm:max-w-[min(54rem,calc(100vw-2rem))]">
-        <DialogHeader>
-          <DialogTitle>{t("title")}</DialogTitle>
-          <DialogDescription>{t("description")}</DialogDescription>
-        </DialogHeader>
-        <ReferenceTabs
-          rootPath={rootPath}
-          artifacts={artifacts}
-          selected={selected}
-          onSelect={setSelected}
-        />
-        <ProjectReferenceFooter
-          selected={selected}
-          onBrowseFolder={browseFolder}
-          onConfirm={confirm}
-        />
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open && !browsing} onOpenChange={changeOpen}>
+        <DialogContent className="max-w-xl gap-4 rounded-lg p-5">
+          <DialogHeader>
+            <DialogTitle>{t("title")}</DialogTitle>
+            <DialogDescription>{t("description")}</DialogDescription>
+          </DialogHeader>
+          <Button
+            variant={selected ? "outline" : "default"}
+            onClick={browseFolder}
+            className="w-full justify-start"
+          >
+            <FolderOpen className="size-4" />
+            {t("browseFolder")}
+          </Button>
+          <ReferenceTabs
+            key={rootPath}
+            rootPath={rootPath}
+            artifacts={artifacts}
+            selected={selected}
+            onSelect={setSelected}
+            onUseWorkspace={(selection) => {
+              onSelect(selection)
+              changeOpen(false)
+            }}
+          />
+          <ProjectReferenceFooter
+            selected={selected}
+            onCancel={() => changeOpen(false)}
+            onConfirm={confirm}
+          />
+        </DialogContent>
+      </Dialog>
+      <DirectoryBrowserDialog
+        open={open && browsing}
+        onOpenChange={setBrowsing}
+        title={t("browseFolder")}
+        initialPath={rootPath ?? undefined}
+        onSelect={(path) => {
+          onSelect({ path, name: pathName(path), kind: "dir" })
+          setBrowsing(false)
+          changeOpen(false)
+        }}
+      />
+    </>
   )
 }
 
@@ -237,9 +193,11 @@ function ReferenceTabs({
   artifacts,
   selected,
   onSelect,
+  onUseWorkspace,
 }: ReferencePickerProps & {
   rootPath: string | null
   artifacts: ReferenceArtifactsState
+  onUseWorkspace: ReferencePickerProps["onSelect"]
 }) {
   const t = useTranslations("Folder.chat.messageInput.projectReference")
   return (
@@ -261,23 +219,31 @@ function ReferenceTabs({
           {t("artifacts")}
         </TabsTrigger>
       </TabsList>
-      <TabsContent
-        value="workspace"
-        className="min-h-0 overflow-hidden rounded-md border"
-      >
+      <TabsContent value="workspace" className="min-h-0">
         {rootPath ? (
-          <WorkspaceReferencePicker
-            rootPath={rootPath}
-            selected={selected}
-            onSelect={onSelect}
-          />
+          <div className="space-y-2">
+            <WorkspaceRootRow rootPath={rootPath} onSelect={onUseWorkspace} />
+            <Collapsible>
+              <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/50 focus-visible:outline focus-visible:outline-ring">
+                <ChevronRight className="size-4 group-data-[state=open]:rotate-90" />
+                {t("browseWorkspace")}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <WorkspaceReferencePicker
+                  rootPath={rootPath}
+                  selected={selected}
+                  onSelect={onSelect}
+                />
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
         ) : (
           <ReferenceState icon={AlertCircle} text={t("noWorkspace")} />
         )}
       </TabsContent>
       <TabsContent
         value="artifacts"
-        className="min-h-0 overflow-hidden rounded-md border"
+        className="h-64 min-h-0 overflow-hidden rounded-md border"
       >
         <ArtifactReferencePicker
           {...artifacts}
