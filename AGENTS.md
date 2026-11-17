@@ -26,10 +26,11 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 
 ## 远程仓库与主分支
 
-- **GitHub 仓库 `hwzlikewyh/iyw-claw` 的主分支是 `main`**；用户要求合并到 GitHub 主分支时，目标必须是 `refs/heads/main`。
-- 内网仓库 `http://192.168.1.97:8081/python/iyw-claw.git` 使用 `master`；不要用它的默认分支推断 GitHub 的主分支。
-- 本机 `origin` 的 fetch 地址指向内网，push 地址可能同时包含内网和 GitHub。推送前检查 `git remote -v` 和目标仓库的 `git ls-remote --symref <url> HEAD`，明确目标仓库及分支。
-- 仅向 GitHub 交付时，使用 GitHub URL 和明确的 refspec，例如 `git push https://github.com/hwzlikewyh/iyw-claw.git HEAD:refs/heads/main`，避免用 `git push origin` 将同名分支推送到两个仓库。
+- **用户说“推送远程主分支”或“合并到远程主分支”时，默认同时交付 GitHub `main` 和内网 GitLab `master`**；只有明确限定单个平台时才只推送一边，不能将仅完成一边报告为全部完成。
+- GitHub 目标：`https://github.com/hwzlikewyh/iyw-claw.git` 的 `refs/heads/main`；内网 GitLab 目标：`http://192.168.1.97:8081/python/iyw-claw.git` 的 `refs/heads/master`。
+- 本机 `origin` 的 fetch 地址指向内网，push 地址可能同时包含两个仓库。推送前检查 `git remote -v` 和各目标仓库的 `git ls-remote --symref <url> HEAD`，分别获取最新主分支并集成本次提交，保留两边各自已有的提交。
+- 分别使用明确的 URL 和 refspec：GitHub 为 `git push https://github.com/hwzlikewyh/iyw-claw.git <已验证提交>:refs/heads/main`，GitLab 为 `git push http://192.168.1.97:8081/python/iyw-claw.git <已验证提交>:refs/heads/master`；避免用 `git push origin` 将同名分支推到两个仓库，不因分支历史不同而强推覆盖。
+- 推送后分别核对两个远程分支已包含本次改动，交付时报告两边分支及提交号；任一失败时明确说明并继续处理，不能静默遗漏。
 
 ## 架构
 
