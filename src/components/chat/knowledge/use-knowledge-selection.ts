@@ -1,35 +1,28 @@
 "use client"
 
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
-import { useTabStore } from "@/contexts/tab-context"
-import { prepareConnectorConversation } from "@/lib/conversation-connectors"
 import {
   getKnowledgeSelection,
-  saveKnowledgeSelection,
   knowledgeChoiceKey,
   knowledgeError,
   KNOWLEDGE_SELECTION_LIMIT,
   type KnowledgeChoice,
   type KnowledgeSelection,
 } from "@/lib/cloud-knowledge"
-
-type PreparedConversation = Awaited<
-  ReturnType<typeof prepareConnectorConversation>
->
+import {
+  setKnowledgeComposerSelection,
+  syncKnowledgeComposerScope,
+  useKnowledgeComposerContext,
+} from "@/lib/knowledge-composer-context"
 
 export function useKnowledgeSelection(
   tabId: string,
   onSaved: (selection: KnowledgeSelection) => void
 ) {
   const t = useTranslations("CloudKnowledge")
-  const conversationId = useTabStore(
-    (state) =>
-      state.tabs.find((tab) => tab.id === tabId)?.conversationId ?? null
-  )
-  const state = useSelectionRecord(conversationId)
+  const state = useSelectionRecord(tabId)
   const { data, busy, setData, setError } = state
-  const prepared = useRef<PreparedConversation | null>(null)
   const toggle = (choice: KnowledgeChoice) => {
     if (!data || busy) return
     const key = knowledgeChoiceKey(choice)
@@ -51,10 +44,7 @@ export function useKnowledgeSelection(
   const save = useSaveSelection({
     ...state,
     tabId,
-    conversationId,
-    prepared,
     onSaved,
-    title: t("newConversation"),
   })
   const clear = () => {
     if (data && !busy) setData({ ...data, selected: [] })
@@ -71,7 +61,7 @@ export function useKnowledgeSelection(
   }
 }
 
-function useSelectionRecord(conversationId: number | null) {
+function useSelectionRecord(tabId: string) {
   const [data, setData] = useState<KnowledgeSelection | null>(null)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -79,9 +69,14 @@ function useSelectionRecord(conversationId: number | null) {
   const generation = useRef(0)
   useEffect(() => {
     const request = ++generation.current
-    getKnowledgeSelection(conversationId)
+    getKnowledgeSelection(null)
       .then((value) => {
-        if (generation.current === request) setData(value)
+        if (generation.current !== request) return
+        syncKnowledgeComposerScope(tabId, value.scope)
+        setData(
+          useKnowledgeComposerContext.getState().entries[tabId]?.selection ??
+            value
+        )
       })
       .catch((cause) => {
         if (generation.current === request) setError(knowledgeError(cause))
@@ -89,7 +84,7 @@ function useSelectionRecord(conversationId: number | null) {
     return () => {
       generation.current = request + 1
     }
-  }, [conversationId, reload])
+  }, [tabId, reload])
   return {
     data,
     setData,
@@ -109,40 +104,31 @@ function useSelectionRecord(conversationId: number | null) {
 
 interface SaveContext {
   tabId: string
-  conversationId: number | null
   data: KnowledgeSelection | null
-  prepared: RefObject<PreparedConversation | null>
-  generation: RefObject<number>
+  generation: { current: number }
   busy: boolean
   setBusy: (busy: boolean) => void
   setError: (error: string) => void
   onSaved: (selection: KnowledgeSelection) => void
-  title: string
 }
 
 function useSaveSelection(context: SaveContext) {
   const saving = useRef(false)
   return async () => {
-    const { data, generation, prepared } = context
+    const { data, generation } = context
     if (!data || context.busy || saving.current) return
-    if (context.conversationId == null && !data.selected.length) {
-      context.onSaved(data)
-      return
-    }
     saving.current = true
     const request = generation.current
     context.setBusy(true)
     context.setError("")
     try {
-      const id = await prepareConversation(context)
-      const saved = await saveKnowledgeSelection(id, data)
-      if (
-        generation.current !== request ||
-        !conversationMatches(context.tabId, id)
-      )
-        return
-      prepared.current?.bind()
-      context.onSaved(saved)
+      const current = await getKnowledgeSelection(null)
+      if (generation.current !== request) return
+      syncKnowledgeComposerScope(context.tabId, current.scope)
+      if (current.scope !== data.scope)
+        throw new Error("账号或空间已变更，请重新打开知识库")
+      setKnowledgeComposerSelection(context.tabId, data)
+      context.onSaved(data)
     } catch (cause) {
       if (generation.current === request)
         context.setError(knowledgeError(cause))
@@ -151,21 +137,4 @@ function useSaveSelection(context: SaveContext) {
       if (generation.current === request) context.setBusy(false)
     }
   }
-}
-
-async function prepareConversation(context: SaveContext) {
-  const { prepared, conversationId, tabId, title } = context
-  if (conversationId == null && !prepared.current)
-    prepared.current = await prepareConnectorConversation(tabId, title)
-  const id = conversationId ?? prepared.current!.id
-  if (!conversationMatches(tabId, id))
-    throw new Error("Conversation changed; reopen the knowledge picker")
-  return id
-}
-
-function conversationMatches(tabId: string, id: number) {
-  const tab = useTabStore.getState().tabs.find((item) => item.id === tabId)
-  return Boolean(
-    tab && (tab.conversationId == null || tab.conversationId === id)
-  )
 }

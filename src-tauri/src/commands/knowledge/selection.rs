@@ -143,7 +143,7 @@ async fn persist(
     Ok(next)
 }
 
-fn validate(selected: &[Choice]) -> Result<(), AppCommandError> {
+pub(super) fn validate(selected: &[Choice]) -> Result<(), AppCommandError> {
     if selected.len() > MAX_SELECTION {
         return Err(AppCommandError::invalid_input(
             "最多选择 32 个知识库文件夹或文件",

@@ -87,7 +87,7 @@ files/batch-refresh-status每批最多10个，处理中通常5秒一次；完成
 {"query":"产品包装的最小字号和留白要求","limit":5}
 ```
 
-传给search_iyw_knowledge。有对话选择时省略category／folderId／fileId，由宿主用选中范围执行；目录选择包含子目录，覆盖的重复选择会去重。最多32个选择项。
+传给search_iyw_knowledge。用户在消息中附带知识库来源时，必须先检索这些明确参考，再回答、设计或生成内容；将真实引用原样放入sourceRefs，省略category／folderId／fileId。当前和历史消息的引用都可查询，也可按任务需要组合；新消息不覆盖旧引用，发送后清掉输入框标签仅表示草稿已提交。宿主核对引用属于当前对话及账号／空间，未授权的引用报错。没有sourceRefs时，有对话选择则由宿主用原范围执行；目录选择包含子目录，覆盖的重复选择会去重。每次最多32个来源。
 
 未设置对话选择，且用户明确指定某库／目录／文件时再填真实category、folderId或fileId：
 
