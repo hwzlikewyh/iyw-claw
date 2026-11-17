@@ -33,9 +33,15 @@ pub async fn sync_core(
     registry::reconcile_global(&db.conn).await?;
     let (recipient, plugin) = authorize(db, apps, &request).await?;
     let keys = matching_apps(&plugin, &recipient.app_key)?;
+    let mut source_context = recipient.clone();
+    if recipient.conversation_id < 0 {
+        let draft = super::draft_workspace(&db.conn, recipient.conversation_id).await?;
+        let Some(bound) = draft.conversation_id else { return Ok(None); };
+        source_context.conversation_id = i64::from(bound);
+    }
     let source = crate::db::service::plugin_app_instance_service::find_related_result(
         &db.conn,
-        (&recipient, &keys),
+        (&source_context, &keys),
     )
     .await
     .map_err(AppCommandError::db)?;

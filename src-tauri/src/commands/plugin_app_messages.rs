@@ -28,10 +28,18 @@ pub(super) async fn send_app_message(
         ));
     }
     let blocks = content_blocks(&params)?;
+    let conversation_id = if instance.conversation_id < 0 {
+        super::draft_workspace(&db.conn, instance.conversation_id).await
+            .map_err(|error| plugin_error("plugin_app_unavailable", error.message))?
+            .conversation_id.ok_or_else(|| plugin_error("plugin_app_invalid", "请从当前窗口发送第一条消息"))?
+    } else {
+        i32::try_from(instance.conversation_id)
+            .map_err(|_| plugin_error("plugin_app_invalid", "对话标识无效"))?
+    };
     crate::commands::agent_input::queue_agent_input_core(
         db,
         manager,
-        instance.conversation_id as i32,
+        conversation_id,
         format!("plugin-app-{}", uuid::Uuid::new_v4()),
         crate::acp::AgentInputPayload {
             blocks: blocks.0,

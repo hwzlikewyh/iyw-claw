@@ -5,10 +5,8 @@ import { buildVirtualConversationId } from "@/lib/conversation-window-state"
 import type { RuntimeTask } from "@/lib/runtime-tasks"
 import { RuntimeTaskPanel } from "@/components/chat/runtime-task-panel"
 
-import {
-  prepareAcpSession,
-  reservePreparedChatDir,
-} from "@/lib/acp-session-preparation"
+import { prepareAcpSession } from "@/lib/acp-session-preparation"
+import { ensureDraftPluginWorkspace } from "@/lib/plugin-draft-context"
 
 import {
   memo,
@@ -92,7 +90,6 @@ import {
   type ForkTarget,
   acpGetAgentStatus,
   createChatConversation,
-  createChatDir,
   createConversation,
   deleteAgentInput,
   forceAgentInputsThrough,
@@ -729,12 +726,7 @@ const ConversationTabView = memo(function ConversationTabView({
     prepareChatDirPendingRef.current = true
     void (async () => {
       try {
-        const preparedPath = await reservePreparedChatDir(
-          selectedAgentRef.current
-        )
-        const res = preparedPath
-          ? { path: preparedPath }
-          : await createChatDir()
+        const res = { path: await ensureDraftPluginWorkspace(tabId) }
         if (mountedRef.current) {
           setChatDraftWorkingDir(tabId, res.path)
         }

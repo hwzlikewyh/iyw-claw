@@ -2,6 +2,10 @@
 mod plugin_app_catalog;
 #[path = "plugin_app_context.rs"]
 mod plugin_app_context;
+#[path = "plugin_app_draft.rs"]
+mod plugin_app_draft;
+pub use plugin_app_draft::{draft_core, DraftRequest};
+pub(crate) use plugin_app_draft::workspace as draft_workspace;
 #[path = "plugin_app_messages.rs"]
 mod plugin_app_messages;
 #[path = "plugin_app_open.rs"]
@@ -200,6 +204,15 @@ pub async fn plugin_app_launch(
     request: LaunchRequest,
 ) -> Result<PluginAppOpenResponse, AppCommandError> {
     launch_core(&db, (&apps, &router), request).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn plugin_app_draft(
+    db: tauri::State<'_, crate::db::AppDatabase>,
+    request: DraftRequest,
+) -> Result<i32, AppCommandError> {
+    draft_core(&db, request).await
 }
 
 #[cfg(feature = "tauri-runtime")]

@@ -9,6 +9,7 @@ import {
   type ConversationWindowPanels,
 } from "@/lib/conversation-window-panels"
 import { readPluginPanels } from "@/lib/plugin-panel"
+import { draftPluginMatches } from "@/lib/plugin-draft-context"
 import { getTransport } from "@/lib/transport"
 import { toast } from "sonner"
 import { toErrorMessage } from "@/lib/app-error"
@@ -30,7 +31,13 @@ export function useConversationPanelTransfer(
         width: latest.current.panel.width,
         activeTab: latest.current.panel.activeTab,
         apps: latest.current.tabs.tabs
-          .filter((tab) => tab.conversationId === id)
+          .filter(
+            (tab) =>
+              tab.conversationId === id ||
+              (tab.conversationId != null &&
+                tab.conversationId < 0 &&
+                draftPluginMatches(tab.conversationId, id))
+          )
           .map(({ id, pluginSlug, appKey }) => ({ id, pluginSlug, appKey })),
       })),
     []

@@ -11,6 +11,7 @@ import { registerPluginAppTeardown } from "@/lib/plugin-app-teardown"
 import { onPluginWindowContextChanged } from "@/lib/plugin-window-context"
 
 const MAX_APP_HTML_BYTES = 8 * 1024 * 1024
+const BRIDGE_ATTACH_RETRY_MS = 1_000
 
 export function usePluginAppHost(input: {
   props: PluginAppHostProps
@@ -106,7 +107,7 @@ function useBridgeConnection(input: {
     iframe: frameRef,
     bridge: bridgeRef,
     transport,
-    status: { ready, fail, failed },
+    status: { ready, fail },
     values: { mode, payload },
     oversized,
     download,
@@ -142,7 +143,6 @@ function useBridgeConnection(input: {
     transport,
     ready,
     fail,
-    failed,
     mode,
     payload,
     oversized,
@@ -169,7 +169,13 @@ function connectFrame(input: {
   )
   const onLoad = () => attachBridge(bridge, iframe, launch)
   iframe.addEventListener("load", onLoad)
+  // 首次 load 可能早于宿主 effect；仅在未收到任何协议消息时补发握手。
+  const timer = window.setInterval(() => {
+    if (bridge.hasReceivedMessage) window.clearInterval(timer)
+    else if (iframe.isConnected) onLoad()
+  }, BRIDGE_ATTACH_RETRY_MS)
   return () => {
+    window.clearInterval(timer)
     unregister()
     iframe.removeEventListener("load", onLoad)
     bridge.dispose()

@@ -15,6 +15,13 @@ pub struct RequestParams<T> {
     request: T,
 }
 
+pub async fn draft(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(RequestParams { request }): Json<RequestParams<crate::commands::plugin_apps::DraftRequest>>,
+) -> Result<Json<i32>, AppCommandError> {
+    crate::commands::plugin_apps::draft_core(&state.db, request).await.map(Json)
+}
+
 pub async fn open(
     Extension(state): Extension<Arc<AppState>>,
     Json(RequestParams { request }): Json<RequestParams<PluginAppOpenRequest>>,

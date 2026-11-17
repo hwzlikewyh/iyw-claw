@@ -19,7 +19,23 @@ pub(super) async fn load(
     let Some(id) = id else {
         return Ok(None);
     };
-    if id <= 0 {
+    if id < 0 {
+        let draft = crate::commands::plugin_apps::draft_workspace(conn, i64::from(id)).await?;
+        let path = draft.directory.to_string_lossy();
+        return Ok(Some(Workspace {
+            conversation_id: id,
+            key: crate::commands::skill_inventory::workspace_key(Some(&path)),
+            name: draft
+                .directory
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            directory: draft.directory,
+            agent: draft.agent,
+        }));
+    }
+    if id == 0 {
         return Err(AppCommandError::invalid_input("对话标识无效"));
     }
     let conversation = crate::db::service::conversation_service::get_by_id(conn, id)
