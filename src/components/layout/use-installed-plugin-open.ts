@@ -18,7 +18,10 @@ import {
 } from "@/lib/plugin-panel"
 import { onPluginApplicationOpen } from "@/lib/plugin-preparation-events"
 import { getTransport } from "@/lib/transport"
-import { draftPluginContext } from "@/lib/plugin-draft-context"
+import {
+  draftPluginContext,
+  prepareDraftPluginContext,
+} from "@/lib/plugin-draft-context"
 import { toErrorMessage } from "@/lib/app-error"
 import { toast } from "sonner"
 import type { PluginPreparation } from "@/lib/plugin-preparation"
@@ -114,6 +117,7 @@ async function openPluginChoice(
   context.page.closePanel()
   if (!context.current()) return
   if (app.appKey === OPENFILM_STUDIO_APP_KEY) {
+    if (!context.tabId) return
     const conversationId = context.tabId
       ? (useTabStore.getState().tabs.find((tab) => tab.id === context.tabId)
           ?.conversationId ?? null)
@@ -122,7 +126,10 @@ async function openPluginChoice(
       if (conversationId == null) deferComposerPlugin(context.tabId, app)
       else selectComposerPlugin(context.tabId, app)
     }
-    await context.tabs.open(app, conversationId)
+    const target =
+      conversationId ?? (await prepareDraftPluginContext(context.tabId))
+    if (!context.current()) return
+    await context.tabs.open(app, target)
     return
   }
   if (!context.tabId) return

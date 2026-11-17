@@ -1,8 +1,13 @@
 "use client"
 
-import { useEffect } from "react"
-import { Maximize2, Minimize2, RefreshCw } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Maximize2, Minimize2, PanelRightOpen, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
+import {
+  usePluginPanelRegistry,
+  type PluginPanelReference,
+} from "@/stores/plugin-panel-registry"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -23,12 +28,23 @@ export function PluginAppContent({
   toolCallId,
   conversationId,
 }: PluginAppContentProps) {
-  void toolCallId
   const t = useTranslations("Folder.chat.contentParts.pluginApp")
+  const [inlineReady, setInlineReady] = useState(false)
   const { state, fullscreen, setFullscreen, retry } = usePluginAppState(
     instanceId,
     conversationId,
     t("unavailable")
+  )
+  const matchingPanel = usePluginPanelRegistry((registry) =>
+    state.status === "ready"
+      ? registry.panels.find(
+          (panel) =>
+            panel.conversationId === conversationId &&
+            panel.pluginSlug === state.launch.pluginSlug &&
+            panel.pluginVersion === state.launch.pluginVersion &&
+            panel.resourceUri === state.launch.resourceUri
+        )
+      : undefined
   )
 
   useEffect(() => {
@@ -63,6 +79,11 @@ export function PluginAppContent({
     )
   }
 
+  // 已开始使用的消息内编辑器继续保留，避免新面板挂载时丢失未保存内容。
+  if (matchingPanel && !inlineReady) {
+    return <PluginPanelLink panel={matchingPanel} />
+  }
+
   return (
     <div
       data-plugin-app-instance={instanceId}
@@ -81,6 +102,7 @@ export function PluginAppContent({
         launch={state.launch}
         hostVersion={state.hostVersion}
         resourceMeta={state.resourceMeta}
+        onReady={() => setInlineReady(true)}
         displayMode={fullscreen ? "fullscreen" : "inline"}
         onDisplayModeRequest={(mode) => {
           setFullscreen(mode === "fullscreen")
@@ -109,6 +131,27 @@ export function PluginAppContent({
           {fullscreen ? t("inline") : t("fullscreen")}
         </TooltipContent>
       </Tooltip>
+    </div>
+  )
+}
+
+function PluginPanelLink({ panel }: { panel: PluginPanelReference }) {
+  const t = useTranslations("PluginPanels")
+  const { openTab } = useAuxPanelContext()
+  return (
+    <div className="flex min-h-14 items-center justify-between gap-3 rounded-md border px-3 py-2">
+      <span className="min-w-0 truncate text-xs text-muted-foreground">
+        {panel.label}
+      </span>
+      <Button
+        size="xs"
+        variant="outline"
+        className="shrink-0"
+        onClick={() => openTab(`app:${panel.id}`)}
+      >
+        <PanelRightOpen className="size-3.5" />
+        {t("openNamed", { name: panel.label })}
+      </Button>
     </div>
   )
 }
