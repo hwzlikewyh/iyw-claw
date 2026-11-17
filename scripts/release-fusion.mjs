@@ -15,7 +15,9 @@ const PLATFORMS = [
   ["windows", "x86_64", "app_payload_zip", "x64-app-payload.zip"],
   ["windows", "x86_64", "bootstrapper", "x64-bootstrapper.exe"],
   ["windows7", "x86_64", "nsis", "win7-x64-setup.exe"],
+  ["windows7", "x86_64", "bootstrapper", "win7-x64-bootstrapper.exe"],
   ["windows7", "i686", "nsis", "win7-x86-setup.exe"],
+  ["windows7", "i686", "bootstrapper", "win7-x86-bootstrapper.exe"],
   ["darwin", "x86_64", "app_tar_gz", "x64.app.tar.gz"],
   ["darwin", "aarch64", "app_tar_gz", "aarch64.app.tar.gz"],
   ["linux", "x86_64", "appimage", "amd64.AppImage"],
@@ -106,6 +108,9 @@ async function artifactInputs(context, release, directory) {
     const matches = release.assets.filter((asset) =>
       asset.name.endsWith(ending)
     )
+    // 历史发布仍可同步；新发布由 Windows 签名任务生成 Win7 专用向导记录。
+    if (!matches.length && target === "windows7" && packageKind === "bootstrapper")
+      continue
     if (matches.length !== 1)
       throw new Error(`signed release asset missing or ambiguous: ${ending}`)
     const name = matches[0].name

@@ -63,7 +63,7 @@ pub(super) async fn install_silently(task: &Task, identity: &Identity) -> Result
     }
     tracing::info!(version = %identity.version, "[app-update] silent installation started");
     #[cfg(target_os = "windows")]
-    if super::direct_payload::selected(&update) {
+    if super::direct_payload::uses_installer(&update) {
         drop(bytes);
         if let Err(error) = super::direct_handoff::launch(task, &update, true).await {
             task.fail(error);
@@ -197,7 +197,7 @@ async fn install_impl(task: &Task, identity: &Identity) -> Result<(), String> {
     state::set_installing(&task.handle, &task.emitter());
     tracing::info!(version = %update.version, "[app-update] installing cached update after user request");
     #[cfg(target_os = "windows")]
-    if super::direct_payload::selected(&update) {
+    if super::direct_payload::uses_installer(&update) {
         drop(bytes);
         return super::direct_handoff::launch(task, &update, false).await;
     }
@@ -235,12 +235,18 @@ async fn checked_update(
 
 async fn load_or_download(task: &Task, update: &mut Update) -> Result<Vec<u8>, String> {
     state::set_verifying(&task.handle, &task.emitter());
+    #[cfg(target_os = "windows")]
+    if super::direct_payload::uses_installer(update) {
+        // 向导也在预下载阶段准备，避免退出应用后再请求网络。
+        let _installer = super::direct_installer::prepare(task, update).await?;
+    }
     if let Some(bytes) = desktop_cache::load(&task.app, update).await? {
         return Ok(bytes);
     }
-    if let Some(access_token) = crate::commands::iyw_account::iyw_account_access_token_core(&task.conn)
-        .await
-        .map_err(|error| error.to_string())?
+    if let Some(access_token) =
+        crate::commands::iyw_account::iyw_account_access_token_core(&task.conn)
+            .await
+            .map_err(|error| error.to_string())?
     {
         update.headers.insert(
             "token",
