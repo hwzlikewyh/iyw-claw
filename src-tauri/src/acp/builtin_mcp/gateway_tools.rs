@@ -171,13 +171,14 @@ fn invoke_tool() -> Value {
 fn knowledge_tool() -> Value {
     json!({
         "name": KNOWLEDGE_TOOL,
-        "description": "Search IYW document knowledge directly. The host enforces any files/folders selected by the user for this conversation, including descendants; optional filters cannot expand that selection. Supply one focused query; omit filters when a conversation selection exists. Without a selection, existing optional filters apply. Request only enough results for the question, cite returned document names, and reuse relevant results. No matches means no evidence in this scope; do not broaden automatically. This searches document content, not tool definitions, account identity, or personal memory.",
+        "description": "Search IYW document knowledge directly. When the user attaches knowledge sources to a message, search them before producing the requested answer or deliverable: copy their exact iyw-knowledge://source/ references into sourceRefs. Earlier messages' references remain searchable; select or combine the sets needed for the current question. The host validates that every reference was attached in this conversation for the current account/workspace, then searches only those files/folders and descendants. This does not replace the conversation's default scope. Without sourceRefs, existing conversation scope and optional-filter behavior remain unchanged; filters cannot expand that scope. Use a focused query, request only enough results, cite real document names, and reuse relevant evidence. Distinguish empty results from failures; do not broaden automatically. This searches document content, not tool definitions or personal memory.",
         "inputSchema": {
             "type": "object",
             "required": ["query"],
             "examples": [{"query": "product design requirements", "limit": 5}],
             "properties": {
                 "query": {"type": "string", "minLength": 1, "maxLength": 4096, "description": "The focused question or concepts to retrieve; do not paste the entire conversation."},
+                "sourceRefs": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "maxLength": 512}, "description": "Exact iyw-knowledge://source/ references attached by the user in current or earlier messages. Select a message's set or combine sets as needed. These explicit references take precedence for this search without changing defaults. Do not invent references. Omit category/folderId/fileId when using sourceRefs."},
                 "category": {"type": "integer", "default": 0, "description": "Known numeric category code. Omit to use the default; do not invent category names or codes."},
                 "folderId": {"type": ["string", "integer", "null"], "description": "Optional exact folder ID. Preserve numeric-looking IDs as strings to avoid precision loss. Omit when a conversation selection exists; not a filesystem path."},
                 "fileId": {"type": ["string", "null"], "description": "Optional exact document ID as a string, including numeric-looking IDs. Omit when unrestricted; not an integer or a file path."},

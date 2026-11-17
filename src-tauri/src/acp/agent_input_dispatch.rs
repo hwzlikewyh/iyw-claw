@@ -241,6 +241,14 @@ impl ConnectionManager {
         let blocks = self
             .prepare_agent_image_inputs(agent_type, &state, None, blocks)
             .await?;
+        let blocks = if let Some(db) = self.agent_input_runtime.db() {
+            let id = state.read().await.conversation_id;
+            crate::commands::knowledge::message_sources::prepare_native(&db.conn, id, blocks)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?
+        } else {
+            blocks
+        };
         let codex_image_validation = if agent_type == crate::models::AgentType::Codex
             && blocks
                 .iter()

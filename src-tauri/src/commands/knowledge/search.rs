@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 
 use super::{
     api::KnowledgeClient,
-    models::{Choice, ChoiceKind, Folder},
+    message_sources,
+    models::{Choice, ChoiceKind, Folder, Selection},
     results, selection,
 };
 use crate::app_error::AppCommandError;
@@ -32,36 +33,70 @@ pub async fn search(
 async fn execute(
     conn: &DatabaseConnection,
     id: i32,
-    body: Value,
+    mut body: Value,
 ) -> Result<Value, AppCommandError> {
     let client = KnowledgeClient::new(conn).await?;
     selection::require_conversation(conn, id).await?;
-    let selected = selection::load_scoped(conn, id, &client.scope).await?;
+    let (selected, message_scoped) = scope_for_search(conn, (id, &client.scope), &mut body).await?;
     let value = if selected.selected.is_empty() {
         results::normalize(client.post("search", body).await?)?
     } else {
-        let choices = effective_choices(&client, &selected.selected).await?;
-        let limit = body["limit"].as_u64().unwrap_or(10) as usize;
-        let groups = stream::iter(choices)
-            .map(|choice: Choice| {
-                let client = &client;
-                let body = &body;
-                async move { search_choice(client, body, &choice).await }
-            })
-            .buffered(SEARCH_CONCURRENCY)
-            .try_collect::<Vec<_>>()
-            .await?;
-        results::merge(groups, limit)
+        search_selected(&client, &body, &selected.selected).await?
     };
-    let current = selection::load(conn, Some(id)).await?;
-    if current.scope != client.scope || current.revision != selected.revision {
+    let scope_changed = if message_scoped {
+        selection::account_scope(conn).await? != client.scope
+    } else {
+        let current = selection::load(conn, Some(id)).await?;
+        current.scope != client.scope || current.revision != selected.revision
+    };
+    if scope_changed {
         return Err(AppCommandError::permission_denied(
             "知识库范围或账号已变更，请重新检索",
         ));
     }
-    tracing::info!(conversation_id = id, selected_count = selected.selected.len(),
+    tracing::info!(conversation_id = id, message_scoped, selected_count = selected.selected.len(),
         count = ?value["count"].as_u64(), "[knowledge] search completed");
     Ok(value)
+}
+
+async fn scope_for_search(
+    conn: &DatabaseConnection,
+    context: (i32, &str),
+    body: &mut Value,
+) -> Result<(Selection, bool), AppCommandError> {
+    let references = body
+        .as_object_mut()
+        .and_then(|body| body.remove("sourceRefs"))
+        .unwrap_or(Value::Null);
+    if references.is_null() {
+        return Ok((
+            selection::load_scoped(conn, context.0, context.1).await?,
+            false,
+        ));
+    }
+    let references: Vec<String> = serde_json::from_value(references)
+        .map_err(|_| AppCommandError::invalid_input("知识库 sourceRefs 无效"))?;
+    Ok((
+        message_sources::resolve(conn, context, &references).await?,
+        true,
+    ))
+}
+
+async fn search_selected(
+    client: &KnowledgeClient,
+    body: &Value,
+    selected: &[Choice],
+) -> Result<Value, AppCommandError> {
+    let choices = effective_choices(client, selected).await?;
+    let groups = stream::iter(choices)
+        .map(|choice: Choice| async move { search_choice(client, body, &choice).await })
+        .buffered(SEARCH_CONCURRENCY)
+        .try_collect::<Vec<_>>()
+        .await?;
+    Ok(results::merge(
+        groups,
+        body["limit"].as_u64().unwrap_or(10) as usize,
+    ))
 }
 
 async fn search_choice(

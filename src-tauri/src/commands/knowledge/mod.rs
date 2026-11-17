@@ -2,6 +2,7 @@ pub mod api;
 pub mod library;
 #[cfg(feature = "tauri-runtime")]
 pub mod library_commands;
+pub mod message_sources;
 pub mod models;
 mod results;
 pub mod search;

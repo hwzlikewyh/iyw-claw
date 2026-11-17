@@ -34,25 +34,27 @@ export function CollapsedPluginRail({
   )
   if (!slot || isOpen || !restored || !tabs.length) return null
   return createPortal(
-    <nav
-      aria-label={t("openedApps")}
-      className="pointer-events-none flex h-full w-9 flex-col items-center gap-1 overflow-y-auto py-2"
-    >
-      {tabs.map((tab) => (
-        <PluginRailButton
-          key={tab.id}
-          tab={tab}
-          moving={panels.detachingId === tab.id}
-          open={() => {
-            closePanel()
-            void closeBrowser()
-            route.openConversations()
-            setActiveTab(`app:${tab.id}`)
-            setOpen(true)
-          }}
-        />
-      ))}
-    </nav>,
+    <div className="pointer-events-none flex h-full min-h-0 w-9 flex-col pb-3 pt-24">
+      <nav
+        aria-label={t("openedApps")}
+        className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain"
+      >
+        {tabs.map((tab) => (
+          <PluginRailButton
+            key={tab.id}
+            tab={tab}
+            moving={panels.detachingId === tab.id}
+            open={() => {
+              closePanel()
+              void closeBrowser()
+              route.openConversations()
+              setActiveTab(`app:${tab.id}`)
+              setOpen(true)
+            }}
+          />
+        ))}
+      </nav>
+    </div>,
     slot
   )
 }

@@ -9,7 +9,18 @@ import { insertPluginReferences } from "@/components/chat/composer/plugin-refere
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
 import { KnowledgeComposerChip } from "@/components/chat/knowledge/knowledge-composer-chip"
-import { setKnowledgeComposerSelection } from "@/lib/knowledge-composer-context"
+import { useKnowledgeQueueDraft } from "@/components/chat/knowledge/use-knowledge-composer-selection"
+import {
+  clearKnowledgeComposerSelection,
+  restoreKnowledgeComposerSelection,
+  useKnowledgeComposerContext,
+} from "@/lib/knowledge-composer-context"
+import {
+  isKnowledgeSourceBlock,
+  knowledgePrompt,
+  knowledgeSelectionFromBlocks,
+} from "@/lib/knowledge-prompt"
+import type { KnowledgeSelection } from "@/lib/cloud-knowledge"
 import { useNativeShareComposer } from "@/components/native-share/use-native-share-composer"
 import { ComposerActivityBorder } from "./composer-activity-border"
 import { PluginComposerChip } from "./plugin-composer-chip"
@@ -276,6 +287,8 @@ interface PendingSendSnapshot {
   composerInstanceId: string
   fallbackText: string
   mutationVersion: number
+  knowledgeSelection?: KnowledgeSelection
+  knowledgeRestoreVersion?: number
 }
 
 type PendingSendRestoreListener = (snapshot: PendingSendSnapshot) => boolean
@@ -1032,6 +1045,7 @@ export function MessageInput({
     [effectiveDraftStorageKey, isEditingQueueItem, onEphemeralDraftChange]
   )
   const embeddedPayloadsRef = useRef<Map<string, PromptInputBlock>>(new Map())
+  useKnowledgeQueueDraft(attachmentTabId, isEditingQueueItem)
   useConversationWindowDraft({
     tabId: attachmentTabId,
     ready: composerHydrated,
@@ -1327,7 +1341,17 @@ export function MessageInput({
   const hydrateFromBlocks = useCallback(
     (editor: Editor, blocks: PromptInputBlock[]) => {
       embeddedPayloadsRef.current.clear()
-      const restored = restoreBlocksIntoEditor(editor, blocks)
+      if (attachmentTabId) {
+        clearKnowledgeComposerSelection(attachmentTabId)
+        restoreKnowledgeComposerSelection(
+          attachmentTabId,
+          knowledgeSelectionFromBlocks(blocks)
+        )
+      }
+      const restored = restoreBlocksIntoEditor(
+        editor,
+        blocks.filter((block) => !isKnowledgeSourceBlock(block))
+      )
       const { images, uploads } = prepareRestoredImages(restored)
       setAttachments(images)
       for (const image of images) {
@@ -1343,7 +1367,7 @@ export function MessageInput({
       uploadRestoredImages(uploads)
       insertRestoredResources(editor, restored, embeddedPayloadsRef.current)
     },
-    [setAttachments, updateInlineImage, uploadRestoredImages]
+    [attachmentTabId, setAttachments, updateInlineImage, uploadRestoredImages]
   )
 
   const takeWindowDraft = useCallback(() => {
@@ -1351,6 +1375,11 @@ export function MessageInput({
     if (!draft) return false
     if (draft.doc) editorRef.current?.setDoc(draft.doc)
     embeddedPayloadsRef.current = new Map(draft.embeddedPayloads)
+    if (attachmentTabId)
+      restoreKnowledgeComposerSelection(
+        attachmentTabId,
+        knowledgeSelectionFromBlocks([...embeddedPayloadsRef.current.values()])
+      )
     setAttachments(draft.attachments)
     for (const attachment of draft.attachments) {
       if (attachment.type === "image") {
@@ -3590,7 +3619,13 @@ export function MessageInput({
             hiddenFromDisplay: packageMeta.hiddenFromDisplay === true,
           }
         : undefined
-    return pluginPrompt(attachmentTabId, { blocks, displayText, skillPackage })
+    return knowledgePrompt(
+      pluginPrompt(attachmentTabId, { blocks, displayText, skillPackage }),
+      attachmentTabId
+        ? useKnowledgeComposerContext.getState().entries[attachmentTabId]
+            ?.selection
+        : undefined
+    )
   }, [attachmentTabId, skillPrefix, t, tAttach])
 
   // Clear the accepted draft immediately. Invalidate the pre-send debounce so
@@ -3611,8 +3646,10 @@ export function MessageInput({
     setHasSideCommand(false)
     setDraftTask(null)
     embeddedPayloadsRef.current.clear()
+    if (attachmentTabId) clearKnowledgeComposerSelection(attachmentTabId)
     closeSlashMenu()
   }, [
+    attachmentTabId,
     cancelPendingDraftSave,
     closeSlashMenu,
     effectiveDraftStorageKey,
@@ -3629,9 +3666,14 @@ export function MessageInput({
         composerInstanceId: composerInstanceIdRef.current,
         fallbackText: draft.displayText.trim(),
         mutationVersion: composerMutationVersionRef.current,
+        knowledgeSelection: knowledgeSelectionFromBlocks(draft.blocks),
+        knowledgeRestoreVersion: attachmentTabId
+          ? (useKnowledgeComposerContext.getState().entries[attachmentTabId]
+              ?.version ?? 0) + 1
+          : undefined,
       }
     },
-    []
+    [attachmentTabId]
   )
 
   const restoreRejectedSend = useCallback(
@@ -3649,7 +3691,13 @@ export function MessageInput({
         unchanged &&
         attachmentsRef.current.length === 0 &&
         editor.getText().trim() === snapshot.fallbackText
+      const knowledgeDraftChanged =
+        attachmentTabId &&
+        snapshot.knowledgeRestoreVersion !== undefined &&
+        useKnowledgeComposerContext.getState().entries[attachmentTabId]
+          ?.version !== snapshot.knowledgeRestoreVersion
       if (
+        knowledgeDraftChanged ||
         !unchanged ||
         (!editor.isEmpty() && !onlyFailureFallback) ||
         attachmentsRef.current.length > 0
@@ -3659,12 +3707,18 @@ export function MessageInput({
       embeddedPayloadsRef.current = new Map(snapshot.embeddedPayloads)
       editor.setDoc(snapshot.doc)
       setAttachments(snapshot.attachments)
+      if (attachmentTabId)
+        restoreKnowledgeComposerSelection(
+          attachmentTabId,
+          snapshot.knowledgeSelection,
+          snapshot.knowledgeRestoreVersion
+        )
       setComposerEmpty(editor.isEmpty())
       setDraftTask(getTaskReference(restoredEditor))
       editor.focus()
       return true
     },
-    [setAttachments]
+    [attachmentTabId, setAttachments]
   )
 
   const pendingSendScope = attachmentTabId ?? effectiveDraftStorageKey
@@ -4875,10 +4929,6 @@ export function MessageInput({
         open={knowledgeOpen}
         onOpenChange={setKnowledgeOpen}
         tabId={attachmentTabId}
-        onSelectionSaved={(selection) => {
-          if (attachmentTabId)
-            setKnowledgeComposerSelection(attachmentTabId, selection)
-        }}
       />
       <VoiceErrorDialog
         kind={voiceErrorKind}

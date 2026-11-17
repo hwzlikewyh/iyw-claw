@@ -45,8 +45,7 @@ export function isPluginPanelVisibleForConversation(
       tab.conversationId < 0 &&
       draftPluginTab(tab.conversationId) ===
         useTabStore.getState().activeTabId) ||
-    tab.conversationId === conversationId ||
-    (tab.kind === "studio-url" && tab.conversationId === null)
+    (tab.conversationId != null && tab.conversationId === conversationId)
   )
 }
 
