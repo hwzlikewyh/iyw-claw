@@ -150,19 +150,22 @@ export const SuggestionPopup = forwardRef<
   useEffect(() => {
     const abort = new AbortController()
     let active = true
-    const timer = setTimeout(() => {
-      Promise.resolve(search(state.query, abort.signal))
-        .then((groups) => {
-          if (!active || abort.signal.aborted) return
-          setResult({ query: state.query, groups })
-          setSelectedIndex(0)
-        })
-        .catch(() => {
-          if (!active || abort.signal.aborted) return
-          setResult({ query: state.query, groups: [] })
-          setSelectedIndex(0)
-        })
-    }, FETCH_DEBOUNCE_MS)
+    const timer = setTimeout(
+      () => {
+        Promise.resolve(search(state.query, abort.signal))
+          .then((groups) => {
+            if (!active || abort.signal.aborted) return
+            setResult({ query: state.query, groups })
+            setSelectedIndex(0)
+          })
+          .catch(() => {
+            if (!active || abort.signal.aborted) return
+            setResult({ query: state.query, groups: [] })
+            setSelectedIndex(0)
+          })
+      },
+      state.query.trim() ? FETCH_DEBOUNCE_MS : 0
+    )
     return () => {
       active = false
       abort.abort()

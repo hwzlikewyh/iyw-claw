@@ -7,6 +7,7 @@ import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 import { useFileTree, type FlatFileEntry } from "@/hooks/use-file-tree"
 import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
 import { gitLog, listAllConversations } from "@/lib/api"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import type {
   AcpAgentInfo,
   DbConversationSummary,
@@ -202,7 +203,7 @@ export interface UseReferenceSearchOptions {
  * on window focus) updates the refs but leaves `search` identity untouched — the
  * open panel keeps its results and the user's selection (R7).
  *
- * Files and agents are hook-loaded (and pre-warmed via `enabled`). Sessions and
+ * 文件按需读取：空查询加载当前目录，输入名称后才扫描子目录。Sessions and
  * the git log are fetched lazily on the first `@`, key-cached in a ref, and
  * awaited by `search` so the first open is populated without an extra keystroke;
  * window focus busts those caches so they stay fresh.
@@ -214,9 +215,10 @@ export function useReferenceSearch({
 }: UseReferenceSearchOptions): ReferenceSearch {
   const path = defaultPath || null
 
-  const { allFiles, loaded } = useFileTree({
+  const { load: loadFiles, loadRoot } = useFileTree({
     folderPath: path ?? undefined,
     enabled,
+    automatic: false,
   })
   const { agents } = useAcpAgents()
   const tAgentSdk = useAgentSdkTranslations()
@@ -231,10 +233,8 @@ export function useReferenceSearch({
   // Mirror every changing source into a ref so `search` can stay identity-stable
   // (see the doc comment). Initialized from the first render so the refs are
   // sane even before the sync effect below runs.
-  const filesRef = useRef<{ root: string | null; files: FlatFileEntry[] }>({
-    root: null,
-    files: [],
-  })
+  const loadFilesRef = useRef(loadFiles)
+  const loadRootRef = useRef(loadRoot)
   const agentsRef = useRef(presentedAgents)
   const pathRef = useRef(path)
   const enabledRef = useRef(enabled)
@@ -249,19 +249,14 @@ export function useReferenceSearch({
   useIsomorphicLayoutEffect(() => {
     pathRef.current = path
     enabledRef.current = enabled
-  }, [path, enabled])
+    loadFilesRef.current = loadFiles
+    loadRootRef.current = loadRoot
+  }, [path, enabled, loadFiles, loadRoot])
 
   useEffect(() => {
-    // Only expose files once the tree has loaded for the *current* path, so the
-    // search never joins the current workspace root onto a previous folder's
-    // relative paths during a folder switch.
-    filesRef.current =
-      loaded && path
-        ? { root: path, files: allFiles }
-        : { root: null, files: [] }
     agentsRef.current = presentedAgents
     labelsRef.current = labels
-  }, [allFiles, loaded, path, presentedAgents, labels])
+  }, [presentedAgents, labels])
 
   // Lazily-fetched network sources, key-cached so repeat searches reuse the
   // in-flight/resolved promise while a folder switch refetches.
@@ -287,15 +282,21 @@ export function useReferenceSearch({
   }, [])
 
   return useCallback<ReferenceSearch>(async (query, signal) => {
-    if (!enabledRef.current) return []
+    if (signal?.aborted || !enabledRef.current) return []
 
     const path = pathRef.current
 
     // Lazy session fetch. On rejection the cache entry is cleared (not cached as
     // an empty result) so the next `@` retries instead of wedging on `[]`.
     const sessionsKey = "all"
+    const workspace = useAppWorkspaceStore.getState()
     let sessionsEntry = sessionsRef.current
-    if (sessionsEntry?.key !== sessionsKey) {
+    if (!workspace.conversationsLoading && !workspace.conversationsError) {
+      sessionsEntry = {
+        key: sessionsKey,
+        promise: Promise.resolve(workspace.conversations),
+      }
+    } else if (sessionsEntry?.key !== sessionsKey) {
       const created: NonNullable<typeof sessionsRef.current> = {
         key: sessionsKey,
         promise: listAllConversations().catch(() => {
@@ -329,9 +330,10 @@ export function useReferenceSearch({
       commitsRef.current = null
     }
 
-    const [sessions, commits] = await Promise.all([
+    const [sessions, commits, files] = await Promise.all([
       sessionsEntry.promise,
       commitsPromise,
+      query.trim() ? loadFilesRef.current() : loadRootRef.current(),
     ])
     // Discard this result if it can no longer be trusted for the live panel: a
     // newer query aborted us, the composer was disabled, or the workspace folder
@@ -343,12 +345,11 @@ export function useReferenceSearch({
       return []
     }
 
-    const fileState = filesRef.current
     return buildReferenceGroups(
       query,
       {
-        files: fileState.files,
-        workspaceRoot: fileState.root,
+        files,
+        workspaceRoot: path,
         agents: agentsRef.current,
         sessions,
         commits,

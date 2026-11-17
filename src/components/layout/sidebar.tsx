@@ -27,7 +27,7 @@ import {
   SidebarConversationList,
   type SidebarConversationListHandle,
 } from "@/components/conversations/sidebar-conversation-list"
-import { NewFolderDropdown } from "@/components/layout/new-folder-dropdown"
+import { SidebarProjectActions } from "@/components/layout/sidebar-project-actions"
 import { SidebarAccountSettings } from "@/components/layout/sidebar-account-settings"
 import {
   focusSidebarToggleAfterCollapse,
@@ -194,10 +194,7 @@ export function Sidebar() {
                 ) : null
               }
             />
-            <NewFolderDropdown
-              showLabel
-              buttonClassName="h-9 w-full justify-start rounded-md border border-sidebar-border/80 bg-sidebar text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            />
+            <SidebarProjectActions />
           </div>
 
           <nav className="grid shrink-0 gap-0.5 border-b border-sidebar-border/60 px-2 py-2">
@@ -284,7 +281,7 @@ export function Sidebar() {
               onClick={handleNewConversation}
               tone="primary"
             />
-            <NewFolderDropdown buttonClassName="h-9 w-9 rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+            <SidebarProjectActions compact />
           </div>
           <div className="h-px w-7 shrink-0 bg-sidebar-border/70" />
           <nav className="flex shrink-0 flex-col items-center gap-1.5 py-2">

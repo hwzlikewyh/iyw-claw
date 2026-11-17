@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { isDesktop } from "@/lib/platform"
+import { isDesktop, openFileDialog } from "@/lib/platform"
 import Image from "next/image"
 import { useLocale, useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
@@ -61,6 +61,10 @@ import {
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
 import type { EditorImageResult } from "@/components/image-editor/image-editor-model"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
+import {
+  ProjectReferenceDialog,
+  type ProjectReferenceSelection,
+} from "@/components/chat/project-reference-dialog"
 import {
   buildFileUri,
   buildFileUriWithRange,
@@ -736,8 +740,7 @@ export function MessageInput({
     [t]
   )
 
-  // Live data sources for the unified `@` mention panel. Pre-warmed only while
-  // this composer is the active one (`enabled`). Referentially stable.
+  // 只为当前输入框开放按需引用搜索，首次打开不预扫整个工作区。
   const referenceSearch = useReferenceSearch({
     defaultPath: defaultPath ?? null,
     enabled: isActive,
@@ -1237,6 +1240,7 @@ export function MessageInput({
         name: string
         uri?: string
         realBlock?: PromptInputBlock
+        fileKind?: "file" | "dir"
       }>,
       opts: { atCaret?: boolean } = {}
     ) => {
@@ -1266,7 +1270,7 @@ export function MessageInput({
             id: refUri,
             label: item.name,
             uri: refUri,
-            meta: { fileKind: "file" },
+            meta: { fileKind: item.fileKind ?? "file" },
           })
           .insertContent(" ")
         inserted++
@@ -2226,6 +2230,45 @@ export function MessageInput({
   }, [appendNativePickedPaths, defaultPath, disabled, tAttach])
 
   const [serverFilePickerOpen, setServerFilePickerOpen] = useState(false)
+  const [projectReferenceOpen, setProjectReferenceOpen] = useState(false)
+  const handleProjectReferenceSelect = useCallback(
+    (selection: ProjectReferenceSelection) => {
+      insertFileReferences(
+        [
+          {
+            name: selection.name,
+            uri: buildFileUri(selection.path),
+            fileKind: selection.kind,
+          },
+        ],
+        { atCaret: true }
+      )
+    },
+    [insertFileReferences]
+  )
+  const handlePickReferenceFolder = useCallback(async () => {
+    if (disabled) return
+    try {
+      const path = await openFileDialog({
+        directory: true,
+        multiple: false,
+        defaultPath: defaultPath ?? undefined,
+      })
+      if (typeof path !== "string" || !path.trim()) return
+      handleProjectReferenceSelect({
+        path,
+        name:
+          path
+            .replace(/[\\/]+$/, "")
+            .split(/[\\/]/)
+            .pop() || path,
+        kind: "dir",
+      })
+    } catch (error) {
+      console.error("[MessageInput] reference folder failed:", error)
+      toast.error(t("projectReference.loadError"))
+    }
+  }, [defaultPath, disabled, handleProjectReferenceSelect, t])
 
   const handleUploadLocalFiles = useCallback(async () => {
     if (disabled) return
@@ -3565,6 +3608,12 @@ export function MessageInput({
                           {t("attachServerFile")}
                         </DropdownMenuItem>
                       )}
+                      <DropdownMenuItem
+                        onClick={() => setProjectReferenceOpen(true)}
+                      >
+                        <Folder className="size-4" />
+                        {t("projectReference.menuLabel")}
+                      </DropdownMenuItem>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                           <Folder className="size-4" />
@@ -4061,6 +4110,13 @@ export function MessageInput({
             : undefined
         }
         onApply={previewAttachment ? applyAttachmentEdit : undefined}
+      />
+      <ProjectReferenceDialog
+        open={projectReferenceOpen}
+        onOpenChange={setProjectReferenceOpen}
+        rootPath={defaultPath ?? null}
+        onSelect={handleProjectReferenceSelect}
+        onBrowseFolder={handlePickReferenceFolder}
       />
       {!showNativePaperclip && (
         <ServerFileBrowserDialog

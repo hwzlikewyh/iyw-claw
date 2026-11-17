@@ -152,7 +152,7 @@ export interface TabStoreState {
       inheritFromActive?: boolean
       folderDefaultAgent?: AgentType | null
     }
-  ) => void
+  ) => Promise<boolean>
   openChatModeTab: () => void
   setChatDraftWorkingDir: (tabId: string, workingDir: string) => void
   confirmDraftAgent: (tabId: string, agentType: AgentType) => void
@@ -255,6 +255,46 @@ const childSeedBuffer = new Map<
 >()
 let seedEpoch = 0
 const previewReplacedCallbacks = new Set<(tabId: string) => void>()
+const draftRetargetCompletions = new WeakMap<
+  DraftRetargetRequest,
+  (opened: boolean) => void
+>()
+
+async function retargetDraft(request: DraftRetargetRequest) {
+  let opened = false
+  try {
+    await runtime.acpDisconnect(request.tabId)
+    const state = useTabStore.getState()
+    const target = state.rawTabs.find((tab) => tab.id === request.tabId)
+    if (!target || target.conversationId != null) return
+    if (
+      target.agentType !== request.expectedAgent &&
+      !target.agentTypeProvisional
+    )
+      return
+    useTabStore.setState({
+      rawTabs: state.rawTabs.map((tab) =>
+        tab.id === request.tabId
+          ? {
+              ...tab,
+              folderId: request.folderId,
+              workingDir: request.workingDir,
+              agentType: request.agentType,
+              agentTypeProvisional: request.provisional,
+              isChat: false,
+            }
+          : tab
+      ),
+    })
+    recomputeTabs()
+    opened = useTabStore.getState().activeTabId === request.tabId
+  } catch (error) {
+    console.error("[TabStore] disconnect draft tab:", error)
+  } finally {
+    draftRetargetCompletions.get(request)?.(opened)
+    draftRetargetCompletions.delete(request)
+  }
+}
 let correctionRan = false
 let recoveryRan = false
 // Tracks the last `conversations` reference recomputeTabs derived against, so
@@ -699,7 +739,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         ?.kind === "chat"
     ) {
       get().openChatModeTab()
-      return
+      return Promise.resolve(false)
     }
     const inheritFromActive = options?.inheritFromActive === true
     let inherit: AgentType | null = null
@@ -740,7 +780,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       set({ rawTabs: [...prevState.rawTabs, newTab], activeTabId: tabId })
       recomputeTabs()
       runtime.activateConversationPane()
-      return
+      return Promise.resolve(true)
     }
 
     const folderChanged = existingTab.folderId !== folderId
@@ -749,20 +789,22 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     const provisionalChanged =
       (existingTab.agentTypeProvisional ?? false) !== provisional
 
+    let completion = Promise.resolve(true)
     if (folderChanged || agentChanged) {
+      const request: DraftRetargetRequest = {
+        tabId: existingTab.id,
+        expectedAgent: existingTab.agentType,
+        folderId,
+        workingDir,
+        agentType: targetAgent,
+        provisional,
+      }
+      completion = new Promise((resolve) => {
+        draftRetargetCompletions.set(request, resolve)
+      })
       set({
         activeTabId: existingTab.id,
-        draftRetargetRequests: [
-          ...prevState.draftRetargetRequests,
-          {
-            tabId: existingTab.id,
-            expectedAgent: existingTab.agentType,
-            folderId,
-            workingDir,
-            agentType: targetAgent,
-            provisional,
-          },
-        ],
+        draftRetargetRequests: [...prevState.draftRetargetRequests, request],
       })
     } else if (workingDirChanged || provisionalChanged) {
       set({
@@ -778,6 +820,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       set({ activeTabId: existingTab.id })
     }
     runtime.activateConversationPane()
+    return completion
   },
 
   openChatModeTab: () => {
@@ -1387,39 +1430,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     }
 
     for (const request of consumedRequests) {
-      void (async () => {
-        try {
-          await runtime.acpDisconnect(request.tabId)
-        } catch (err) {
-          console.error("[TabStore] disconnect draft tab:", err)
-        }
-
-        const rawTabs = get().rawTabs
-        const target = rawTabs.find((tab) => tab.id === request.tabId)
-        if (!target) return
-        if (target.conversationId != null) return
-        if (
-          target.agentType !== request.expectedAgent &&
-          !target.agentTypeProvisional
-        ) {
-          return
-        }
-        set({
-          rawTabs: rawTabs.map((tab) =>
-            tab.id === request.tabId
-              ? {
-                  ...tab,
-                  folderId: request.folderId,
-                  workingDir: request.workingDir,
-                  agentType: request.agentType,
-                  agentTypeProvisional: request.provisional,
-                  isChat: false,
-                }
-              : tab
-          ),
-        })
-        recomputeTabs()
-      })()
+      void retargetDraft(request)
     }
   },
 

@@ -224,7 +224,7 @@ export interface TabContextValue {
       inheritFromActive?: boolean
       folderDefaultAgent?: TabItem["agentType"] | null
     }
-  ) => void
+  ) => Promise<boolean>
   openChatModeTab: () => void
   setChatDraftWorkingDir: (tabId: string, workingDir: string) => void
   confirmDraftAgent: (tabId: string, agentType: TabItem["agentType"]) => void
