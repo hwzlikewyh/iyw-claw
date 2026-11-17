@@ -38,6 +38,10 @@ import { normalizeToolResultError } from "@/lib/memory-policy-error"
 import { extractDeliveredImage } from "@/lib/image-delivery"
 import { resolveRemoteToolDisplayNames } from "@/lib/remote-tool-display"
 import { parsePluginPromptInstruction } from "@/lib/plugin-prompt"
+import {
+  extractSerializedKnowledgeSources,
+  knowledgeSourceKind,
+} from "@/lib/knowledge-source-display"
 
 const AGENT_LESSON_START = "<!-- IYW_CLAW_AGENT_LESSON_V1 "
 const AGENT_LESSON_END = " -->"
@@ -838,6 +842,13 @@ function handleMarkdownLink(
     rawUri.startsWith("<") && rawUri.endsWith(">")
       ? rawUri.slice(1, -1).trim()
       : rawUri
+  if (knowledgeSourceKind(normalizedUri)) {
+    addResource(resources, {
+      name: unescapeReferenceLabel(normalizedLabel),
+      uri: normalizedUri,
+    })
+    return ""
+  }
   // A `iyw-claw://` reference (session / commit / agent) renders as an inline badge
   // in the transcript (markdown-link → ReferenceBadge); never lift it to the
   // bottom resource-chip row. The guard mirrors markdown-link's interception
@@ -890,13 +901,15 @@ export function extractUserResourcesFromText(text: string): {
   resources: UserResourceDisplay[]
 } {
   const resources: UserResourceDisplay[] = []
+  const serialized = extractSerializedKnowledgeSources(text)
+  for (const resource of serialized.resources) addResource(resources, resource)
   // Tokenize into alternating [prose, link, prose, link, …] so the
   // blocked-mention pass only ever touches PLAIN PROSE — never the inside of a
   // kept Markdown file link, whose label/uri could otherwise coincidentally
   // contain an `@…[blocked…]` pattern and be mutated before extraction. The link
   // segments are handled verbatim by `handleMarkdownLink`.
   let out = ""
-  for (const token of tokenizeReferenceLinks(text)) {
+  for (const token of tokenizeReferenceLinks(serialized.text)) {
     out +=
       token.type === "link"
         ? handleMarkdownLink(
