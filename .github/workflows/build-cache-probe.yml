@@ -59,7 +59,7 @@ jobs:
   macos:
     needs: frontend
     name: Compile ${{ matrix.target }}
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -171,7 +171,7 @@ jobs:
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1 --config profile.release.package.iyw-claw.codegen-units=16
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Verify Windows embedded runtime compatibility
         run: |

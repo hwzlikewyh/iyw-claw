@@ -33,7 +33,7 @@ on:
       build_matrix:
         required: false
         type: string
-        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"64","lto":"off","optional":false}]}'
+        default: '{"include":[{"name":"macOS x64","runner":"macos-15-intel","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"macOS arm64","runner":"macos-15-intel","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"64","lto":"off","optional":false}]}'
       release_draft:
         required: false
         type: boolean
@@ -408,31 +408,10 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_arm64[ext]
-          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          tauriScript: ${{ inputs.parallel_worker && 'node .release-workflow/.github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
-
-      - name: Build and upload Linux arm64 RPM
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        timeout-minutes: ${{ inputs.parallel_worker && 180 || 100 }}
-        uses: tauri-apps/tauri-action@v0.6.1
-        env:
-          IYW_CLAW_SKIP_SIDECAR: "1"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          releaseId: ${{ inputs.release_id }}
-          tagName: ${{ inputs.release_tag }}
-          releaseBody: ${{ inputs.release_body }}
-          releaseDraft: ${{ inputs.release_draft }}
-          prerelease: ${{ inputs.prerelease }}
-          assetNamePattern: iyw-claw_[version]_arm64[ext]
-          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles rpm --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
-          includeUpdaterJson: false
-          retryAttempts: 0
 
       - name: Build and upload Linux arm64 AppImage
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -450,10 +429,31 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_arm64[ext]
-          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          tauriScript: ${{ inputs.parallel_worker && 'node .release-workflow/.github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
+
+      - name: Build and upload Linux arm64 RPM
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        timeout-minutes: ${{ inputs.parallel_worker && 30 || 100 }}
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: ${{ inputs.release_draft }}
+          prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_arm64[ext]
+          tauriScript: ${{ inputs.parallel_worker && 'node .release-workflow/.github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles rpm --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
+          includeUpdaterJson: false
+          retryAttempts: 0
 
       - name: Verify Linux arm64 bundle size
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -542,7 +542,7 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_amd64[ext]
-          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          tauriScript: ${{ inputs.parallel_worker && 'node .release-workflow/.github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
@@ -568,7 +568,7 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || 'aarch64' }}[ext]
-          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          tauriScript: ${{ inputs.parallel_worker && 'node .release-workflow/.github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
