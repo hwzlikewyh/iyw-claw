@@ -883,6 +883,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const {
     conn,
     ensureConnected: ensureLifecycleConnected,
+    reconnect,
     handleFocus: handleLifecycleFocus,
     handleSend: lifecycleSend,
     handleSetConfigOption,
@@ -892,6 +893,7 @@ const ConversationTabView = memo(function ConversationTabView({
     contextKey: tabId,
     agentType: selectedAgent,
     isActive: isActive && isDocumentVisible && canAutoConnect,
+    canConnect: canAutoConnect,
     workingDir: workingDirForConnection,
     sessionId: dbConversationId != null ? externalId : undefined,
     // Drives cross-client viewer discovery: when another client is already
@@ -3434,7 +3436,7 @@ const ConversationTabView = memo(function ConversationTabView({
       runtimeConnectionId={conn.connectionId}
       conversationId={effectiveConversationId}
       shareConversationId={dbConversationId}
-      onReconnect={ensureConnected}
+      onReconnect={reconnect}
       onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
       sideInject={sideInject}
       onSideInjectConsumed={consumeSideInject}
