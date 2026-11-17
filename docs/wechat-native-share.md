@@ -43,6 +43,22 @@ Windows 显示资源随正式包完整交付：44/150 基础图标、100%～400%
 16/24/32/48/256 像素的目标图标及 unplated 变体，以及主 PRI 与所有缩放 PRI。
 构建和安装包校验使用同一资源规格，检查图像尺寸及包内外资源哈希，缺件时停止打包。
 
+稀疏身份包的 `VisualElements` 图标路径相对于 `ExternalLocation`（主程序所在的
+`app/`），仅在 MSIX 内或 `app/native-share/` 中提供图标不足以供任务栏读取。
+注册脚本在返回“已注册”之前，将 `Assets/` 与所有 PRI 同步到 `app/`，只更新缺失或
+摘要不一致的资源，并通知 Shell 重新读取图标。`-CheckOnly` 同时检查这个实际读取位置，
+保持只读；已注册的同版本缺资源时直接补齐，不卸载正在使用的身份包。
+NSIS 和直接载荷安装均调用该脚本；新安装向导也补齐旧应用包中缺少的外部资源，
+以兼容仍在使用旧注册脚本的已安装版本。
+
+2026-11-17 在已运行的 `0.1.350` 上确认：包身份为
+`IywAssistant.Desktop_yvw4kk77tj4e6!Share.Hub`，Shell 的安装路径为 `app/`，
+而该目录缺少 `Assets/` 和 PRI。按包身份提取图标得到默认图标，按 EXE 提取正常。
+补齐 27 个资源文件后，同一 Shell 查询返回蓝色 Logo；发送 Shell 变更通知后，
+原进程的任务栏按钮也恢复，未重启应用或资源管理器。随后使用正常注册入口验证了
+缺件检查返回 1 且不写文件、同版本补齐成功、最终检查返回 0。
+依据：[Microsoft：Localization and Visual Assets](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps#localization-and-visual-assets)。
+
 无签名构建保留主程序内置接收代码，不发布可注册的 MSIX；不会创建自签名证书或修改信任库。
 手动导入仍可用。`--no-sign` 构建会明确切换为这种行为，避免打包旧的签名制品。
 

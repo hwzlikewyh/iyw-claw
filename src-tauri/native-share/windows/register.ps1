@@ -85,9 +85,9 @@ if (-not (Test-Path -LiteralPath $packagePath)) { throw '当前安装包没有�
 if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) { throw '原助理主程序缺失，请重新安装正式安装包。' }
 if (-not (Test-Path -LiteralPath (Join-Path $shareRoot 'share-resources.ps1') -PathType Leaf)) { throw '分享资源校验脚本缺失，请重新安装正式安装包。' }
 . (Join-Path $shareRoot 'share-resources.ps1')
-Assert-ShareResources $shareRoot
 $configuration = Get-Content -LiteralPath (Join-Path $shareRoot 'config.json') -Encoding UTF8 -Raw | ConvertFrom-Json
 if (-not $configuration.signed -or $configuration.receiver -ne 'main') { throw '当前构建没有可注册的主程序分享身份包。' }
+if (-not (Sync-ShareExternalResources -Source $shareRoot -Destination $appDirectory -CheckOnly:$CheckOnly)) { exit 1 }
 $expectedVersion = [version]$configuration.packageVersion
 if ($owned -and ($installed | Where-Object { $_.Version -ge $expectedVersion -and $_.Status -eq 'Ok' -and (Test-ShareManifest $_) -and (Test-RegisteredShareResources $_) })) {
     if ($CheckOnly -and $legacyPackages.Count -gt 0) { exit 1 }
