@@ -261,14 +261,11 @@ jobs:
         if: ${{ !contains(inputs.target, '-win7-') }}
         with:
           targets: ${{ inputs.target }}
-      - uses: dtolnay/rust-toolchain@master
-        if: contains(inputs.target, '-win7-')
-        with:
-          toolchain: nightly-2026-04-15
-          components: rust-src
-      - name: Configure Win7 signing toolchain
+      - name: Prepare Win7 signing toolchain
         if: contains(inputs.target, '-win7-')
         run: |
+          & ./.release-tools/.github/scripts/release/ensure-win7-toolchain.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Win7 Rust toolchain preparation failed' }
           "RUSTUP_TOOLCHAIN=nightly-2026-04-15" >> $env:GITHUB_ENV
           "CARGO_UNSTABLE_BUILD_STD=std,panic_abort" >> $env:GITHUB_ENV
       - uses: pnpm/action-setup@v4
