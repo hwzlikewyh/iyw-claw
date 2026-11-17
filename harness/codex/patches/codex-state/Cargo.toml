@@ -1,6 +1,6 @@
 [package]
 name = "codex-state"
-version = "0.167.1"
+version = "0.169.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -18,25 +18,25 @@ version = "0.4.43"
 
 [dependencies.codex-file-system]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-history]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.file-id]
 version = "0.2.3"
 
 [dependencies.libsqlite3-sys]
-version = "0.37"
+version = "0.39.1"
 default-features = false
 
 [dependencies.log]

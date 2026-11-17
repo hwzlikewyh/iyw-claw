@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-thread-store"
-version = "0.167.1"
+version = "0.169.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -12,53 +12,56 @@ name = "codex_thread_store"
 path = "src/lib.rs"
 doctest = false
 
+[dependencies.caseless]
+version = "0.2.2"
+
 [dependencies.chrono]
 version = "0.4.43"
 features = [ "serde",]
 
 [dependencies.codex-app-server-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-git-utils]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-install-context]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-rollout]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-state]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-path]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.futures]
 version = "0.3"

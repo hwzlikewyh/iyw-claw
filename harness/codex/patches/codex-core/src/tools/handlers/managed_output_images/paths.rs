@@ -22,7 +22,7 @@ pub(super) async fn capture_paths(
     sources: &[&str],
     environment: &TurnEnvironment,
 ) -> NativeOutputImageCapture {
-    if environment.environment.is_remote() {
+    if environment.environment().is_remote() {
         return NativeOutputImageCapture::default();
     }
     let paths = referenced_paths(sources);
