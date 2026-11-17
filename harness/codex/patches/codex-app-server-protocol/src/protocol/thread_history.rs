@@ -5,6 +5,7 @@ use crate::protocol::item_builders::build_file_change_begin_item;
 use crate::protocol::item_builders::build_file_change_end_item;
 use crate::protocol::item_builders::build_item_from_guardian_event;
 use crate::protocol::item_builders::review_output_text;
+use crate::protocol::v2::AgentMessageModeration;
 use crate::protocol::v2::CollabAgentState;
 use crate::protocol::v2::CollabAgentTool;
 use crate::protocol::v2::CollabAgentToolCallStatus;
@@ -616,8 +617,19 @@ impl ThreadHistoryBuilder {
             return;
         }
 
-        let id = self.next_item_id();
+        let legacy_id = self.next_item_id();
+        let id = payload
+            .moderation
+            .as_ref()
+            .map_or(legacy_id, |decision| decision.item_id.clone());
         self.push_item_in_current_turn(ThreadItemPayload::AgentMessage {
+            moderation: payload
+                .moderation
+                .as_ref()
+                .map(|decision| AgentMessageModeration {
+                    moderated: decision.moderated,
+                    display: decision.display.clone().map(Into::into),
+                }),
             id,
             text: payload.message.clone(),
             phase: payload.phase.clone(),
@@ -1439,6 +1451,7 @@ impl ThreadHistoryBuilder {
             if let Some(turn) = self.current_turn.as_mut().filter(|turn| turn.id == turn_id) {
                 let changed_turn = apply_abort(turn);
                 self.record_changed_turn(changed_turn);
+                self.finish_current_turn();
                 return;
             }
 
@@ -1449,10 +1462,13 @@ impl ThreadHistoryBuilder {
             }
         }
 
-        // If the event has no ID (or refers to an unknown turn), fall back to the active turn.
-        if let Some(turn) = self.current_turn.as_mut() {
+        // Fall back only when the abort or the active turn lacks an explicit ID.
+        if let Some(turn) = self.current_turn.as_mut()
+            && (payload.turn_id.is_none() || turn.has_generated_id)
+        {
             let changed_turn = apply_abort(turn);
             self.record_changed_turn(changed_turn);
+            self.finish_current_turn();
         }
     }
 
@@ -1570,6 +1586,7 @@ impl ThreadHistoryBuilder {
     }
 
     fn new_turn(&mut self, id: Option<String>) -> PendingTurn {
+        let has_generated_id = id.is_none();
         let id = id.unwrap_or_else(|| {
             if self.next_rollout_index == 0 {
                 Uuid::now_v7().to_string()
@@ -1579,6 +1596,7 @@ impl ThreadHistoryBuilder {
         });
         PendingTurn {
             id,
+            has_generated_id,
             root_turn_id: None,
             items: Vec::new(),
             item_index: TurnItemIndex::default(),
@@ -1908,6 +1926,7 @@ impl TurnItemIndex {
 
 struct PendingTurn {
     id: String,
+    has_generated_id: bool,
     root_turn_id: Option<String>,
     items: Vec<ThreadItemPayload>,
     item_index: TurnItemIndex,

@@ -419,13 +419,15 @@ pub fn item_event_to_server_notification(
             ))
         }
         EventMsg::ItemCompleted(item_completed_event) => {
-            ServerNotification::ItemCompleted(ItemCompletedNotification::new(
+            let mut notification = ItemCompletedNotification::new(
                 thread_id,
                 turn_id,
                 ThreadItemPayload::from(item_completed_event.item),
                 item_completed_event.started_at_ms,
                 item_completed_event.completed_at_ms,
-            ))
+            );
+            notification.content_token_count = item_completed_event.content_token_count;
+            ServerNotification::ItemCompleted(notification)
         }
         EventMsg::PatchApplyUpdated(event) => {
             ServerNotification::FileChangePatchUpdated(FileChangePatchUpdatedNotification {

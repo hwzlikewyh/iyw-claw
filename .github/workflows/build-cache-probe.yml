@@ -4,6 +4,11 @@ name: Warm Desktop Build Cache
 # 复用正式发布的 target、features、profile 和精确补丁身份；只编译。
 on:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Optional exact application commit for a comparable benchmark
+        required: false
+        type: string
   push:
     branches: [main, ci/cache-probe]
     paths:
@@ -20,7 +25,7 @@ on:
       - .github/workflows/build-cache-probe.yml
 
 concurrency:
-  group: desktop-cache-warmup-${{ github.ref }}
+  group: desktop-cache-warmup-${{ inputs.source_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -37,6 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
       - uses: pnpm/action-setup@v4
         with:
@@ -59,7 +65,7 @@ jobs:
   macos:
     needs: frontend
     name: Compile ${{ matrix.target }}
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -73,6 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
       - uses: pnpm/action-setup@v4
         with:
@@ -117,6 +124,13 @@ jobs:
         with:
           target: ${{ matrix.target }}
       - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-probe-resources-${{ matrix.target }}
+          path: ${{ runner.temp }}/desktop-build-${{ matrix.target }}.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: always()
         uses: ./.github/actions/save-sccache
 
   windows:
@@ -136,6 +150,8 @@ jobs:
     steps:
       - run: git config --global core.longpaths true
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -171,7 +187,7 @@ jobs:
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1 --config profile.release.package.iyw-claw.codegen-units=16
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Verify Windows embedded runtime compatibility
         run: |

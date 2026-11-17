@@ -11,7 +11,7 @@ build = "build.rs"
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-windows-sandbox"
-version = "0.167.1"
+version = "0.169.0"
 
 [lib]
 name = "codex_windows_sandbox"
@@ -23,11 +23,11 @@ bundled-host = []
 
 [dependencies.codex-utils-process]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.anyhow]
 version = "1.0"
@@ -42,25 +42,28 @@ features = [ "clock", "std",]
 
 [dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-utils-string]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.dunce]
 version = "1.0"
 
 [dependencies.glob]
 version = "0.3"
+
+[dependencies.ignore]
+version = "0.4.30"
 
 [dependencies.serde]
 version = "1.0"
@@ -85,7 +88,7 @@ features = [ "Win32_Foundation", "Win32_NetworkManagement_WindowsFirewall", "Win
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "0a94398fa60c4fac0e7659e4213a0a36e613dd46"
+rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
 
 [dependencies.rand]
 default-features = false

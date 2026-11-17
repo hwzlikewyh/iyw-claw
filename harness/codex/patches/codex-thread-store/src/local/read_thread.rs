@@ -323,6 +323,8 @@ async fn read_thread_from_rollout_path(
     })?;
     thread.rollout_path = Some(codex_rollout::plain_rollout_path(path.as_path()));
     let meta_line = read_required_session_meta_line(path.as_path()).await?;
+    thread.creator_user_id = meta_line.meta.creator_user_id;
+    thread.creator_account_id = meta_line.meta.creator_account_id;
     thread.forked_from_id = meta_line.meta.forked_from_id;
     thread.parent_thread_id = meta_line.meta.parent_thread_id;
     thread.history_mode = meta_line.meta.history_mode;
@@ -411,6 +413,14 @@ async fn stored_thread_from_metadata(
         .unwrap_or(metadata.history_mode);
     let name = thread_name_from_metadata(store, &metadata, history_mode).await;
     let mut thread = stored_thread_from_state_metadata(store, metadata, parent_thread_id);
+    if let Some(meta) = &session_meta {
+        thread.creator_user_id = thread
+            .creator_user_id
+            .or_else(|| meta.creator_user_id.clone());
+        thread.creator_account_id = thread
+            .creator_account_id
+            .or_else(|| meta.creator_account_id.clone());
+    }
     thread.originator = thread.originator.or_else(|| {
         session_meta
             .map(|meta| meta.originator)
@@ -440,9 +450,12 @@ pub(super) fn stored_thread_from_state_metadata(
     let permission_profile =
         permission_profile_from_metadata_value(&metadata.sandbox_policy, metadata.cwd.as_path());
     StoredThread {
+        creator_user_id: metadata.creator_user_id,
+        creator_account_id: metadata.creator_account_id,
         thread_id: metadata.id,
         extra_config: None,
         rollout_path: Some(rollout_path),
+        attached_to_thread_id: metadata.attached_thread_parent_id,
         forked_from_id: None,
         parent_thread_id,
         preview,
@@ -543,9 +556,15 @@ fn stored_thread_from_meta_line(
         .unwrap_or(created_at);
     let rollout_path = codex_rollout::plain_rollout_path(path.as_path());
     StoredThread {
+        creator_user_id: meta_line.meta.creator_user_id,
+        creator_account_id: meta_line.meta.creator_account_id,
         thread_id: meta_line.meta.id,
         extra_config: None,
         rollout_path: Some(rollout_path),
+        attached_to_thread_id: meta_line
+            .meta
+            .forked_from_id
+            .filter(|_| meta_line.meta.attached_thread),
         forked_from_id: meta_line.meta.forked_from_id,
         parent_thread_id: meta_line.meta.parent_thread_id,
         preview: String::new(),

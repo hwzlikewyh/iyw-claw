@@ -29,3 +29,49 @@ function Assert-ShareResources([string]$Directory) {
         } finally { $stream.Dispose() }
     }
 }
+function Assert-ShareResourceDestination([string]$Path) {
+    if (Test-Path -LiteralPath $Path) {
+        $entry = Get-Item -LiteralPath $Path -Force
+        if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Share resource destination must not be a link: $Path" }
+    }
+}
+function Update-ShareShellIcons {
+    if (-not ('IywShareShell' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class IywShareShell {
+    [DllImport("shell32.dll")]
+    public static extern void SHChangeNotify(uint events, uint flags, IntPtr item1, IntPtr item2);
+}
+'@
+    }
+    $associationChanged = 0x08000000
+    $idList = 0
+    [IywShareShell]::SHChangeNotify($associationChanged, $idList, [IntPtr]::Zero, [IntPtr]::Zero)
+}
+function Sync-ShareExternalResources([string]$Source, [string]$Destination, [switch]$CheckOnly) {
+    # 稀疏身份包的 VisualElements 相对于 ExternalLocation，不能只校验 WindowsApps 内的副本。
+    Assert-ShareResources $Source
+    Assert-ShareResourceDestination $Destination
+    Assert-ShareResourceDestination (Join-Path $Destination 'Assets')
+    $copied = 0
+    foreach ($name in Get-ShareResourceNames) {
+        $sourceFile = Join-Path $Source $name
+        $destinationFile = Join-Path $Destination $name
+        Assert-ShareResourceDestination $destinationFile
+        $sourceHash = (Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash
+        if ((Test-Path -LiteralPath $destinationFile -PathType Leaf) -and
+            (Get-FileHash -LiteralPath $destinationFile -Algorithm SHA256).Hash -eq $sourceHash) { continue }
+        if ($CheckOnly) { return $false }
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $destinationFile) -Force
+        Copy-Item -LiteralPath $sourceFile -Destination $destinationFile -Force
+        if ((Get-FileHash -LiteralPath $destinationFile -Algorithm SHA256).Hash -ne $sourceHash) { throw "External share resource copy mismatch: $name" }
+        $copied++
+    }
+    if ($copied -gt 0) {
+        Update-ShareShellIcons
+        Write-Host "Restored external shell icon resources: files=$copied"
+    }
+    return $true
+}

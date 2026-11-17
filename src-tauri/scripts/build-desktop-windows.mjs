@@ -253,6 +253,10 @@ export function win7CompileStep(target, webview) {
       "-Z",
       "build-std=std,panic_abort",
       "--timings",
+      "--config",
+      "profile.release.package.iyw-claw.opt-level=1",
+      "--config",
+      "profile.release.package.iyw-claw.codegen-units=16",
     ],
     env: {
       STATIC_VCRUNTIME: "true",

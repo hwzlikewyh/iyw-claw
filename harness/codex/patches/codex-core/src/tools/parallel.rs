@@ -61,15 +61,16 @@ struct DirectToolTiming {
     batch: ToolBatchTiming,
 }
 
-// Remove this boundary when CodeMode and subagent dependencies have runtime capture.
+// Direct spawn and wait calls use this turn's tool time; child work stays on its own turn.
+// CodeMode and follow-up agent operations still lack runtime capture.
 fn direct_path_supported(tool_name: &codex_tools::ToolName, source: &ToolCallSource) -> bool {
     !(matches!(source, ToolCallSource::CodeMode { .. })
         || (tool_name.is_default_namespace()
             && matches!(tool_name.name.as_str(),
                 crate::tools::code_mode::PUBLIC_TOOL_NAME | crate::tools::code_mode::WAIT_TOOL_NAME))
         // Multi-agent tool namespaces can be overridden by the tool catalog.
-        || matches!(tool_name.name.as_str(), "spawn_agent" | "send_input"
-            | "close_agent" | "resume_agent" | "wait_agent" | "list_agents"
+        || matches!(tool_name.name.as_str(), "send_input"
+            | "close_agent" | "resume_agent" | "list_agents"
             | "followup_task" | "interrupt_agent" | "send_message"))
 }
 
@@ -119,6 +120,7 @@ impl ToolCallRuntime {
                 .as_deref(),
         );
         let recorder = self.session.services.executed_tool_calls.clone();
+        let item_id_generator = Arc::clone(&self.session.item_id_generator);
         let recorded_call = recorder.prepare_direct_call(&call, &source, &self.step_context);
         let step_context = Arc::clone(&self.step_context);
         let call_state = Arc::new(ToolCallState::default());
@@ -153,7 +155,11 @@ impl ToolCallRuntime {
                     .get_or_insert_default()
                     .delivered_assistant_message = Some(text.clone());
             }
-            recorder.attach_direct_call_to_output(&mut response.item, recorded_call);
+            recorder.attach_direct_call_to_output(
+                &mut response.item,
+                recorded_call,
+                &item_id_generator,
+            );
             Ok(response)
         }
     }

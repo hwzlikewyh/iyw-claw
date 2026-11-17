@@ -163,7 +163,7 @@ jobs:
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1 --config profile.release.package.iyw-claw.codegen-units=16
           if ($LASTEXITCODE -ne 0) { throw 'Parallel Windows compilation failed' }
       - name: Receive independently compiled worker
         if: inputs.parallel_worker && !contains(inputs.target, '-win7-')
@@ -287,17 +287,16 @@ jobs:
         env:
           ARCHIVE: ${{ steps.download.outputs.archive }}
         run: Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:IYW_CLAW_STAGING_DIR
+      - name: Prepare signed unified installer
+        env:
+          GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.8
       - name: Sign, bundle, verify and upload
         if: ${{ inputs.target != 'x86_64-pc-windows-msvc' }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node .release-tools/.github/scripts/release/windows-release.mjs finalize
-      - name: Prepare signed direct installer
-        if: inputs.target == 'x86_64-pc-windows-msvc'
-        env:
-          GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
-        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.6
       - name: Sign legacy package and direct app payload
         if: inputs.target == 'x86_64-pc-windows-msvc'
         env:

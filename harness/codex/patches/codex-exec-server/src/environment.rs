@@ -431,6 +431,16 @@ impl EnvironmentManager {
             .cloned()
     }
 
+    /// Removes a registration without invalidating existing handles or changing the default ID.
+    /// The caller must coordinate removal with use and registration. The returned environment
+    /// remains alive until its last handle is dropped, outside the registry lock.
+    pub fn remove_environment(&self, environment_id: &str) -> Option<Arc<Environment>> {
+        self.environments
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(environment_id)
+    }
+
     /// Records a Ready or Failed provisioning result for an environment.
     ///
     /// Ordinary environments are ignored. A provisioned environment keeps the same `Arc` from

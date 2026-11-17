@@ -1,0 +1,85 @@
+name: Rebundle Existing Linux ARM64
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing draft version without v
+        required: true
+        type: string
+      source_ref:
+        description: Exact original application source commit
+        required: true
+        type: string
+      release_id:
+        description: Existing draft release ID
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: rebundle-linux-arm64-${{ inputs.version }}
+  cancel-in-progress: false
+jobs:
+  bundle:
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ inputs.version }}
+      SOURCE_REF: ${{ inputs.source_ref }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      GH_TOKEN: ${{ github.token }}
+      IYW_CLAW_SKIP_SIDECAR: "1"
+      TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-workflow
+          sparse-checkout: .github/scripts/release
+          sparse-checkout-cone-mode: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Install bundle dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev patchelf zstd rpm cpio xdg-utils desktop-file-utils
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Restore verified application and resources from signed DEB
+        run: node .release-workflow/.github/scripts/release/rebundle-linux-deb.mjs restore
+      - name: Bundle installable DEB without compiling
+        timeout-minutes: 15
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles deb --config src-tauri/tauri.ci.conf.json
+      - name: Bundle primary AppImage without compiling
+        timeout-minutes: 20
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json
+      - name: Bundle RPM using fast compression without compiling
+        timeout-minutes: 20
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node .release-workflow/.github/scripts/release/bundle-precompiled.mjs build --target aarch64-unknown-linux-gnu --features tauri-runtime --bundles rpm --config src-tauri/tauri.ci.conf.json
+          rpm -qp --qf '%{NAME} %{VERSION} %{ARCH} %{PAYLOADCOMPRESSOR}\n' src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm
+      - name: Verify bundles and publish to the original draft
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node src-tauri/scripts/verify-desktop-bundle-size.mjs --target aarch64-unknown-linux-gnu
+          node .release-workflow/.github/scripts/release/rebundle-linux-deb.mjs publish
