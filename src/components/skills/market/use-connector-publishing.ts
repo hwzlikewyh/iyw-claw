@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { extractAppCommandError } from "@/lib/app-error"
+import { toErrorMessage } from "@/lib/app-error"
+import { toast } from "sonner"
+import {
+  checkConnectorPublishName,
+  connectorPublishId,
+} from "@/lib/market-publishing"
 import {
   connectorUserRequest,
   importConnector,
@@ -11,7 +16,10 @@ import {
   type PendingConnectorUpload,
 } from "@/lib/connector-publishing-upload"
 
-export function useConnectorPublishing(onChanged: () => void) {
+export function useConnectorPublishing(
+  onChanged: () => void,
+  onPublished?: () => void
+) {
   const [draft, setDraft] = useState<OwnedConnector | null>(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -69,11 +77,12 @@ export function useConnectorPublishing(onChanged: () => void) {
     try {
       await work()
     } catch (cause) {
-      if (active.current)
-        setError(
-          extractAppCommandError(cause)?.message ||
-            (cause instanceof Error ? cause.message : String(cause))
-        )
+      if (active.current) {
+        const message = toErrorMessage(cause)
+        setError(message)
+        toast.error(message)
+        console.error("[connector-publishing] operation failed")
+      }
     } finally {
       running.current = false
       if (active.current) {
@@ -134,6 +143,7 @@ export function useConnectorPublishing(onChanged: () => void) {
         if (file.size > 256 * 1024)
           throw Error("连接器声明不能超过256 KiB，组件文件另行上传")
         const value = importConnector(await file.text())
+        value.server_id = ""
         if (active.current) {
           setDraft(value)
           setEditorSession((current) => current + 1)
@@ -145,7 +155,23 @@ export function useConnectorPublishing(onChanged: () => void) {
   const save = () => {
     if (!draft) return
     void run(async () => {
-      const value = await connectorUserRequest<OwnedConnector>("save", draft)
+      if (
+        await checkConnectorPublishName({
+          name: draft.name,
+          excludeId: draft.revision > 0 ? draft.server_id : undefined,
+        })
+      )
+        throw Error("当前账号已有同名连接器")
+      if (!active.current) return
+      const server_id =
+        draft.revision > 0
+          ? draft.server_id
+          : await connectorPublishId(draft.name)
+      if (!active.current) return
+      const value = await connectorUserRequest<OwnedConnector>("save", {
+        ...draft,
+        server_id,
+      })
       if (active.current) {
         setDraft(value)
         setDirty(false)
@@ -176,6 +202,11 @@ export function useConnectorPublishing(onChanged: () => void) {
         setDirty(false)
         setStatus(enabled ? "已发布并回读" : "已下架并回读")
         onChanged()
+        if (enabled) {
+          setDraft(null)
+          setDirty(false)
+          onPublished?.()
+        }
       }
     })
   }

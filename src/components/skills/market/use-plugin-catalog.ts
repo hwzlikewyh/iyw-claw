@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { onMarketCatalogChanged } from "@/lib/market-catalog-events"
 import { toErrorMessage } from "@/lib/app-error"
 import type { SkillMarketV2Item } from "@/lib/skill-market"
 import { getSkillMarketSource } from "@/lib/skill-market-source"
@@ -35,6 +36,7 @@ export function usePluginCatalog(view: PluginCatalogView) {
     error: null as string | null,
   })
   const refresh = useCallback(() => setRevision((value) => value + 1), [])
+  useEffect(() => onMarketCatalogChanged(refresh), [refresh])
 
   useEffect(() => {
     let cancelled = false

@@ -59,9 +59,19 @@ pub async fn request(
     let token = iyw_account_access_token_core(conn)
         .await?
         .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
-    Ok(http_client()?
+    let builder = http_client()?
         .request(method, endpoint(path)?)
-        .header("token", token.expose()))
+        .header("token", token.expose());
+    Ok(
+        if matches!(
+            path,
+            "/skills/list" | "/skills/detail" | "/skills/versions/list" | "/skills/files"
+        ) {
+            builder.header(reqwest::header::CACHE_CONTROL, "no-cache")
+        } else {
+            builder
+        },
+    )
 }
 
 pub async fn send(builder: RequestBuilder) -> Result<serde_json::Value, AppCommandError> {

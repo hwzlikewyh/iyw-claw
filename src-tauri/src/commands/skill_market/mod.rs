@@ -30,6 +30,9 @@ mod plugin_types;
 mod routing_description;
 mod direct_upload;
 mod publish;
+mod publish_check;
+mod publish_namespace;
+pub use publish_check::{check_publication_core, PublishCheckRequest, PublishCheckResult};
 mod types;
 
 pub use auto_update::task as auto_update_task;

@@ -1403,6 +1403,10 @@ pub fn build_router(
             post(handlers::skill_market::publish).layer(DefaultBodyLimit::disable()),
         )
         .route(
+            "/skill_market_check_publication",
+            post(handlers::skill_market::check_publication),
+        )
+        .route(
             "/skill_market_add_version",
             post(handlers::skill_market::add_version).layer(DefaultBodyLimit::disable()),
         )

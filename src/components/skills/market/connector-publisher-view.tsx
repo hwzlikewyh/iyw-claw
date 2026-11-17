@@ -1,4 +1,13 @@
 import { useEffect, useRef } from "react"
+import { notifyMarketCatalogChanged } from "@/lib/market-catalog-events"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useConnectorPublishing } from "./use-connector-publishing"
@@ -22,7 +31,13 @@ export function ConnectorPublisherView({
   onLeaveRequest: (canLeave: () => boolean) => void
 }) {
   const catalog = useOwnedConnectors()
-  const editor = useConnectorPublishing(catalog.refresh)
+  const editor = useConnectorPublishing(
+    () => {
+      catalog.refresh()
+      notifyMarketCatalogChanged()
+    },
+    () => toast.success("连接器发布成功")
+  )
   const upload = useRef<HTMLInputElement>(null)
   const root = useMarketPageFocus({
     ...catalog.pagination,
@@ -72,18 +87,33 @@ export function ConnectorPublisherView({
           }}
         />
       </div>
-      {editor.error && (
+      {!editor.draft && editor.error && (
         <p role="alert" className="mb-3 break-words text-sm text-destructive">
           {editor.error}
         </p>
       )}
-      {editor.status && (
+      {!editor.draft && editor.status && (
         <p role="status" className="mb-3 text-sm text-muted-foreground">
           {editor.status}
         </p>
       )}
       {editor.draft ? (
-        <ConnectorPublishForm key={editor.editorSession} editor={editor} />
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) editor.close()
+          }}
+        >
+          <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>创建 / 编辑连接器</DialogTitle>
+              <DialogDescription>
+                填写名称和连接方式，保存后发布到市场。
+              </DialogDescription>
+            </DialogHeader>
+            <ConnectorPublishForm key={editor.editorSession} editor={editor} />
+          </DialogContent>
+        </Dialog>
       ) : (
         <>
           <div className="mb-4 flex gap-2">

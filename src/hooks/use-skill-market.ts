@@ -17,6 +17,10 @@ import type {
   SkillMarketViewV2,
 } from "@/lib/skill-market"
 import {
+  onMarketCatalogChanged,
+  notifyMarketCatalogChanged,
+} from "@/lib/market-catalog-events"
+import {
   getSkillMarketSource,
   type SkillMarketAddVersionRequestV2,
   type SkillMarketMetadataRequestV2,
@@ -385,6 +389,17 @@ export function useSkillMarket(
       ? `${list.revision}:${selectedId}:${activeVersion}`
       : null
 
+  useEffect(
+    () =>
+      onMarketCatalogChanged(() => {
+        detailCache.current.clear()
+        filesCache.current.clear()
+        setDetailRetryKey((value) => value + 1)
+        refresh()
+      }),
+    [refresh]
+  )
+
   useEffect(() => {
     const request = ++filesRequestRef.current
     const timer = window.setTimeout(() => {
@@ -566,15 +581,29 @@ export function useSkillMarket(
       const item = await source.publish(request)
       setSelectedId(item.id)
       setSelectedVersion(null)
-      refresh()
+      detailCache.current.clear()
+      filesCache.current.clear()
+      updateQuery({
+        view: "mine",
+        publisher: "all",
+        distribution: "all",
+        compatibility: "all",
+        category: null,
+        sort: "updated",
+        q: "",
+      })
+      notifyMarketCatalogChanged()
       return item
     },
-    [refresh, source]
+    [source, updateQuery]
   )
 
   const addVersion = useCallback(
     async (request: SkillMarketAddVersionRequestV2) => {
       const item = await source.addVersion(request)
+      detailCache.current.clear()
+      filesCache.current.clear()
+      notifyMarketCatalogChanged()
       applyItemPatch(item.id, {
         currentVersion: item.currentVersion,
         installState: item.installState,

@@ -1674,6 +1674,7 @@ mod tauri_app {
                 skill_market_commands::skill_market_detail,
                 skill_market_commands::skill_market_list_versions,
                 skill_market_commands::skill_market_publish,
+                skill_market_commands::skill_market_check_publication,
                 skill_market_commands::skill_market_add_version,
                 skill_market_commands::skill_market_update_metadata,
                 skill_market_commands::skill_market_delete,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { onMarketCatalogChanged } from "@/lib/market-catalog-events"
 import {
   mcpListMarketplaces,
   mcpScanLocal,
@@ -92,6 +93,10 @@ async function skillEntries(): Promise<CatalogEntry[]> {
 
 export function useCapabilityCatalog() {
   const [revision, setRevision] = useState(0)
+  useEffect(
+    () => onMarketCatalogChanged(() => setRevision((value) => value + 1)),
+    []
+  )
   const [state, setState] = useState({
     revision: -1,
     items: [] as CatalogEntry[],

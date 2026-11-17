@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   connectorUserRequest,
   type OwnedConnectorPage,
@@ -76,8 +76,16 @@ export function useOwnedConnectors() {
     }
   }, [key, query])
   const current = result?.key === key ? result : null
-  const refresh = () =>
-    setQuery((value) => ({ ...value, revision: value.revision + 1 }))
+  const refresh = useCallback(
+    () =>
+      setQuery((value) => ({
+        ...value,
+        page: 1,
+        query: "",
+        revision: value.revision + 1,
+      })),
+    []
+  )
   return {
     items: current?.data?.items ?? [],
     loading: current == null,

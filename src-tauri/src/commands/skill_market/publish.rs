@@ -10,8 +10,15 @@ use super::{
 
 pub async fn publish_core(
     conn: &DatabaseConnection,
-    request: SkillMarketPublishRequest,
+    mut request: SkillMarketPublishRequest,
 ) -> Result<SkillMarketDetail, AppCommandError> {
+    if request.package_type == super::SkillPackageType::Plugin {
+        super::publish_namespace::prepare_plugin_namespace(
+            &mut request.files,
+            &request.slug,
+            &request.version,
+        )?;
+    }
     routing_description::validate_routing_descriptions(&request.files, request.package_type)?;
     let mut metadata = json!({
         "slug": request.slug, "displayName": request.display_name,
@@ -29,8 +36,16 @@ pub async fn publish_core(
 
 pub async fn add_version_core(
     conn: &DatabaseConnection,
-    request: SkillMarketAddVersionRequest,
+    mut request: SkillMarketAddVersionRequest,
 ) -> Result<SkillMarketDetail, AppCommandError> {
+    if request.package_type == super::SkillPackageType::Plugin {
+        let detail = super::detail_core(conn, request.id.clone(), None).await?;
+        super::publish_namespace::prepare_plugin_namespace(
+            &mut request.files,
+            &detail.skill.slug,
+            &request.version,
+        )?;
+    }
     routing_description::validate_routing_descriptions(&request.files, request.package_type)?;
     let metadata = json!({
         "skillId": super::types::parse_id(&request.id)?.to_string(),

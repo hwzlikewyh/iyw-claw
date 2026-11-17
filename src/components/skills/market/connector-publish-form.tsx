@@ -1,4 +1,6 @@
-import { useState } from "react"
+import { useCallback, useState } from "react"
+import { checkConnectorPublishName } from "@/lib/market-publishing"
+import { usePublishNameCheck } from "./use-publish-name-check"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -16,6 +18,16 @@ export function ConnectorPublishForm({
 }) {
   const draft = editor.draft!
   const [invalid, setInvalid] = useState<Record<string, boolean>>({})
+  const name = draft.name.trim()
+  const excludeId = draft.revision > 0 ? draft.server_id : undefined
+  const checkName = useCallback(
+    () => checkConnectorPublishName({ name, excludeId }),
+    [name, excludeId]
+  )
+  const nameCheck = usePublishNameCheck(
+    name ? JSON.stringify([name, excludeId]) : "",
+    checkName
+  )
   const patch = (value: Partial<OwnedConnector>) =>
     editor.change({ ...draft, ...value })
   const field = (
@@ -26,27 +38,64 @@ export function ConnectorPublishForm({
       {label}
       <Input
         required={["name", "owner", "latest_version"].includes(key)}
-        disabled={key === "server_id" && draft.revision > 0}
-        value={draft[key]}
+        readOnly={key === "server_id"}
+        placeholder={
+          key === "server_id" ? "保存时根据当前账号和名称自动生成" : undefined
+        }
+        aria-invalid={key === "name" && nameCheck.status === "duplicate"}
+        value={key === "server_id" && !draft.revision ? "" : draft[key]}
         onChange={(event) => patch({ [key]: event.target.value })}
       />
+      {key === "name" && nameCheck.status === "checking" ? (
+        <span className="text-xs text-muted-foreground">正在检查名称…</span>
+      ) : null}
+      {key === "name" && nameCheck.status === "available" ? (
+        <span className="text-xs text-emerald-600">名称可用</span>
+      ) : null}
+      {key === "name" && nameCheck.status === "duplicate" ? (
+        <span role="alert" className="text-xs text-destructive">
+          当前账号已有同名连接器，请更换名称
+        </span>
+      ) : null}
+      {key === "name" && nameCheck.status === "error" ? (
+        <span role="alert" className="text-xs text-destructive">
+          名称检查失败。
+          <button type="button" className="underline" onClick={nameCheck.retry}>
+            重试
+          </button>
+        </span>
+      ) : null}
     </label>
   )
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault()
-        if (!Object.values(invalid).some(Boolean)) editor.save()
+        if (
+          !Object.values(invalid).some(Boolean) &&
+          nameCheck.status === "available"
+        )
+          editor.save()
       }}
       className="space-y-4"
     >
+      {editor.error && (
+        <p role="alert" className="break-words text-sm text-destructive">
+          {editor.error}
+        </p>
+      )}
+      {editor.status && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {editor.status}
+        </p>
+      )}
       <p className="text-xs text-muted-foreground">
         只管理当前账号的连接器。保存草稿与公开发布分开；上传不等于安装、登录或连接成功。
       </p>
       <fieldset disabled={editor.busy} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           {field("name", "名称")}
-          {field("server_id", "标识后缀（服务端添加自己的命名空间）")}
+          {field("server_id", "自动生成标识")}
           {field("latest_version", "版本，如1.0.0")}
           {field("owner", "发布者显示名称")}
           {field("category", "分类")}
@@ -147,7 +196,13 @@ export function ConnectorPublishForm({
           · 修订 {draft.revision}
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={Object.values(invalid).some(Boolean)}>
+          <Button
+            type="submit"
+            disabled={
+              Object.values(invalid).some(Boolean) ||
+              nameCheck.status !== "available"
+            }
+          >
             保存草稿
           </Button>
           <Button

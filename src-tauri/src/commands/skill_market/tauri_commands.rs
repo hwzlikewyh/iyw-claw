@@ -6,6 +6,14 @@ use crate::models::AgentType;
 use super::*;
 
 #[tauri::command]
+pub async fn skill_market_check_publication(
+    request: PublishCheckRequest,
+    db: State<'_, AppDatabase>,
+) -> Result<PublishCheckResult, AppCommandError> {
+    check_publication_core(&db.conn, request).await
+}
+
+#[tauri::command]
 pub async fn skill_market_list(
     params: SkillMarketListParams,
     db: State<'_, AppDatabase>,

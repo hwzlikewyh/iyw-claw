@@ -1,6 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useTranslations } from "next-intl"
+import { toast } from "sonner"
+import { isCommittedMarketPublication } from "@/lib/market-publishing"
+import { notifyMarketCatalogChanged } from "@/lib/market-catalog-events"
 import { useSkillMarket } from "@/hooks/use-skill-market"
 import { useSkillMarketActivation } from "@/hooks/use-skill-market-activation"
 import { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
@@ -41,6 +45,7 @@ export function SkillMarketView({
   onNavigationTargetConsumed: (requestId: number) => void
   onOpenConnectors: () => void
 }) {
+  const t = useTranslations("SkillMarketV2")
   const market = useSkillMarket(navigationTarget?.skillId, packageType)
   const install = useSkillMarketInstall()
   const { list, selectItem, updateQuery } = market
@@ -154,12 +159,37 @@ export function SkillMarketView({
       setUploadBusy(true)
       try {
         await market.publish(request)
+        market.updateQuery({
+          view: "mine",
+          publisher: "all",
+          distribution: "all",
+          compatibility: "all",
+          category: null,
+          sort: "updated",
+          q: "",
+        })
+        notifyMarketCatalogChanged()
+        toast.success(t("upload.publishSuccess"))
+        setUploadOpen(false)
+      } catch (error) {
+        if (!isCommittedMarketPublication(error)) throw error
+        market.updateQuery({
+          view: "mine",
+          q: "",
+          category: null,
+          publisher: "all",
+          distribution: "all",
+          compatibility: "all",
+          sort: "updated",
+        })
+        notifyMarketCatalogChanged()
+        toast.warning(t("upload.publishedRefreshPending"))
         setUploadOpen(false)
       } finally {
         setUploadBusy(false)
       }
     },
-    [market]
+    [market, t]
   )
 
   const addVersion = useCallback(
@@ -167,12 +197,20 @@ export function SkillMarketView({
       setUploadBusy(true)
       try {
         await market.addVersion(request)
+        market.refresh()
+        notifyMarketCatalogChanged()
+        toast.success(t("upload.publishSuccess"))
+        setUploadOpen(false)
+      } catch (error) {
+        if (!isCommittedMarketPublication(error)) throw error
+        notifyMarketCatalogChanged()
+        toast.warning(t("upload.publishedRefreshPending"))
         setUploadOpen(false)
       } finally {
         setUploadBusy(false)
       }
     },
-    [market]
+    [market, t]
   )
 
   const saveMetadata = useCallback(
@@ -321,6 +359,7 @@ export function SkillMarketView({
         onClose={() => setPendingTarget(null)}
       />
       <SkillMarketUploadDialog
+        key={uploadOpen ? "open" : "closed"}
         packageType={packageType}
         open={uploadOpen}
         mode={uploadMode}

@@ -40,6 +40,20 @@ pub struct PublishParams {
 }
 
 #[derive(Deserialize)]
+pub struct PublishCheckParams {
+    request: skill_market::PublishCheckRequest,
+}
+
+pub async fn check_publication(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<PublishCheckParams>,
+) -> Result<Json<skill_market::PublishCheckResult>, AppCommandError> {
+    Ok(Json(
+        skill_market::check_publication_core(&state.db.conn, params.request).await?,
+    ))
+}
+
+#[derive(Deserialize)]
 pub struct AddVersionParams {
     request: SkillMarketAddVersionRequest,
 }

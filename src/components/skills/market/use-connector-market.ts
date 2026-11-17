@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { onMarketCatalogChanged } from "@/lib/market-catalog-events"
 import { toErrorMessage } from "@/lib/app-error"
 import {
   mcpListMarketplaces,
@@ -36,6 +37,10 @@ export function useConnectorMarket(unavailable: string) {
     providerId: "",
   })
   const [revision, setRevision] = useState(0)
+  useEffect(
+    () => onMarketCatalogChanged(() => setRevision((value) => value + 1)),
+    []
+  )
   const [installed, setInstalled] = useState<LocalMcpServer[]>([])
   const [result, setResult] = useState<PageResult | null>(null)
   const key = JSON.stringify([search, revision])
