@@ -287,7 +287,7 @@ jobs:
       - name: Prepare signed unified installer
         env:
           GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
-        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.8
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.9
       - name: Sign, bundle, verify and upload
         if: ${{ inputs.target != 'x86_64-pc-windows-msvc' }}
         env:
