@@ -227,7 +227,7 @@ async function uploadArtifact(api, releaseId, input) {
     (await completePreviousUpload(api, input, found))
   )
     return
-  const { path, sha256: hash, ...payload } = input
+  const { path, ...payload } = input
   const initialized = await api(
     `/admin/api/app-releases/${releaseId}/artifacts/init`,
     payload
