@@ -137,6 +137,7 @@ pub(super) async fn route_app_resources(
 pub(super) struct AppConfig {
     pub resource_uri: String,
     pub display_modes: Vec<String>,
+    pub startup_timeout: std::time::Duration,
 }
 
 pub(super) fn plugin_app_config(
@@ -160,9 +161,25 @@ pub(super) fn plugin_app_config(
         .flatten()
         .filter_map(|value| value.as_str().map(str::to_string))
         .collect::<Vec<_>>();
+    let startup_timeout_sec = match config.get("startupTimeoutSec") {
+        None | Some(serde_json::Value::Null) => {
+            crate::commands::plugin_apps::PLUGIN_APP_DEFAULT_STARTUP_TIMEOUT_SEC
+        }
+        Some(value) => value.as_u64().ok_or_else(|| {
+            AppCommandError::configuration_invalid("Plugin app startupTimeoutSec is invalid")
+        })?,
+    };
+    if !(1..=crate::commands::plugin_apps::PLUGIN_APP_MAX_STARTUP_TIMEOUT_SEC)
+        .contains(&startup_timeout_sec)
+    {
+        return Err(AppCommandError::configuration_invalid(
+            "Plugin app startupTimeoutSec is outside the supported range",
+        ));
+    }
     Ok(AppConfig {
         resource_uri: resource_uri.to_string(),
         display_modes,
+        startup_timeout: std::time::Duration::from_secs(startup_timeout_sec),
     })
 }
 

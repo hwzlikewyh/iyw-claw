@@ -23,6 +23,9 @@ pub use plugin_app_sync::{sync_core, SyncRequest, SyncUpdate};
 
 use crate::app_error::AppCommandError;
 
+pub const PLUGIN_APP_DEFAULT_STARTUP_TIMEOUT_SEC: u64 = 180;
+pub const PLUGIN_APP_MAX_STARTUP_TIMEOUT_SEC: u64 = 600;
+
 #[path = "plugin_app_model_gateway.rs"]
 mod plugin_app_model_gateway;
 #[path = "plugin_app_resource_meta.rs"]

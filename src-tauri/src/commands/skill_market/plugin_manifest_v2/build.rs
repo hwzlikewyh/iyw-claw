@@ -182,6 +182,10 @@ impl<'a> Builder<'a> {
                     .display_modes
                     .iter()
                     .any(|mode| !matches!(mode.as_str(), "inline" | "fullscreen"))
+                || value.startup_timeout_sec.is_some_and(|seconds| {
+                    !(1..=crate::commands::plugin_apps::PLUGIN_APP_MAX_STARTUP_TIMEOUT_SEC)
+                        .contains(&seconds)
+                })
                 || !self.apps.insert(value.key.clone())
             {
                 return Err(invalid_plugin("Plugin v2 app is invalid"));

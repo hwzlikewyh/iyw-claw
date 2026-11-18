@@ -127,6 +127,8 @@ struct AppV2 {
     resource_uri: String,
     capability_key: String,
     display_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    startup_timeout_sec: Option<u64>,
 }
 
 pub(super) fn parse_plugin_package_v2(
