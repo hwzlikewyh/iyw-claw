@@ -87,7 +87,8 @@ export function SkillMarketList(props: SkillMarketListProps) {
 }
 
 function SkillPageContent(props: SkillMarketListProps) {
-  if (props.loading) return <ListState kind="loading" onRetry={props.onRetry} />
+  if (props.loading && !props.items.length)
+    return <ListState kind="loading" onRetry={props.onRetry} />
   if (props.error)
     return (
       <ListState kind="error" error={props.error} onRetry={props.onRetry} />
