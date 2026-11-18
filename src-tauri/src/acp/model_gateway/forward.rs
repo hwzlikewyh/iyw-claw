@@ -98,8 +98,35 @@ async fn forward_http(
     ),
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
-    let (original_bytes, prepared) =
-        prepare_body(&runtime, (&mut parts.headers, body), (&path, &token)).await?;
+    let deadline = tokio::time::Instant::now() + super::limits::PREPARE_TIMEOUT;
+    let body = tokio::time::timeout_at(deadline, Spool::receive(body))
+        .await
+        .map_err(|_| GatewayError::input("Local request body timed out"))??;
+    let original_bytes = body.len();
+    let count_key = if parts.method == Method::POST
+        && path.ends_with("/messages/count_tokens")
+        && rewritable(&parts.headers)
+        && target.query().is_none()
+    {
+        super::token_count::CountKey::from_request(&body, &token, &path)
+    } else {
+        None
+    };
+    if let Some(cached) = count_key
+        .as_ref()
+        .and_then(|key| runtime.token_counts.rejection(key))
+    {
+        super::auth::check(&token)?;
+        return Ok(cached);
+    }
+    let prepared = tokio::time::timeout_at(
+        deadline,
+        prepare_body(&runtime, (&mut parts.headers, body), (&path, &token)),
+    )
+    .await
+    .map_err(|_| {
+        GatewayError::unavailable("Image preparation exceeded the request time budget")
+    })??;
     super::auth::check(&token)?;
     let body = match prepared {
         Output::Request(body) => body,
@@ -119,6 +146,9 @@ async fn forward_http(
         .await
         .map_err(|_| GatewayError::unavailable("Cloud model response headers timed out"))?
         .map_err(GatewayError::cloud)?;
+    if let Some(key) = count_key {
+        runtime.token_counts.observe(key, &response);
+    }
     log_forwarded(
         (original_bytes, final_bytes),
         started,
@@ -129,37 +159,24 @@ async fn forward_http(
 
 async fn prepare_body(
     runtime: &Arc<Runtime>,
-    (headers, body): (&mut axum::http::HeaderMap, Body),
+    (headers, body): (&mut axum::http::HeaderMap, Spool),
     (path, token): (&str, &str),
-) -> Result<(u64, Output), GatewayError> {
-    let deadline = tokio::time::Instant::now() + super::limits::PREPARE_TIMEOUT;
-    let body = tokio::time::timeout_at(deadline, Spool::receive(body))
-        .await
-        .map_err(|_| GatewayError::input("Local request body timed out"))??;
-    let original_bytes = body.len();
-    let preparing = async {
-        if super::edit::is_multipart(path, headers) {
-            return super::edit::prepare(runtime, body, (headers, token))
-                .await
-                .map(Output::Request);
-        }
-        if path.ends_with("/images/edits") && !rewritable(headers) {
-            return Err(GatewayError::input(
-                "Image edits require uncompressed JSON or multipart",
-            ));
-        }
-        if rewritable(headers) && original_bytes > 0 {
-            rewrite::prepare(runtime, body, (path, token)).await
-        } else {
-            Ok(Output::Request(body))
-        }
-    };
-    let prepared = tokio::time::timeout_at(deadline, preparing)
-        .await
-        .map_err(|_| {
-            GatewayError::unavailable("Image preparation exceeded the request time budget")
-        })??;
-    Ok((original_bytes, prepared))
+) -> Result<Output, GatewayError> {
+    if super::edit::is_multipart(path, headers) {
+        return super::edit::prepare(runtime, body, (headers, token))
+            .await
+            .map(Output::Request);
+    }
+    if path.ends_with("/images/edits") && !rewritable(headers) {
+        return Err(GatewayError::input(
+            "Image edits require uncompressed JSON or multipart",
+        ));
+    }
+    if rewritable(headers) && body.len() > 0 {
+        rewrite::prepare(runtime, body, (path, token)).await
+    } else {
+        Ok(Output::Request(body))
+    }
 }
 
 fn prepared_response(

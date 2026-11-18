@@ -28,11 +28,13 @@ mod rewrite;
 mod spool;
 mod spool_budget;
 mod target;
+mod token_count;
 mod transport;
 mod websocket;
 mod work;
 
 pub(crate) use auth::update_credentials;
+pub(crate) use token_count::catalog_refreshed;
 
 static ACTIVE_BASE: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 
@@ -73,6 +75,7 @@ pub(super) struct Runtime {
     sockets: Arc<Semaphore>,
     cache: assets::AssetCache,
     transport: transport::TransportCache,
+    token_counts: token_count::CountCache,
     asset_locks: Vec<tokio::sync::Mutex<()>>,
     shutdown: CancellationToken,
 }
@@ -172,6 +175,7 @@ impl Runtime {
             sockets: Arc::new(Semaphore::new(limits::MAX_WEBSOCKETS)),
             cache: assets::AssetCache::default(),
             transport: transport::TransportCache::default(),
+            token_counts: token_count::CountCache::default(),
             asset_locks: (0..limits::MAX_ASSET_LOCKS)
                 .map(|_| tokio::sync::Mutex::new(()))
                 .collect(),
