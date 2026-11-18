@@ -93,27 +93,21 @@ jobs:
             printf '%s' "${matches[0]}"
           }
 
-          is_ready_artifact() {
+          ready_artifact_digest() {
             local target="$1"
             local arch="$2"
             local package_kind="$3"
-            local detail_file
-
-            detail_file="$(mktemp)"
             request --request GET \
-              "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID" \
-              > "$detail_file"
-            if jq -e \
+              "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID" | jq -er \
               --arg target "$target" \
               --arg arch "$arch" \
               --arg package_kind "$package_kind" \
-              '.code == 1 and any(.data.artifacts[]?; .target == $target and .arch == $arch and .packageKind == $package_kind and .status == "ready")' \
-              "$detail_file" > /dev/null; then
-              rm -f "$detail_file"
-              return 0
-            fi
-            rm -f "$detail_file"
-            return 1
+              'if .code != 1 then error("Failed to read release artifacts") else
+                [(.data.artifacts // [])[] | select(.target == $target and .arch == $arch and .packageKind == $package_kind and .status == "ready")] |
+                if length == 0 then ""
+                elif length == 1 and (.[0].sha256 | type == "string" and length == 64) then .[0].sha256
+                else error("Invalid digest or ambiguous ready artifact") end
+              end'
           }
 
           upload_artifact() {
@@ -123,15 +117,23 @@ jobs:
             local package="$4"
             local signature="$5"
             local size request_file init_file complete_file artifact_id upload_url upload_method
+            local digest ready_digest
             local -a upload_headers upload_args
 
-            if is_ready_artifact "$target" "$arch" "$package_kind"; then
-              echo "Skipping already verified $target/$arch artifact"
-              return 0
-            fi
             test -s "$package"
             test -s "$signature"
             size="$(stat --format=%s "$package")"
+            digest="$(sha256sum < "$package")"
+            digest="${digest%% *}"
+            ready_digest="$(ready_artifact_digest "$target" "$arch" "$package_kind")"
+            if [[ -n "$ready_digest" ]]; then
+              if [[ "$ready_digest" != "$digest" ]]; then
+                echo "Ready $target/$arch/$package_kind artifact differs from local package" >&2
+                return 1
+              fi
+              echo "Skipping already verified $target/$arch artifact"
+              return 0
+            fi
             request_file="$(mktemp)"
             init_file="$(mktemp)"
             complete_file="$(mktemp)"
@@ -144,8 +146,9 @@ jobs:
               --arg file_name "$(basename "$package")" \
               --arg content_type application/octet-stream \
               --argjson size "$size" \
+              --arg digest "$digest" \
               --rawfile signature "$signature" \
-              '{runtime: $runtime, target: $target, arch: $arch, packageKind: $package_kind, fileName: $file_name, contentType: $content_type, size: $size, signature: $signature}' \
+              '{runtime: $runtime, target: $target, arch: $arch, packageKind: $package_kind, fileName: $file_name, contentType: $content_type, size: $size, sha256: $digest, signature: $signature}' \
               > "$request_file"
 
             request --request POST \
@@ -168,7 +171,7 @@ jobs:
             request --request POST \
               "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID/artifacts/$artifact_id/complete" \
               > "$complete_file"
-            jq -e '.code == 1 and .data.artifact.status == "ready"' "$complete_file" > /dev/null
+            jq -e --arg digest "$digest" '.code == 1 and .data.artifact.status == "ready" and .data.artifact.sha256 == $digest' "$complete_file" > /dev/null
             rm -f "$request_file" "$init_file" "$complete_file"
             echo "Uploaded $target/$arch ($(basename "$package"), $size bytes)"
           }
