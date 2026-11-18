@@ -22114,14 +22114,14 @@ dependencies = [
 ]
 
 [[patch.unused]]
-name = "crossterm"
-version = "0.29.0"
-source = "git+https://github.com/openai-oss-forks/crossterm?rev=ed1cdab335221515706178d68495bba2aed1924f#ed1cdab335221515706178d68495bba2aed1924f"
-
-[[patch.unused]]
 name = "appcontainer_common"
 version = "0.8.0"
 
 [[patch.unused]]
 name = "learning_mode_windows"
 version = "0.8.0"
+
+[[patch.unused]]
+name = "crossterm"
+version = "0.29.0"
+source = "git+https://github.com/openai-oss-forks/crossterm?rev=ed1cdab335221515706178d68495bba2aed1924f#ed1cdab335221515706178d68495bba2aed1924f"

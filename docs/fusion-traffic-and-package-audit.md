@@ -81,6 +81,7 @@ Fusion 不支持 URL 直传的上游仍可能在服务端还原图片内容；�
 5 秒面板同步完整链路：`use-plugin-panel-updates.ts` → `plugin_app_sync.rs` →
 账号作用域/本地注册表对账 → 两次授权校验 → SQLite 最新相关结果。未调用插件工具、
 远程资源读取或 Fusion。它有本地 DB、文件和序列化成本，隐藏时停止新同步可减少浪费。
+账号即将到期时，作用域读取可能触发 `i.iyw.cn` 的 SSO 续期，因此也不等于绝对零网络访问。
 
 2 秒账号轮询完整链路：`use-plugin-account.ts` → `plugin_preparation/account.rs` →
 `router_prepare.rs` → `supervisor_auth.rs` → `authentication.rs` → 插件 MCP `tools/call`。
@@ -111,6 +112,8 @@ asset resolver 提供页面，不从该兼容目录加载脚本。
 ## 验证记录
 
 定向 ESLint、打包脚本语法及前端静态导出已通过；最终 Rust 检查结果随交付补齐。
+合并时保留 GitHub 已有 `0.1.353`。Cargo 锁文件仅规范未使用 patch 的排列顺序，
+逐块对比确认依赖图和 patch 身份均未改变，避免原顺序阻止 `--locked` 检查。
 遵循仓库要求，未新增或运行测试套件、未请求真实模型或生产付费接口。
 CodeGraph 初始化扫描过大且进展缓慢，已停止本次进程，改用源码调用链和编译验证。
 外部入口已纳入 TypeScript AST 可达性复核：仍有 131 个候选文件，其中 2 个被测试引用。
