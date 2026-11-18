@@ -26,7 +26,7 @@ export interface MarketPaginationProps {
 
 export function MarketPagination(props: MarketPaginationProps) {
   const footer = useMarketAutoSize({
-    automatic: props.automaticPageSize,
+    automatic: props.automaticPageSize && !props.loading,
     size: props.pageSize,
     onChange: props.onAutoPageSizeChange,
   })
