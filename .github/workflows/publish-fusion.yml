@@ -81,6 +81,13 @@ jobs:
               "${api_headers[@]}" "$@"
           }
 
+          [[ "$FUSION_RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
+          detail_url="$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID"
+          request "$detail_url" | jq -e --arg version "$FUSION_VERSION" '
+            .code == 1 and (.data.release | .productKey == "iyw-claw" and .version == $version and
+              .channel == "stable" and .updatePolicy == "optional" and .rolloutMode == "manual" and
+              .rolloutBasisPoints == 100 and (.status == "draft" or .status == "published"))' > /dev/null
+
           artifact_path() {
             local suffix="$1"
             local -a matches
@@ -116,7 +123,7 @@ jobs:
             local package_kind="$3"
             local package="$4"
             local signature="$5"
-            local size request_file init_file complete_file artifact_id upload_url upload_method
+            local size request_file init_file upload_url upload_method
             local digest ready_digest
             local -a upload_headers upload_args
 
@@ -134,9 +141,21 @@ jobs:
               echo "Skipping already verified $target/$arch artifact"
               return 0
             fi
+            local pending_id
+            pending_id="$(request "$detail_url" | jq -er --arg target "$target" --arg arch "$arch" \
+              --arg kind "$package_kind" --arg name "$(basename "$package")" --argjson size "$size" \
+              --rawfile signature "$signature" '
+              if .code != 1 then error("Failed to read release artifacts") else
+              [.data.artifacts[]? | select(.target == $target and .arch == $arch and .packageKind == $kind)] |
+              if length == 0 then "" elif length == 1 and (.[0] | .status == "uploading" and
+                .fileName == $name and .size == $size and .signature == ($signature | gsub("^\\s+|\\s+$"; "")))
+              then .[0].id else error("Staged artifact differs from signed source") end end')"
+            if [[ -n "$pending_id" ]]; then
+              echo "Waiting for verifier receipt for artifact $pending_id"
+              return 0
+            fi
             request_file="$(mktemp)"
             init_file="$(mktemp)"
-            complete_file="$(mktemp)"
 
             jq -n \
               --arg runtime desktop \
@@ -158,9 +177,9 @@ jobs:
               > "$init_file"
             jq -e '.code == 1 and .data.artifact.id and .data.upload.url and .data.upload.method' "$init_file" > /dev/null
 
-            artifact_id="$(jq -r '.data.artifact.id' "$init_file")"
             upload_url="$(jq -r '.data.upload.url' "$init_file")"
             upload_method="$(jq -r '.data.upload.method' "$init_file")"
+            [[ "$upload_method" == PUT && "$upload_url" =~ ^https://[a-z0-9-]+\.tos-[a-z0-9-]+\.volces\.com/ ]]
             mapfile -t upload_headers < <(jq -r '.data.upload.headers | to_entries[] | [.key, .value] | @tsv' "$init_file")
             upload_args=(--fail --silent --show-error --request "$upload_method" --upload-file "$package")
             for header in "${upload_headers[@]}"; do
@@ -168,12 +187,8 @@ jobs:
             done
             curl "${upload_args[@]}" "$upload_url"
 
-            request --request POST \
-              "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID/artifacts/$artifact_id/complete" \
-              > "$complete_file"
-            jq -e --arg digest "$digest" '.code == 1 and .data.artifact.status == "ready" and .data.artifact.sha256 == $digest' "$complete_file" > /dev/null
-            rm -f "$request_file" "$init_file" "$complete_file"
-            echo "Uploaded $target/$arch ($(basename "$package"), $size bytes)"
+            echo "Uploaded $target/$arch directly to TOS. Waiting for protected verifier receipt."
+            rm -f "$request_file" "$init_file"
           }
 
           upload_artifact windows x86_64 nsis \
@@ -191,10 +206,15 @@ jobs:
               "$(artifact_path '_aarch64.app.tar.gz.sig')"
           fi
 
+          release_status="$(request "$detail_url" | jq -er '
+            if .code == 1 and (.data.artifacts | length > 0 and all(.status == "ready")) then .data.release.status
+            else error("Draft is waiting for protected artifact verification. Resume after receipts are submitted.") end')"
+          if [[ "$release_status" == published ]]; then exit 0; fi
+          [[ "$release_status" == draft ]]
           publish_file="$(mktemp)"
           trap 'rm -f "$publish_file"' EXIT
           request --request POST --header 'Content-Type: application/json' --data '{}' \
             "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID/publish" \
             > "$publish_file"
-          jq -e '.code == 1 and .data.status == "published"' "$publish_file" > /dev/null
+          jq -e --arg id "$FUSION_RELEASE_ID" '.code == 1 and .data.release.id == $id and .data.release.status == "published"' "$publish_file" > /dev/null
           echo "Published Fusion release $FUSION_VERSION"

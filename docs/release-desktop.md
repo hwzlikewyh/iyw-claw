@@ -44,8 +44,8 @@
    版本、源码提交、架构、文件清单和逐文件摘要。本机只签名与封装。
 5. 签名后的资源作为安装验证输入；Windows 实际安装和 macOS Intel 验证成功后，
    清理临时资产，生成更新清单并发布 GitHub 正式版。
-6. 本地脚本下载 Windows NSIS、独立签名向导、应用载荷 ZIP、Win7 x64/x86、macOS 与 Linux 双架构包及各自的更新签名，核对 GitHub 摘要，再上传 Fusion。
-7. 所有制品经 Fusion 验签成为 `ready` 后，正式发布并回读更新接口；回读检查同发布版本和摘要，避免将旧版本继承的强制更新策略误判为当前版本配置。
+6. 本地脚本核对 GitHub 正式版的摘要，并将各平台包直传 TOS。受保护的验签作业从 TOS 读取指定版本，校验实际字节和更新签名，输出签名回执。
+7. 将回执按 `<制品ID>.json` 放入 `FUSION_RECEIPT_DIR` 指定的目录，再用相同版本运行本地脚本。发布脚本只向 Fusion 提交回执，所有已登记制品进入 `ready` 后才发布并核对更新接口。GitHub 的 `Publish Fusion Release` 工作流也能复用已由验签作业提交的回执。提示 `APP_RELEASE_MATRIX_INCOMPLETE` 时，可在草稿详情查看仍在等待验签的平台包。
 
 安装包和最终记录保留在 `artifacts/release-<版本>/`，这个目录不进入 Git。
 脚本运行期间需要保持终端打开；关闭终端不会取消远程构建，但 Fusion 发布会等下次
