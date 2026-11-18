@@ -8,7 +8,9 @@ use crate::app_error::AppCommandError;
 use crate::plugin_runtime::registry;
 
 const OPENFILM_PLUGIN_SLUG: &str = "iyw-openfilm";
-const OPEN_TIMEOUT: Duration = Duration::from_secs(60);
+const OPEN_TIMEOUT: Duration = Duration::from_secs(
+    crate::commands::plugin_apps::PLUGIN_APP_DEFAULT_STARTUP_TIMEOUT_SEC,
+);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -145,14 +147,15 @@ async fn run_openfilm(
             result.map_err(|error| AppCommandError::configuration_invalid(error.to_string()))
         }
         Err(_) => {
+            let detail = studio_log_detail(studio_home);
             tracing::error!(
                 plugin = OPENFILM_PLUGIN_SLUG,
                 timeout_seconds = OPEN_TIMEOUT.as_secs(),
+                detail = %detail,
                 "OpenFilm Studio startup timed out"
             );
-            Err(AppCommandError::configuration_invalid(
-                "OpenFilm Studio startup timed out",
-            ))
+            Err(AppCommandError::configuration_invalid("OpenFilm Studio startup timed out")
+                .with_detail(detail))
         }
     }
 }
@@ -196,6 +199,7 @@ fn open_failed(message: &str, output: &std::process::Output) -> AppCommandError 
     let detail = safe_output_detail(output);
     tracing::error!(
         exit_code = output.status.code(),
+        detail = %detail,
         "OpenFilm Studio failed to start"
     );
     AppCommandError::configuration_invalid(message).with_detail(detail)
@@ -212,6 +216,26 @@ fn safe_output_detail(output: &std::process::Output) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     lines.chars().take(1000).collect()
+}
+
+fn studio_log_detail(studio_home: &Path) -> String {
+    let path = studio_home.join("logs").join("studio.log");
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    content
+        .lines()
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(redact_local_url)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(1000)
+        .collect()
 }
 
 fn redact_local_url(line: &str) -> String {

@@ -4,7 +4,7 @@ import { draftPluginTab } from "./plugin-draft-context"
 import { useTabStore } from "@/stores/tab-store"
 
 export const OPENFILM_STUDIO_APP_KEY = "iyw-openfilm-studio"
-const OPENFILM_STUDIO_TIMEOUT_MS = 75_000
+const PLUGIN_APP_REQUEST_TIMEOUT_MS = 660_000
 
 export interface PluginPanelUpdate {
   cursor: string
@@ -77,7 +77,7 @@ export const openOpenfilmStudio = (
         expectedVersion: app.version,
       },
     },
-    { timeoutMs: OPENFILM_STUDIO_TIMEOUT_MS }
+    { timeoutMs: PLUGIN_APP_REQUEST_TIMEOUT_MS }
   )
 export const launchPluginPanel = (
   conversationId: number,
@@ -94,5 +94,5 @@ export const launchPluginPanel = (
         expectedVersion: app.version,
       },
     },
-    { timeoutMs: 750_000 }
+    { timeoutMs: PLUGIN_APP_REQUEST_TIMEOUT_MS }
   )

@@ -111,9 +111,7 @@ export function WindowControls({
         type="button"
         className={buttonClass}
         onClick={() => {
-          appWindowRef.current?.toggleMaximize().catch((err: unknown) => {
-            console.error("[WindowControls] failed to toggle maximize:", err)
-          })
+          void toggleMaximize(appWindowRef.current, setIsMaximized)
         }}
         aria-label={t(isMaximized ? "restoreWindow" : "maximizeWindow")}
         title={t(isMaximized ? "restore" : "maximize")}
@@ -138,6 +136,21 @@ export function WindowControls({
       </button>
     </div>
   )
+}
+
+async function toggleMaximize(
+  appWindow: Awaited<ReturnType<typeof getTauriWindow>> | null,
+  setIsMaximized: (value: boolean) => void
+) {
+  if (!appWindow) return
+  try {
+    const maximized = await appWindow.isMaximized()
+    if (maximized) await appWindow.unmaximize()
+    else await appWindow.maximize()
+    setIsMaximized(!maximized)
+  } catch (err: unknown) {
+    console.error("[WindowControls] failed to toggle maximize:", err)
+  }
 }
 
 const baseButtonClass =

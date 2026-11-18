@@ -50,7 +50,10 @@ export function AppTitleBar({
     >
       <div
         {...(draggable ? { "data-tauri-drag-region": true } : {})}
-        className="absolute inset-0"
+        className={cn(
+          "absolute inset-0",
+          draggable && "[-webkit-app-region:drag]"
+        )}
       />
 
       <div

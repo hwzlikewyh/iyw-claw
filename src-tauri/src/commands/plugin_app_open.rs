@@ -12,7 +12,15 @@ pub(crate) async fn open_core(
     request: PluginAppOpenRequest,
 ) -> Result<PluginAppOpenResponse, AppCommandError> {
     let prepared = prepare_open(db, &request).await?;
-    let resource = read_app_resource(router, &prepared).await?;
+    let resource = tokio::time::timeout(
+        prepared.config.startup_timeout,
+        read_app_resource(router, &prepared),
+    )
+    .await
+    .map_err(|_| {
+        AppCommandError::configuration_invalid("Plugin app startup timed out")
+            .with_detail(format!("timeout_seconds={}", prepared.config.startup_timeout.as_secs()))
+    })??;
     let html = resource_html(resource.0)?;
     renew_lease(apps, prepared, html, resource.1)
 }
