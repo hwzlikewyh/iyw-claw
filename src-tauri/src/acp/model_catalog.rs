@@ -202,6 +202,7 @@ pub fn update_from_payload(payload: &serde_json::Value) -> bool {
     if complete.ids.is_empty() {
         return false;
     }
+    super::model_gateway::catalog_refreshed();
     let changed = {
         let mut current = catalog().write().expect("catalog poisoned");
         let changed = current.complete != complete;
@@ -232,6 +233,7 @@ pub fn replace_scoped_from_payload(
     if platform_id.is_empty() {
         return false;
     }
+    super::model_gateway::catalog_refreshed();
     let registry_id = registry::registry_id_for(agent).to_string();
     let changed = {
         let mut current = catalog().write().expect("catalog poisoned");
