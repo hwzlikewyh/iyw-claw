@@ -1,7 +1,9 @@
 use std::fs::{File, Metadata};
 use std::time::SystemTime;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct FileStamp {
     length: u64,
     modified: SystemTime,

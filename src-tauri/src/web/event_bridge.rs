@@ -80,7 +80,7 @@ impl WebEventBroadcaster {
 /// - **WS clients** (`WebOnly` variant): standalone server mode. Carries
 ///   the broadcaster directly because there's no AppHandle to look it up
 ///   from.
-/// - **In-process consumers** (lifecycle / pet / chat-channel): receive
+/// - **In-process consumers** (lifecycle / chat-channel): receive
 ///   typed `Arc<EventEnvelope>` from `InternalEventBus`. Both `Tauri` and
 ///   `WebOnly` resolve to the same bus (via `acp_event_bus()`).
 ///
@@ -336,7 +336,7 @@ pub fn emit_event(emitter: &EventEmitter, event: &str, payload: impl Serialize) 
 /// 5. 释放写锁
 /// 6. 分发到三条路径：
 ///    - 每连接 `ConnectionEventStream`（WS attach 协议主路径）
-///    - 进程内 `InternalEventBus`（lifecycle / pet / chat-channel 订阅者）
+///    - 进程内 `InternalEventBus`（lifecycle / chat-channel 订阅者）
 ///    - Tauri 模式下额外 `app.emit("acp://event", ...)` 给 webview
 ///
 /// 不再向 `WebEventBroadcaster` 上的 `acp://event` 频道广播——所有 ACP
@@ -426,7 +426,7 @@ where
         stream.send(Arc::clone(&envelope_arc));
     }
 
-    // In-process consumers (lifecycle, pet, chat-channel). Typed envelope —
+    // In-process consumers (lifecycle, chat-channel). Typed envelope —
     // no JSON parse on the receiver side. Plus surface ring-buffer pressure
     // and bus emit-rate via metrics so operators can see when things drift.
     match emitter.active_target() {

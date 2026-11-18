@@ -114,7 +114,7 @@ function createSyncScheduler(
       timer = setTimeout(() => void run(), SYNC_DELAY_MS)
   }
   const schedule: Refresh = (instanceId) => {
-    if (!alive || !tabs.length) return
+    if (!alive || !tabs.length || document.visibilityState === "hidden") return
     for (const tab of tabs)
       if (tab.kind === "mcp-app" && (!instanceId || tab.id === instanceId))
         pending.add(tab.id)

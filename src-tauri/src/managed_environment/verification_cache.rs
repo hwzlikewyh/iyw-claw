@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use sha2::{Digest, Sha256};
 
 use super::file_stamp::FileStamp;
-use super::ManagedFile;
+use super::{verification_store, ManagedFile};
 
 const MAX_CACHED_FILES: usize = 64;
 const HASH_BUFFER_BYTES: usize = 64 * 1024;
@@ -21,6 +21,7 @@ pub(super) fn clear() {
             .unwrap_or_else(|error| error.into_inner())
             .clear();
     }
+    verification_store::clear();
 }
 
 fn entry(path: &Path) -> Verification {
@@ -48,6 +49,14 @@ pub(super) fn verify(file: &mut File, path: &Path, expected: &ManagedFile) -> Re
         return Ok(());
     }
     *cached = None;
+    // 冷启动复用之前进程的校验结果；文件签名含文件 ID 与 ChangeTime，文件被改动即失效。
+    if let Some(stamp) = before
+        .as_ref()
+        .filter(|stamp| verification_store::is_verified(path, stamp, &expected.sha256))
+    {
+        *cached = Some((stamp.clone(), expected.sha256.clone()));
+        return Ok(());
+    }
     if hash_file(file)? != expected.sha256 {
         return Err("组件文件 SHA-256 与安装记录不符".into());
     }
@@ -57,6 +66,7 @@ pub(super) fn verify(file: &mut File, path: &Path, expected: &ManagedFile) -> Re
     }
     // 无可靠文件签名时仍完整校验，但不复用结果。
     if let Some(stamp) = after {
+        verification_store::record(path, &stamp, &expected.sha256);
         *cached = Some((stamp, expected.sha256.clone()));
     }
     Ok(())

@@ -9,8 +9,6 @@
     "stash-*",
     "push-*",
     "settings",
-    "pet",
-    "pet-panel",
     "remote-workspace-*",
     "remote-settings-*",
     "remote-commit-*",

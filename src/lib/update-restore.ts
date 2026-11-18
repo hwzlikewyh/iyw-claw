@@ -33,10 +33,7 @@ function isSafeAppRoute(route: string): boolean {
     if (parsed.pathname === "/" || parsed.pathname === "/index.html") {
       return false
     }
-    return (
-      !parsed.pathname.startsWith("/login") &&
-      !parsed.pathname.startsWith("/pet")
-    )
+    return !parsed.pathname.startsWith("/login")
   } catch {
     return false
   }

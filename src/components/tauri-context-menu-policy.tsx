@@ -3,7 +3,6 @@
 import { useEffect } from "react"
 
 const NATIVE_CONTEXT_MENU_ATTRIBUTE = "data-native-context-menu"
-const PET_WINDOW_PATHS = new Set(["/pet", "/pet-panel"])
 const NON_TEXT_INPUT_TYPES = new Set([
   "button",
   "checkbox",
@@ -16,11 +15,6 @@ const NON_TEXT_INPUT_TYPES = new Set([
   "reset",
   "submit",
 ])
-
-function isPetWindowRoute() {
-  const pathname = window.location.pathname.replace(/\/+$/, "") || "/"
-  return PET_WINDOW_PATHS.has(pathname)
-}
 
 function isEditableTarget(target: Element) {
   const editable = target.closest("input, textarea, [contenteditable]")
@@ -50,11 +44,7 @@ function allowsApplicationContextMenu(target: EventTarget | null) {
 
 export function TauriContextMenuPolicy() {
   useEffect(() => {
-    if (
-      typeof window === "undefined" ||
-      !("__TAURI_INTERNALS__" in window) ||
-      isPetWindowRoute()
-    ) {
+    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
       return
     }
 

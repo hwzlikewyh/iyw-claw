@@ -9,7 +9,8 @@ use super::pricing::{parse_prices, Prices};
 use crate::app_error::AppCommandError;
 
 const PRICE_CACHE_TTL: Duration = Duration::from_secs(300);
-const PRICE_FAILURE_TTL: Duration = Duration::from_secs(2);
+// 价格只影响本地估算；Fusion 异常时拉长重试间隔，避免每次用量刷新都重打目录。
+const PRICE_FAILURE_TTL: Duration = Duration::from_secs(30);
 const PRICE_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const PRICE_CACHE_LOOKUP_TIMEOUT: Duration = Duration::from_millis(50);
 

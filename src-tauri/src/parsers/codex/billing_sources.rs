@@ -13,6 +13,15 @@ fn path_cache() -> &'static Mutex<Paths> {
     PATHS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// 仅返回仍位于当前 sessions 目录内的已验证路径，归档后的会话交回目录扫描判断。
+pub(super) fn cached_path(base: &Path, id: &str) -> Option<PathBuf> {
+    let cached = path_cache().lock().ok()?;
+    cached
+        .get(&(base.to_path_buf(), id.to_string()))
+        .filter(|path| path.starts_with(base) && path.is_file())
+        .cloned()
+}
+
 impl super::CodexParser {
     /// 已验证路径可复用；有新子代理时只增加一次目录扫描，不缓存不存在的文件。
     pub(crate) fn billing_receipts_batch(
@@ -97,7 +106,7 @@ fn scan(
     }
 }
 
-fn remember(base: &Path, id: &str, path: &Path) {
+pub(super) fn remember(base: &Path, id: &str, path: &Path) {
     if let Ok(mut cached) = path_cache().lock() {
         let key = (base.to_path_buf(), id.to_string());
         if cached.len() >= PATH_CACHE_LIMIT && !cached.contains_key(&key) {

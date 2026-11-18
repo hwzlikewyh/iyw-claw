@@ -95,6 +95,7 @@ pub(super) async fn maybe_start(
         // Stop blocks new launches; already-running compaction remains session-owned.
         if turn_cancellation.is_cancelled()
             || state.shutting_down
+            || !state.async_compaction.tasks.is_empty()
             || state.async_compaction.last_attempt.as_ref() == Some(&attempt)
             || state.history.annotated_items().is_empty()
             || sess.services.model_client.auth_owner() != auth_owner

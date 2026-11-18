@@ -52,6 +52,22 @@ view_image。显式读取工作区图片和压缩后重新查看图片仍可使�
 时以 info 记录转换前后字节。日志不包含图片、原始 payload、令牌、签名链接或随机路径。
 这些是局部请求证据，不能直接换算成 Fusion 整体带宽降幅。
 
+### 2026-11-18 高频低价值 target 降噪
+
+依据 2026-11-17 单日 47 MB 日志的 target 分布，主进程默认对四个高频 target 设置上限：
+`codex_login::auth::manager`、`feedback_tags`、`codex_http_client::custom_ca` 只保留
+warn 及以上，`codex_state::migration_line_endings` 只保留 error。四者合计约占当日日志
+体积的一半，且主进程没有安装 feedback 元数据层，`feedback_tags` 没有消费方。
+
+上限定义在 `src-tauri/src/logging/noise.rs`，只在全局级别比上限更详细时追加；设置里
+对同名 target 的覆盖排在其后并生效，显式的 IYW_CLAW_LOG/RUST_LOG 指令不受影响。
+trace_safe、client timing、runtime_timing、startup_trace 仍按原设置记录。
+
+启动阶段应急日志（`src-tauri/src/logging/emergency.rs`）不再对每条 begin/ok 事件执行 fsync，只在异常状态、
+panic 以及 `event_loop_exit`、`process_exit` 时强制落盘。数据在写入时已进入系统缓存，
+进程崩溃不会丢失；断电或系统崩溃时可能缺少最后几条正常阶段记录。
+
+
 ## 验证与边界
 
 已执行 TypeScript noEmit 静态检查、定向 ESLint/Prettier、Rust 语法解析与差异审查。

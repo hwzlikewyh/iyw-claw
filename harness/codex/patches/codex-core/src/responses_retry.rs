@@ -71,7 +71,6 @@ pub(crate) enum ResponsesStreamRequest {
 
 pub(crate) struct ResponsesStreamRetryState {
     retries: u64,
-    managed_gateway_retries: u64,
     connection_retries: u64,
     connection_retry_delay: Duration,
 }
@@ -80,7 +79,6 @@ impl Default for ResponsesStreamRetryState {
     fn default() -> Self {
         Self {
             retries: 0,
-            managed_gateway_retries: 0,
             connection_retries: 0,
             connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
         }
@@ -108,17 +106,14 @@ pub(crate) async fn handle_response_stream_error(
 ) -> Result<(), CodexErr> {
     let turn_context = &step_context.turn;
     let provider_name = turn_context.provider.info().name.as_str();
+    let managed_gateway = provider_name == MANAGED_GATEWAY_PROVIDER;
     let managed_gateway_timeout = is_managed_gateway_timeout(provider_name, &err);
-    let max_retries = if managed_gateway_timeout {
+    let max_retries = if managed_gateway {
         max_retries.min(MANAGED_GATEWAY_MAX_RETRIES)
     } else {
         max_retries
     };
-    let retries_for_limit = if managed_gateway_timeout {
-        retry_state.managed_gateway_retries
-    } else {
-        retry_state.retries
-    };
+    let retries_for_limit = retry_state.retries;
     if managed_gateway_timeout {
         warn!(
             turn_id = %turn_context.sub_id,
@@ -178,6 +173,7 @@ pub(crate) async fn handle_response_stream_error(
         .config
         .features
         .enabled(Feature::UnboundedConnectionRetries)
+        && !managed_gateway
         && matches!(request, ResponsesStreamRequest::Sampling)
         && matches!(err.details(), CodexErrorDetails::ConnectionFailed(_))
         && !turn_context.session_source.is_internal()
@@ -201,7 +197,7 @@ pub(crate) async fn handle_response_stream_error(
         return Ok(());
     }
 
-    if !managed_gateway_timeout
+    if !managed_gateway
         && retry_state.retries >= max_retries
         && client_session.try_switch_fallback_transport(
             &turn_context.session_telemetry,
@@ -225,10 +221,6 @@ pub(crate) async fn handle_response_stream_error(
 
     if retries_for_limit < max_retries {
         retry_state.retries = retry_count;
-        if managed_gateway_timeout {
-            retry_state.managed_gateway_retries =
-                retry_state.managed_gateway_retries.saturating_add(1);
-        }
         log_retry(
             request,
             turn_context,

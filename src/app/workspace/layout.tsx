@@ -9,6 +9,7 @@ import {
   useState,
   type RefCallback,
 } from "react"
+import dynamic from "next/dynamic"
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
 import { NetworkStatusBar } from "@/components/layout/network-status-bar"
@@ -58,8 +59,6 @@ import {
   InteractivePageProvider,
   useInteractivePage,
 } from "@/contexts/interactive-page-context"
-import { InteractivePagePanel } from "@/components/chat/interactive-page-panel"
-import { WorkspaceBrowserShell as BrowserShell } from "@/components/browser/workspace-browser-shell"
 import { RemoteConnectionGate } from "@/contexts/remote-connection-context"
 import { UpdateProvider } from "@/components/providers/update-provider"
 import { TabBar } from "@/components/tabs/tab-bar"
@@ -73,7 +72,7 @@ import { TrayActionBridge } from "@/components/layout/tray-action-bridge"
 import { AppToaster } from "@/components/ui/app-toaster"
 import {
   DeepLinkBootstrap,
-  PetFocusBridge,
+  ConversationFocusBridge,
 } from "@/components/workspace/deep-link-bootstrap"
 import { NativeShareInbox } from "@/components/native-share/native-share-inbox"
 import { ModelCatalogBootstrap } from "@/components/workspace/model-catalog-bootstrap"
@@ -104,6 +103,21 @@ function WorkspaceDocumentTitle() {
   return null
 }
 
+// 仅在打开交互页面或内置浏览器时才渲染，按需加载以减小工作区首屏脚本。
+const InteractivePagePanel = dynamic(
+  () =>
+    import("@/components/chat/interactive-page-panel").then(
+      (mod) => mod.InteractivePagePanel
+    ),
+  { ssr: false }
+)
+const BrowserShell = dynamic(
+  () =>
+    import("@/components/browser/workspace-browser-shell").then(
+      (mod) => mod.WorkspaceBrowserShell
+    ),
+  { ssr: false }
+)
 const TOAST_DURATION_MS = 15000
 const WORKSPACE_PANEL_GROUP_ID = "workspace-panel-group"
 const WORKSPACE_CONVERSATION_PANEL_ID = "workspace-conversation-panel"
@@ -1043,8 +1057,8 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
 }
 
 // Single chokepoint that keeps the workbench route honest: opening or switching
-// to a conversation from ANY entry point (sidebar, ⌘T, search, deep links, pet
-// focus, branch switch, run history …) activates a tab, so leaving a non-default
+// to a conversation from ANY entry point (sidebar, ⌘T, search, deep links,
+// branch switch, run history …) activates a tab, so leaving a non-default
 // route whenever activeTabId changes covers every opener — present and future —
 // without patching each call site. Re-selecting the ALREADY-active tab does not
 // change activeTabId, so the interactive conversation pickers (sidebar list,
@@ -1104,7 +1118,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                             <AutomationsViewProvider>
                                               <WorkbenchRouteProvider>
                                                 <WorkbenchRouteConversationSync />
-                                                <PetFocusBridge />
+                                                <ConversationFocusBridge />
                                                 <TrayActionBridge />
                                                 <FolderLayoutShell>
                                                   {children}

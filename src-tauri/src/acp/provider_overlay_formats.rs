@@ -3,6 +3,7 @@ use crate::models::agent::AgentType;
 use super::model_budget;
 
 const KIMI_MIN_RESERVED_CONTEXT: u64 = 1_000;
+const CODEX_REQUEST_MAX_RETRIES: i64 = 3;
 
 pub const MANAGED_PROVIDER_ID: &str = "iyw-claw";
 /// Seed catalog: the compiled-in fallback used until the first successful
@@ -129,7 +130,10 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
     provider.insert("base_url".into(), toml::Value::String(base_url.into()));
     provider.insert("wire_api".into(), toml::Value::String("responses".into()));
     provider.insert("requires_openai_auth".into(), toml::Value::Boolean(true));
-    provider.insert("request_max_retries".into(), toml::Value::Integer(10));
+    provider.insert(
+        "request_max_retries".into(),
+        toml::Value::Integer(CODEX_REQUEST_MAX_RETRIES),
+    );
     provider.insert("stream_max_retries".into(), toml::Value::Integer(3));
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }

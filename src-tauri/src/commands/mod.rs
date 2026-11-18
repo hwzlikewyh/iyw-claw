@@ -85,7 +85,6 @@ pub mod network_diagnostics;
 pub mod notification;
 pub mod office_tools;
 pub mod performance;
-pub mod pet;
 pub mod plugin_apps;
 pub mod plugin_preparation;
 pub mod plugin_recovery;

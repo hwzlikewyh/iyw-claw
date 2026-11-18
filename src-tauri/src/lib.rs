@@ -41,9 +41,6 @@ pub mod office_watch;
 pub mod office_embedded;
 pub mod parsers;
 pub mod paths;
-pub mod pet_sessions;
-pub mod pet_state_mapper;
-pub mod pets;
 pub mod plugin_runtime;
 #[cfg(feature = "tauri-runtime")]
 pub mod preferences;
@@ -419,7 +416,7 @@ mod tauri_app {
 
                 // Unify the data root across every consumer:
                 //   * SQLite database (initialised below)
-                //   * `paths::iyw_claw_uploads_root` / `iyw_claw_pets_root`
+                //   * `paths::iyw_claw_uploads_root`
                 //   * `AppState.data_dir` and every desktop command
                 //     that injects a git credential helper / askpass
                 //     into a subprocess (terminal, ACP, folder ops)
@@ -500,10 +497,10 @@ mod tauri_app {
                 }
 
                 // `IYW_CLAW_HOME` overrides `IYW_CLAW_DATA_DIR` inside
-                // `paths::iyw_claw_uploads_root` / `iyw_claw_pets_root` for
+                // `paths::iyw_claw_uploads_root` for
                 // backwards-compatibility with the legacy `~/.iyw-claw/`
                 // layout. If both are set and point at different roots,
-                // uploads/pets land on `IYW_CLAW_HOME` while the database
+                // uploads land on `IYW_CLAW_HOME` while the database
                 // lands on `IYW_CLAW_DATA_DIR` — a silent split. The
                 // backup story here is "loud warning, no automatic
                 // override": the operator likely meant one of them, but
@@ -513,7 +510,7 @@ mod tauri_app {
                     if home_path != effective_data_dir {
                         tracing::warn!(
                             "[paths][WARN] IYW_CLAW_HOME ({}) and IYW_CLAW_DATA_DIR ({}) point at different roots. \
-                             Uploads/pets follow IYW_CLAW_HOME; the database follows IYW_CLAW_DATA_DIR. \
+                             Uploads follow IYW_CLAW_HOME; the database follows IYW_CLAW_DATA_DIR. \
                              Unset one or align them to avoid split state.",
                             home_path.display(),
                             effective_data_dir.display()
@@ -744,6 +741,8 @@ mod tauri_app {
                         .clone(),
                 );
 
+                // 窗口创建前的同步准备此前没有阶段埋点，耗时波动无法归因。
+                let tray_stage = crate::logging::emergency::StartupStage::new("appearance-and-tray");
                 // Logging phase 2/3: override the default level from the
                 // persisted `logging.level` now that the DB is open, then wire
                 // the emitter so the Logs viewer's live tail (`logs://appended`)
@@ -785,6 +784,7 @@ mod tauri_app {
                 ) {
                     tracing::error!("[Tray] failed to install tray icon: {err}");
                 }
+                tray_stage.complete();
 
                 // Sweep stale ACP binary cache trash (rename-aside fallback
                 // artifacts). Detached OS thread: cannot block startup, panics
@@ -921,7 +921,9 @@ mod tauri_app {
                 // states so commands (Tauri + web) can resolve them by type.
                 // MUST run before the LifecycleSubscriber spawn below so the
                 // broker handle is available to it.
+                let computer_stage = crate::logging::emergency::StartupStage::new("computer-runtime");
                 crate::computer::bootstrap::start_desktop(app.handle(), &app.state::<db::AppDatabase>().conn);
+                computer_stage.complete();
                 let broker_for_lifecycle = {
                     let cm_state = app.state::<ConnectionManager>();
                     let db_conn = app.state::<db::AppDatabase>().conn.clone();

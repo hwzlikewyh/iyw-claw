@@ -28,7 +28,7 @@ pub struct AppState {
     pub terminal_manager: TerminalManager,
     pub event_broadcaster: Arc<WebEventBroadcaster>,
     /// Process-wide bus for typed `Arc<EventEnvelope>` delivery to
-    /// in-process consumers (lifecycle, pet state mapper, chat-channel
+    /// in-process consumers (lifecycle, chat-channel
     /// subscribers). Distinct from `event_broadcaster`, which carries
     /// JSON-shaped `WebEvent`s for transport-bound delivery.
     pub acp_event_bus: Arc<InternalEventBus>,

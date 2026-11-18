@@ -54,9 +54,11 @@ export function usePeriodicProfileRefresh({
 
     let active = true
     let refreshPending = false
+    let refreshedAt = 0
     const refresh = async () => {
       if (refreshPending) return
       refreshPending = true
+      refreshedAt = Date.now()
       const generation = getGeneration()
       try {
         const next = await requestProfile(generation)
@@ -81,14 +83,21 @@ export function usePeriodicProfileRefresh({
     // 登录后立即补齐点数，避免首次查询失败后等待整轮定时刷新。
     console.info("[iyw-account] Refreshing profile after authentication")
     void refresh()
-    const interval = window.setInterval(
-      () => void refresh(),
-      PROFILE_REFRESH_INTERVAL_MS
-    )
+    // 隐藏窗口不轮询账号与点数；切回可见时若已超过一个周期再补一次。
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void refresh()
+    }, PROFILE_REFRESH_INTERVAL_MS)
+    const onVisible = () => {
+      if (document.hidden) return
+      if (Date.now() - refreshedAt < PROFILE_REFRESH_INTERVAL_MS) return
+      void refresh()
+    }
+    document.addEventListener("visibilitychange", onVisible)
 
     return () => {
       active = false
       window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
     }
   }, [
     applyProfile,

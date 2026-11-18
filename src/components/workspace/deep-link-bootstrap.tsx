@@ -128,7 +128,7 @@ function hasLinkedConversation(
  * sees fresh state without re-subscribing on every change. A request that
  * arrives before folders/tabs hydrate is queued and replayed.
  */
-export function PetFocusBridge() {
+export function ConversationFocusBridge() {
   const foldersHydrated = useAppWorkspaceStore((s) => s.foldersHydrated)
   const tabsHydrated = useTabStore((s) => s.tabsHydrated)
   const { openTab } = useTabActions()
@@ -142,7 +142,7 @@ export function PetFocusBridge() {
   }, [tabsHydrated, openTab, openConversations])
 
   // Holds the latest focus request until the workspace has hydrated. The event
-  // is one-shot, so a pet-panel click during startup/reload (before folders &
+  // is one-shot, so a request during startup/reload (before folders &
   // tabs hydrate) must not be dropped — replay it once hydration completes.
   const pendingRef = useRef<FocusRequest | null>(null)
 
@@ -160,7 +160,7 @@ export function PetFocusBridge() {
         try {
           await workspace.addFolderToWorkspaceById(req.folderId)
         } catch (err) {
-          console.error("[PetFocusBridge] open folder failed:", err)
+          console.error("[ConversationFocusBridge] open folder failed:", err)
           return
         }
       }
@@ -211,7 +211,7 @@ export function PetFocusBridge() {
         if (cancelled) off()
         else dispose = off
       } catch (err) {
-        console.warn("[PetFocusBridge] subscription failed:", err)
+        console.warn("[ConversationFocusBridge] subscription failed:", err)
       }
     })()
 

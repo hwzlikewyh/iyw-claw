@@ -27,12 +27,8 @@ describe("update-restore", () => {
     expect(consumeRestoredRoute()).toBeNull()
   })
 
-  it("does not save auxiliary or login routes", () => {
+  it("does not save login routes", () => {
     setLocation("/login")
-    saveRouteForRestore()
-    expect(consumeRestoredRoute()).toBeNull()
-
-    setLocation("/pet-panel")
     saveRouteForRestore()
     expect(consumeRestoredRoute()).toBeNull()
   })

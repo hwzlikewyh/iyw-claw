@@ -14,8 +14,7 @@ import { WINDOW_CONTROLS_WIDTH } from "./window-controls"
  * reproduce it by initiating a window-manager resize drag on mouse-down.
  *
  * Mounted once at the app root; it self-guards and renders nothing unless the
- * current window is a resizable, non-maximized Linux desktop window. Pet
- * windows (resizable: false) therefore get no grips.
+ * current window is a resizable, non-maximized Linux desktop window.
  */
 
 type ResizeDir =
@@ -109,7 +108,7 @@ export function WindowResizeGrips() {
       if (disposed) return
       const win = getCurrentWindow()
 
-      // Non-resizable windows (pet, pet-panel) get no grips.
+      // Non-resizable windows get no grips.
       let resizable = true
       try {
         resizable = await win.isResizable()

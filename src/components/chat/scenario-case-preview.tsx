@@ -1,13 +1,19 @@
 "use client"
 
 import { useState } from "react"
-import { PdfPreview } from "@/components/files/pdf-preview"
+import dynamic from "next/dynamic"
 import { MediaPreview } from "@/components/files/media-preview"
 import type { ScenarioCaseAsset } from "@/lib/scenario-cases"
 import styles from "./scenario-cases.module.css"
 import { ScenarioCaseMarkdown } from "./scenario-case-markdown"
 import { CaseLoadError } from "./scenario-case-error"
 import { ScenarioCaseSource } from "./scenario-case-source"
+
+// pdf.js 体积大，只有打开 PDF 案例时才需要。
+const PdfPreview = dynamic(
+  () => import("@/components/files/pdf-preview").then((mod) => mod.PdfPreview),
+  { ssr: false }
+)
 
 export function ScenarioCasePreview({
   asset,

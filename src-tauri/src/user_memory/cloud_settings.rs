@@ -7,6 +7,8 @@ use super::UserMemoryService;
 use crate::app_error::AppCommandError;
 
 const POLICY_TTL: Duration = Duration::from_secs(60);
+// 目录请求失败或重排目录暂不可用时的重试间隔，避免每次召回都重打 Fusion。
+const POLICY_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -18,8 +20,14 @@ pub struct CloudRetrievalConfig {
 
 pub(super) struct CloudPolicy {
     identity: String,
-    fetched_at: Instant,
+    expires_at: Instant,
+    outcome: Result<CloudRetrievalConfig, AppCommandError>,
+}
+
+struct FetchedPolicy {
     config: CloudRetrievalConfig,
+    // 重排目录请求失败时为 false，此时只短暂缓存。
+    complete: bool,
 }
 
 impl UserMemoryService {
@@ -45,37 +53,53 @@ impl UserMemoryService {
     ) -> Result<CloudRetrievalConfig, AppCommandError> {
         let mut cached = self.semantic.cloud_policy.lock().await;
         if let Some(policy) = cached.as_ref().filter(|policy| {
-            policy.identity == gateway.identity && policy.fetched_at.elapsed() < POLICY_TTL
+            policy.identity == gateway.identity && policy.expires_at > Instant::now()
         }) {
-            return Ok(policy.config.clone());
+            return policy.outcome.clone();
         }
         // 目录顺序及可用权限由 Fusion 决定，不再读取或持久化本地模型选择。
-        let config = fetch_policy(gateway).await?;
-        if cached
-            .as_ref()
-            .is_none_or(|policy| policy.identity != gateway.identity || policy.config != config)
-        {
-            tracing::info!(
-                embedding_enabled = !config.embedding_model.is_empty(),
-                rerank_enabled = config.rerank_enabled,
-                "[memory-semantic] Fusion retrieval policy updated"
-            );
+        let fetched = fetch_policy(gateway).await;
+        let ttl = match &fetched {
+            Ok(policy) if policy.complete => POLICY_TTL,
+            _ => POLICY_RETRY_INTERVAL,
+        };
+        let outcome = fetched.map(|policy| policy.config);
+        match &outcome {
+            Ok(config) => {
+                let unchanged = cached.as_ref().is_some_and(|policy| {
+                    policy.identity == gateway.identity
+                        && policy.outcome.as_ref().ok() == Some(config)
+                });
+                if !unchanged {
+                    tracing::info!(
+                        embedding_enabled = !config.embedding_model.is_empty(),
+                        rerank_enabled = config.rerank_enabled,
+                        "[memory-semantic] Fusion retrieval policy updated"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(
+                code = ?error.code,
+                retry_after_secs = ttl.as_secs(),
+                "[memory-semantic] Fusion retrieval policy unavailable"
+            ),
         }
         *cached = Some(CloudPolicy {
             identity: gateway.identity.clone(),
-            fetched_at: Instant::now(),
-            config: config.clone(),
+            expires_at: Instant::now() + ttl,
+            outcome: outcome.clone(),
         });
-        Ok(config)
+        outcome
     }
 }
 
-async fn fetch_policy(gateway: &CloudGateway) -> Result<CloudRetrievalConfig, AppCommandError> {
+async fn fetch_policy(gateway: &CloudGateway) -> Result<FetchedPolicy, AppCommandError> {
     let (embeddings, rerank) = tokio::join!(gateway.models("embedding"), gateway.models("rerank"));
     let embedding_model = embeddings?
         .first()
         .map(|model| model.id.clone())
         .unwrap_or_default();
+    let complete = rerank.is_ok();
     let rerank_model = match rerank {
         Ok(models) => models
             .first()
@@ -86,9 +110,12 @@ async fn fetch_policy(gateway: &CloudGateway) -> Result<CloudRetrievalConfig, Ap
             String::new()
         }
     };
-    Ok(CloudRetrievalConfig {
-        embedding_model,
-        rerank_enabled: !rerank_model.is_empty(),
-        rerank_model,
+    Ok(FetchedPolicy {
+        config: CloudRetrievalConfig {
+            embedding_model,
+            rerank_enabled: !rerank_model.is_empty(),
+            rerank_model,
+        },
+        complete,
     })
 }

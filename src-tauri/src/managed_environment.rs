@@ -10,6 +10,7 @@ mod snapshot;
 mod status;
 mod verification;
 mod verification_cache;
+mod verification_store;
 
 static WRITER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 

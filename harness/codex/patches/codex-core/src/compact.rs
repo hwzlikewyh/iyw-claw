@@ -297,10 +297,15 @@ async fn run_compact_task_inner_impl(
     }
 
     let provider_name = turn_context.provider.info().name.as_str();
-    let max_retries = turn_context.provider.info().stream_max_retries();
+    let managed_gateway = provider_name == "iyw-claw";
+    let max_retries = if managed_gateway {
+        turn_context.provider.info().stream_max_retries()
+            .min(crate::responses_retry::MANAGED_GATEWAY_MAX_RETRIES)
+    } else {
+        turn_context.provider.info().stream_max_retries()
+    };
     let request_budget = request_budget::RequestBudget::new();
     let mut retries = 0;
-    let mut managed_gateway_retries = 0;
     let compaction_start = std::time::Instant::now();
     // Reuse one client session so turn-scoped state (sticky routing and websocket incremental
     // request tracking) survives retries within this compact turn.
@@ -366,7 +371,9 @@ async fn run_compact_task_inner_impl(
                         "Context window exceeded while compacting; removing oldest history item. Error: {e}"
                     );
                     history.remove_first_item();
-                    retries = 0;
+                    if !managed_gateway {
+                        retries = 0;
+                    }
                     continue;
                 }
                 sess.set_total_tokens_full(turn_context.as_ref()).await;
@@ -376,16 +383,8 @@ async fn run_compact_task_inner_impl(
                 let elapsed = compaction_start.elapsed();
                 let managed_gateway_timeout =
                     crate::responses_retry::is_managed_gateway_timeout(provider_name, &e);
-                let retry_limit = if managed_gateway_timeout {
-                    crate::responses_retry::MANAGED_GATEWAY_MAX_RETRIES
-                } else {
-                    max_retries
-                };
-                let retries_for_limit = if managed_gateway_timeout {
-                    managed_gateway_retries
-                } else {
-                    retries
-                };
+                let retry_limit = max_retries;
+                let retries_for_limit = retries;
                 if (managed_gateway_timeout
                     || crate::responses_retry::is_retryable_response_error(provider_name, &e))
                     && !crate::responses_retry::is_request_too_large(&e)
@@ -393,9 +392,6 @@ async fn run_compact_task_inner_impl(
                     && retries_for_limit < retry_limit
                 {
                     retries += 1;
-                    if managed_gateway_timeout {
-                        managed_gateway_retries += 1;
-                    }
                     let retry_number = retries_for_limit + 1;
                     let delay = e.retry_after()
                         .map(|after| after.deadline().saturating_duration_since(tokio::time::Instant::now()))

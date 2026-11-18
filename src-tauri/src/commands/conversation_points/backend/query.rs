@@ -4,12 +4,28 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
+mod eviction;
+mod remote;
+use remote::{fetch, QueryResult};
+
 const QUERY_BATCH: usize = 100;
 const QUERY_BUDGET: Duration = Duration::from_secs(5);
 const CACHE_LIMIT: usize = 10_000;
 const PENDING_QUERY_INTERVAL: Duration = Duration::from_secs(1);
 const FAILED_QUERY_INTERVAL: Duration = Duration::from_secs(3);
 const SETTLEMENT_QUERY_INTERVAL: Duration = Duration::from_secs(5);
+/// 结算已落定的请求只做低频复核，避免每次刷新都重发整个会话的 request_id。
+const SETTLED_QUERY_INTERVAL: Duration = Duration::from_secs(60);
+/// 与前端 needsSettlement 的终态集合保持一致。
+const SETTLED_STATUSES: [&str; 7] = [
+    "charged",
+    "settled_without_debit",
+    "revoked",
+    "disabled",
+    "identity_missing",
+    "unsupported_currency",
+    "not_billable",
+];
 
 #[derive(Clone, Deserialize, Serialize)]
 pub(super) struct Record {
@@ -39,12 +55,14 @@ impl RequestRows {
     pub(super) fn has_final_cost_rows(&self) -> bool {
         !self.pending && !self.items.is_empty()
     }
-}
 
-#[derive(Deserialize)]
-struct QueryResult {
-    items: Vec<Record>,
-    pending_request_ids: Vec<String>,
+    fn is_settled(&self) -> bool {
+        self.has_final_cost_rows()
+            && self.items.iter().all(|row| {
+                row.charged_points.is_some()
+                    && SETTLED_STATUSES.contains(&row.settlement_status.as_str())
+            })
+    }
 }
 
 #[derive(Default)]
@@ -112,22 +130,11 @@ async fn query_with_credentials(
             HashMap::new()
         }
     };
-    // 消费金额可持久复用；扣点及撤销状态仍需有界刷新，不能永久冻结。
-    let missing = query.ids.to_vec();
-    if missing.is_empty() {
+    // 消费金额可持久复用；扣点及撤销状态按 retry_after 有界刷新，结算落定后降为低频复核。
+    if query.ids.is_empty() {
         return records;
     }
-    records.extend(
-        query_missing(
-            conn,
-            Query {
-                ids: &missing,
-                ..query
-            },
-            scope,
-        )
-        .await,
-    );
+    records.extend(query_missing(conn, query, scope).await);
     records
 }
 
@@ -158,24 +165,35 @@ async fn query_missing(
 }
 
 async fn refresh(cached: &mut Cache, query: Query<'_>) {
-    let missing: Vec<String> = query
+    let now = Instant::now();
+    let mut missing: Vec<String> = query
         .ids
         .iter()
         .filter(|id| {
             cached
                 .retry_after
                 .get(*id)
-                .is_none_or(|after| *after <= Instant::now())
+                .is_none_or(|after| *after <= now)
         })
         .cloned()
         .collect();
+    missing.sort_by_key(|id| cached.records.get(id).is_some_and(RequestRows::is_settled));
+    if missing.is_empty() {
+        return;
+    }
+    tracing::debug!(
+        requested = query.ids.len(),
+        deferred = query.ids.len() - missing.len(),
+        queried = missing.len(),
+        "[conversation-points] backend query plan"
+    );
     let deadline = Instant::now() + QUERY_BUDGET;
     for batch in missing.chunks(QUERY_BATCH) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
         }
-        match fetch(
+        let fetched = fetch(
             Query {
                 url: query.url,
                 scope: query.scope,
@@ -184,41 +202,54 @@ async fn refresh(cached: &mut Cache, query: Query<'_>) {
             },
             remaining,
         )
-        .await
-        {
-            Ok(result) => {
-                let delay = if result.pending_request_ids.is_empty() {
-                    SETTLEMENT_QUERY_INTERVAL
-                } else {
-                    PENDING_QUERY_INTERVAL
+        .await;
+        if !apply(cached, batch, fetched) {
+            break;
+        }
+    }
+}
+
+/// 写入一批查询结果并安排下次查询时间；返回 false 表示本轮应停止后续批次。
+fn apply(cached: &mut Cache, batch: &[String], fetched: Result<QueryResult, String>) -> bool {
+    match fetched {
+        Ok(result) => {
+            let delay = if result.pending_request_ids.is_empty() {
+                SETTLEMENT_QUERY_INTERVAL
+            } else {
+                PENDING_QUERY_INTERVAL
+            };
+            store(cached, batch, result);
+            defer_queries(cached, batch, delay);
+            true
+        }
+        Err(error) => {
+            for id in batch {
+                let Some(rows) = cached.records.get_mut(id) else {
+                    continue;
                 };
-                store(cached, batch, result);
-                defer_queries(cached, batch, delay);
-            }
-            Err(error) => {
-                for id in batch {
-                    if let Some(rows) = cached.records.get_mut(id) {
-                        for row in &mut rows.items {
-                            row.charged_points = None;
-                            row.settlement_status.clear();
-                        }
-                    }
+                for row in &mut rows.items {
+                    row.charged_points = None;
+                    row.settlement_status.clear();
                 }
-                defer_queries(cached, batch, FAILED_QUERY_INTERVAL);
-                tracing::warn!(error = %error, request_count = batch.len(), "[conversation-points] backend query failed");
-                break;
             }
+            defer_queries(cached, batch, FAILED_QUERY_INTERVAL);
+            tracing::warn!(error = %error, request_count = batch.len(), "[conversation-points] backend query failed");
+            false
         }
     }
 }
 
 fn defer_queries(cached: &mut Cache, ids: &[String], delay: Duration) {
-    cached
-        .retry_after
-        .retain(|_, after| *after > Instant::now());
-    let next = Instant::now() + delay;
+    let now = Instant::now();
+    cached.retry_after.retain(|_, after| *after > now);
     for id in ids {
-        cached.retry_after.insert(id.clone(), next);
+        let settled = cached.records.get(id).is_some_and(RequestRows::is_settled);
+        let delay = if settled {
+            SETTLED_QUERY_INTERVAL
+        } else {
+            delay
+        };
+        cached.retry_after.insert(id.clone(), now + delay);
     }
 }
 
@@ -241,40 +272,8 @@ async fn persist(conn: &sea_orm::DatabaseConnection, cached: &mut Cache, ids: &[
     }
 }
 
-async fn fetch(query: Query<'_>, timeout: Duration) -> Result<QueryResult, String> {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    let response = CLIENT
-        .get_or_init(reqwest::Client::new)
-        .post(query.url)
-        .header("token", query.token)
-        .json(&serde_json::json!({"request_ids": query.ids}))
-        .timeout(timeout)
-        .send()
-        .await
-        .map_err(|error| error.without_url().to_string())?;
-    let payload: serde_json::Value = response
-        .error_for_status()
-        .map_err(|error| error.without_url().to_string())?
-        .json()
-        .await
-        .map_err(|_| "invalid backend consumption response")?;
-    if payload.get("code").and_then(serde_json::Value::as_i64) != Some(1) {
-        return Err("backend consumption query rejected".into());
-    }
-    serde_json::from_value(payload["data"].clone())
-        .map_err(|_| "invalid backend consumption records".into())
-}
-
 fn store(cached: &mut Cache, ids: &[String], result: QueryResult) {
-    let added = ids
-        .iter()
-        .filter(|id| !cached.records.contains_key(*id))
-        .count();
-    if cached.records.len().saturating_add(added) > CACHE_LIMIT {
-        cached.records.clear();
-        cached.retry_after.clear();
-        cached.persisted.clear();
-    }
+    eviction::reserve(cached, ids);
     let pending: HashSet<_> = result.pending_request_ids.into_iter().collect();
     for id in ids {
         let records: Vec<_> = result

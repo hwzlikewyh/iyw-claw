@@ -66,10 +66,7 @@ pub fn blocker(app: &AppHandle) -> Option<&'static str> {
         return Some("window_focused");
     }
     for label in windows.keys() {
-        // 宠物常驻窗口不阻止更新，其他辅助编辑/远程窗口保守等待关闭。
-        if label.starts_with("pet") {
-            continue;
-        }
+        // 辅助编辑/远程窗口保守等待关闭。
         if label != "main" && label != "settings" {
             return Some("auxiliary_window_open");
         }

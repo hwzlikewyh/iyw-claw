@@ -39,10 +39,6 @@ PATCHES = [
         ("- iyw-claw`", f"- {BRAND}`"),
         (': "iyw-claw"', f': "{BRAND}"'),
     ]),
-    # pet window title
-    ("src/app/pet/_components/PetWindow.tsx", [
-        ('iyw-claw pet"', f'{BRAND} 宠物"'),
-    ]),
     # channel-events sample body text (user-visible documentation example)
     ("src/components/settings/channel-events-tab.tsx", [
         ("Answer it in iyw-claw.", f"Answer it in {BRAND}."),

@@ -141,7 +141,9 @@ function runInstall(variant, round, output, requireNoDuplicateBundle) {
     const elapsedMs = Math.round(performance.now() - started)
     const app = resolveInstalledApp(root)
     const tree = collectTree(app)
-    const duplicateBundle = existsSync(join(app, "resources", "bundle"))
+    const bundle = join(app, "resources", "bundle")
+    const duplicateBundle =
+      existsSync(bundle) && readdirSync(bundle).some((name) => name !== "index.html")
     if (duplicateBundle && requireNoDuplicateBundle)
       fail(`${variant.name}: duplicate resources/bundle remains`)
     const mainExecutable = join(app, "iyw-claw.exe")

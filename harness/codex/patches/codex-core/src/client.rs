@@ -2121,6 +2121,7 @@ impl ResponsesHttpExecutor<'_> {
                 // Fusion already retries upstream candidates for streaming requests.
                 // Do not replay its final HTTP 5xx and repeat the entire generation.
                 api_provider.retry.retry_5xx = false;
+                api_provider.retry.max_attempts = 0;
             }
             let client = ApiResponsesClient::new(
                 transport,

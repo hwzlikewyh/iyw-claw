@@ -49,6 +49,7 @@ pub struct LogGuard {
 /// target directive — the UI constrains the input to avoid that.
 pub fn build_env_filter(settings: &LogSettings) -> EnvFilter {
     let mut directives = settings.level.directive().to_string();
+    crate::logging::noise::append_quiet_directives(settings.level, &mut directives);
     for t in &settings.targets {
         // Validate server-side (don't trust the UI): only well-formed module
         // targets are interpolated, and the logging module can never be

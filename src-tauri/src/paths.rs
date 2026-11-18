@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 const APP_DIR_NAME: &str = ".iyw-claw";
-const PETS_DIR_NAME: &str = "pets";
 const UPLOADS_DIR_NAME: &str = "uploads";
 const LOGS_DIR_NAME: &str = "logs";
 const ACP_TRANSCRIPTS_DIR_NAME: &str = "acp-transcripts";
@@ -125,29 +124,10 @@ fn resolved_user_memory_root(
     Ok(ResolvedUserMemoryRoot { path, source })
 }
 
-/// Root directory for desktop-pet assets.
-///
-/// Resolution order:
-/// 1. `$IYW_CLAW_HOME/pets` (explicit override, used in tests and custom installs)
-/// 2. `$IYW_CLAW_DATA_DIR/pets` (server-mode data directory, populated by
-///    `iyw-claw-server` from the corresponding env var)
-/// 3. `~/.iyw-claw/pets` (default for the desktop app)
-pub fn iyw_claw_pets_root() -> PathBuf {
-    if let Some(custom) = std::env::var_os("IYW_CLAW_HOME").filter(|s| !s.is_empty()) {
-        return PathBuf::from(custom).join(PETS_DIR_NAME);
-    }
-    if let Some(data) = std::env::var_os("IYW_CLAW_DATA_DIR").filter(|s| !s.is_empty()) {
-        return PathBuf::from(data).join(PETS_DIR_NAME);
-    }
-    dirs::home_dir()
-        .map(|h| h.join(APP_DIR_NAME).join(PETS_DIR_NAME))
-        .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME).join(PETS_DIR_NAME))
-}
-
 /// Root directory for attachments uploaded from the web client.
 ///
-/// Resolution order matches `iyw_claw_pets_root()`:
-/// 1. `$IYW_CLAW_HOME/uploads`
+/// Resolution order:
+/// 1. `$IYW_CLAW_HOME/uploads` (explicit override, used in tests and custom installs)
 /// 2. `$IYW_CLAW_DATA_DIR/uploads` (server-mode data directory)
 /// 3. `~/.iyw-claw/uploads` (desktop default)
 ///
@@ -266,6 +246,5 @@ pub fn resolve_effective_data_dir(tauri_fallback: &Path) -> PathBuf {
 }
 
 // Path resolution depends on global env vars (`IYW_CLAW_HOME`, `IYW_CLAW_DATA_DIR`),
-// so unit tests would need cross-test serialization to avoid races. The
-// behaviour is covered end-to-end by `pets::*` tests which set `IYW_CLAW_HOME`
-// inside a serialized test mutex; we deliberately don't duplicate that here.
+// so unit tests would need cross-test serialization to avoid races; we
+// deliberately don't add them here.

@@ -1,7 +1,7 @@
 //! In-process ACP event bus.
 //!
 //! Carries `Arc<EventEnvelope>` directly to back-end consumers (lifecycle,
-//! pet state mapper, chat-channel subscribers). Distinct from
+//! chat-channel subscribers). Distinct from
 //! `WebEventBroadcaster`, which carries `Arc<serde_json::Value>` for
 //! transport-bound JSON delivery to WS clients.
 //!
@@ -33,7 +33,7 @@ const BUS_CAPACITY: usize = 4096;
 
 /// Process-wide bus delivering ACP envelopes to in-process consumers.
 ///
-/// Subscribers (lifecycle / pet / chat-channel) call `subscribe()` once at
+/// Subscribers (lifecycle / chat-channel) call `subscribe()` once at
 /// startup and hold the receiver for the lifetime of the process.
 /// `emit_with_state` calls `send()` after the per-connection stream so the
 /// envelope arrives in lockstep with the WS attach delivery.

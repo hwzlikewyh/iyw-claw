@@ -6,7 +6,6 @@ pub mod conversation;
 pub mod folder;
 pub mod message;
 pub mod model_provider;
-pub mod pet;
 pub mod quick_message;
 pub mod remote_workspace_connection;
 pub mod system;

@@ -5,9 +5,7 @@
 //! component state, so navigating away from the settings page (or closing it)
 //! unmounted the component and lost the progress while the download kept
 //! running underneath. This module moves that state into the backend — the
-//! renderer becomes a pure subscriber that re-syncs from a snapshot on mount —
-//! mirroring how `pet_state` lets a freshly-opened window pick up the current
-//! ambient state.
+//! renderer becomes a pure subscriber that re-syncs from a snapshot on mount.
 //!
 //! Both runtimes write here through the same small API:
 //!   * desktop drives `tauri-plugin-updater` from `commands::app_update`;

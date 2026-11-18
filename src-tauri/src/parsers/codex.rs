@@ -68,6 +68,18 @@ impl CodexParser {
         Self { base_dir }
     }
 
+    fn load_conversation_detail(
+        &self,
+        path: &PathBuf,
+        conversation_id: &str,
+    ) -> Result<ConversationDetail, ParseError> {
+        let mut detail = self.parse_conversation_detail(path, conversation_id)?;
+        if let Some(title) = self.load_thread_name_index().get(conversation_id) {
+            detail.summary.title = Some(title.clone());
+        }
+        Ok(detail)
+    }
+
     /// Load Codex's append-only session title index. The transcript remains the
     /// fallback source, so a missing/unreadable index or a malformed line is
     /// deliberately ignored. Later non-empty records for the same session win.
@@ -418,7 +430,11 @@ impl AgentParser for CodexParser {
             ));
         }
 
-        // Find the conversation file by walking the directory tree
+        // 已定位过的会话直接复用路径，避免每次打开都遍历整个 sessions 目录。
+        if let Some(path) = billing_sources::cached_path(&self.base_dir, conversation_id) {
+            return self.load_conversation_detail(&path, conversation_id);
+        }
+
         for entry in WalkDir::new(&self.base_dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -429,11 +445,8 @@ impl AgentParser for CodexParser {
             }
             let fname = path.file_name().unwrap_or_default().to_string_lossy();
             if fname.contains(conversation_id) {
-                let mut detail = self.parse_conversation_detail(&path, conversation_id)?;
-                if let Some(title) = self.load_thread_name_index().get(conversation_id) {
-                    detail.summary.title = Some(title.clone());
-                }
-                return Ok(detail);
+                billing_sources::remember(&self.base_dir, conversation_id, &path);
+                return self.load_conversation_detail(&path, conversation_id);
             }
         }
 

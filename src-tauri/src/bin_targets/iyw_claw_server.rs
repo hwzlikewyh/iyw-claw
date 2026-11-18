@@ -90,7 +90,7 @@ fn main() -> ExitCode {
     //    though we found the database.
     //
     // 2. Fill in the default if unset, so every downstream resolver —
-    //    `paths::iyw_claw_uploads_root`, `paths::iyw_claw_pets_root`,
+    //    `paths::iyw_claw_uploads_root`,
     //    the credential subprocess — converges on the same root the
     //    server itself chose for the database. Without this, a default
     //    deployment (env var unset) puts the DB under
@@ -151,7 +151,7 @@ fn main() -> ExitCode {
         tracing::error!("[agent-storage] failed to repair private provider configuration: {error}");
     }
 
-    // `IYW_CLAW_HOME` overrides `IYW_CLAW_DATA_DIR` for uploads/pets inside
+    // `IYW_CLAW_HOME` overrides `IYW_CLAW_DATA_DIR` for uploads inside
     // `paths::IYW_CLAW_*_root` (legacy `~/.iyw-claw/` layout). If both are set
     // and resolve to different roots, the database and uploads land on
     // different filesystems — a silent split. Warn loudly so the
@@ -162,7 +162,7 @@ fn main() -> ExitCode {
         if home_path != resolved_data_dir {
             tracing::warn!(
                 "[paths][WARN] IYW_CLAW_HOME ({}) and IYW_CLAW_DATA_DIR ({}) point at different roots. \
-                 Uploads/pets follow IYW_CLAW_HOME; the database follows IYW_CLAW_DATA_DIR. \
+                 Uploads follow IYW_CLAW_HOME; the database follows IYW_CLAW_DATA_DIR. \
                  Unset one or align them to avoid split state.",
                 home_path.display(),
                 resolved_data_dir.display()

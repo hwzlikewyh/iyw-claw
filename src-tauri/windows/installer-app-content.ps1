@@ -8,10 +8,16 @@ try {
         throw 'Application backup is not a regular directory.'
     }
     # Only known package entries may be removed; preserve unknown content.
-    $files = @('iyw-claw.exe', 'iyw-environment.exe', 'uninstall.exe', 'LICENSE', 'THIRD_PARTY_NOTICES.md')
-    $directories = @('resources', 'environment', 'xinghe-resources')
+    $files = @('iyw-claw.exe', 'iyw-environment.exe', 'uninstall.exe', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'resources.pri')
+    # Shell registration writes one resources.scale-<percent>.pri per display scale.
+    $scaledResourcePattern = 'resources.scale-*.pri'
+    $directories = @('resources', 'environment', 'xinghe-resources', 'native-share', 'installer', 'Assets')
     foreach ($entry in Get-ChildItem -LiteralPath $BackupDirectory -Force) {
-        $known = if ($entry.PSIsContainer) { $directories -contains $entry.Name } else { $files -contains $entry.Name }
+        $known = if ($entry.PSIsContainer) {
+            $directories -contains $entry.Name
+        } else {
+            ($files -contains $entry.Name) -or ($entry.Name -like $scaledResourcePattern)
+        }
         if (-not $known -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
             Write-Output 'Application backup contains non-package content; retaining the whole backup.'
             exit 1

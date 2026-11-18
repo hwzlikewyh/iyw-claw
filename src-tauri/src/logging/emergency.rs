@@ -175,9 +175,15 @@ fn write_event_inner(event: &str, status: &str, stage: &str, detail: Option<Stri
     let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };
-    if file.write_all(line.as_bytes()).is_ok() {
+    if file.write_all(line.as_bytes()).is_ok() && needs_durable_write(event, status) {
         let _ = file.sync_data();
     }
+}
+
+/// 例行启动进度写入系统缓存即可，进程崩溃不会丢失已写入的数据；逐条强制落盘在
+/// 机械盘或磁盘繁忙时每条耗时数十到数百毫秒。失败、中断与退出事件仍强制落盘。
+fn needs_durable_write(event: &str, status: &str) -> bool {
+    !matches!(status, "begin" | "ok") || matches!(event, "event_loop_exit" | "process_exit")
 }
 
 pub fn install_panic_hook() {

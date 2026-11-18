@@ -25,6 +25,7 @@ mod emergency_redact;
 pub mod hub;
 pub mod init;
 pub mod layer;
+mod noise;
 pub mod retention;
 mod startup_stage;
 

@@ -32,7 +32,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../out": "resources/bundle/",
+      "../out/index.html": "resources/bundle/index.html",
       "resources/xinghe-worker": "xinghe-resources",
       "resources/environment": "environment",
       "native-share/resources/": "native-share/"
