@@ -1,5 +1,6 @@
 import { createReadStream, readFileSync, statSync } from "node:fs"
 import { connectFusion } from "./release-fusion-client.mjs"
+import { submitArtifactReceipt } from "./release-fusion-receipts.mjs"
 export { connectFusion } from "./release-fusion-client.mjs"
 import {
   github,
@@ -160,7 +161,9 @@ function sameArtifact(artifact, input) {
 }
 
 async function sendObject(upload, input) {
-  if (new URL(upload.url).protocol !== "https:" || upload.method !== "PUT")
+  const endpoint = new URL(upload.url)
+  if (endpoint.protocol !== "https:" || !/^[a-z0-9-]+\.tos-[a-z0-9-]+\.volces\.com$/.test(endpoint.hostname) ||
+      endpoint.username || endpoint.password || endpoint.port || upload.method !== "PUT")
     throw new Error("invalid object upload ticket")
   const stream = createReadStream(input.path)
   try {
@@ -190,22 +193,9 @@ async function completePreviousUpload(api, input, found) {
     normalizeSignature(found.signature) !== input.signature
   )
     throw new Error("in-progress artifact differs from the requested release")
-  try {
-    const complete = await api(
-      `/admin/api/app-releases/${found.releaseId}/artifacts/${found.id}/complete`,
-      {}
-    )
-    sameArtifact(complete.artifact, input)
-    return true
-  } catch (error) {
-    if (
-      !["APP_RELEASE_UPLOAD_MISSING", "APP_RELEASE_INTEGRITY_FAILED"].includes(
-        error.code
-      )
-    )
-      throw error
-  }
-  return false
+  const completed = await submitArtifactReceipt(api, found, input)
+  if (completed) sameArtifact(completed, input)
+  else console.log(`[release] waiting for verifier receipt: ${found.releaseId}/${found.id} ${input.fileName}`)
 }
 
 async function uploadArtifact(api, releaseId, input) {
@@ -222,11 +212,7 @@ async function uploadArtifact(api, releaseId, input) {
   }
   if (detail.release.status !== "draft")
     throw new Error("published Fusion artifacts cannot be changed")
-  if (
-    found?.status === "uploading" &&
-    (await completePreviousUpload(api, input, found))
-  )
-    return
+  if (found?.status === "uploading") return completePreviousUpload(api, input, found)
   const { path, ...payload } = input
   const initialized = await api(
     `/admin/api/app-releases/${releaseId}/artifacts/init`,
@@ -234,11 +220,7 @@ async function uploadArtifact(api, releaseId, input) {
   )
   console.log(`[release] uploading ${input.fileName}`)
   await sendObject(initialized.upload, input)
-  const completed = await api(
-    `/admin/api/app-releases/${releaseId}/artifacts/${initialized.artifact.id}/complete`,
-    {}
-  )
-  sameArtifact(completed.artifact, input)
+  await completePreviousUpload(api, input, initialized.artifact)
 }
 
 async function uploadArtifacts(api, releaseId, inputs) {
@@ -303,6 +285,8 @@ export async function publishFusion({ repo, version, directory }) {
   const path = `/admin/api/app-releases/${value.id}`
   const ready = await api(path)
   assertPolicy(ready.release, version)
+  const pending = ready.artifacts.filter(item => item.status !== "ready")
+  if (pending.length) throw new Error(`等待独立验签回执，当前草稿 ${value.id} 尚有 ${pending.length} 件未就绪。可用相同版本重试。`)
   for (const input of inputs)
     sameArtifact(
       ready.artifacts.find(

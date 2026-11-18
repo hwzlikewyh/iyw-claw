@@ -1,13 +1,9 @@
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { setTimeout as delay } from "node:timers/promises"
 
 const BASE = "https://gateway.iyw.cn/iyw-fusion-api"
 const REQUEST_TIMEOUT = 180_000
-const COMPLETE_TIMEOUT = 10 * 60 * 1000
-const BUSY_RETRY_MS = 10_000
-const BUSY_ATTEMPTS = 30
 
 async function fetchJson(url, options = {}, timeout = REQUEST_TIMEOUT) {
   let response
@@ -31,18 +27,6 @@ async function fetchJson(url, options = {}, timeout = REQUEST_TIMEOUT) {
     throw error
   }
   return result.data
-}
-
-async function completeUpload(url, options) {
-  for (let attempt = 1; attempt <= BUSY_ATTEMPTS; attempt++) {
-    try {
-      return await fetchJson(url, options, COMPLETE_TIMEOUT)
-    } catch (error) {
-      if (error.code !== "APP_RELEASE_UPLOAD_BUSY" || attempt === BUSY_ATTEMPTS) throw error
-      console.log("[release] server is verifying another signed package; waiting for a verification slot")
-      await delay(BUSY_RETRY_MS)
-    }
-  }
 }
 
 export async function connectFusion(environment = process.env) {
@@ -70,7 +54,7 @@ export async function connectFusion(environment = process.env) {
     try {
       await fetchJson(`${BASE}/admin/api/app-releases?pageSize=1`, { headers })
       return (path, body) =>
-        (path.endsWith("/complete") ? completeUpload : fetchJson)(`${BASE}${path}`, {
+        fetchJson(`${BASE}${path}`, {
           headers: { ...headers, "Content-Type": "application/json" },
           method: body === undefined ? "GET" : "POST",
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
