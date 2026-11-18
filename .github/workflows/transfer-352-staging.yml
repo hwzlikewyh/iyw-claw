@@ -1,0 +1,29 @@
+name: Transfer 352 Staging Archive
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  transfer:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Copy staging archive onto the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          src=iyw-staging-44078503484-1-x86_64-pc-windows-msvc.zip
+          for name in iyw-windows-staging.zip iyw-windows-x86-staging.zip; do
+            if gh release view v0.1.352 --json assets --jq '.assets[].name' | grep -qx "$name"; then
+              echo "$name already present"
+              continue
+            fi
+            gh release download v0.1.352 --repo "$GH_REPO" --pattern "$src" --dir in --clobber
+            sha256sum "in/$src"
+            cp "in/$src" "$name"
+            gh release upload v0.1.352 "$name"
+          done
+

@@ -1,0 +1,32 @@
+name: Relay 352 Staging Package
+on:
+  workflow_dispatch:
+    inputs:
+      asset_id:
+        description: Existing staging archive asset id on this release
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  relay:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Republish the staging archive through GitHub Actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ASSET_ID: ${{ inputs.asset_id }}
+        run: |
+          set -euo pipefail
+          name="$(gh api "repos/$GH_REPO/releases/assets/$ASSET_ID" --jq .name)"
+          echo "relaying $name ($ASSET_ID)"
+          gh api "repos/$GH_REPO/releases/assets/$ASSET_ID" -H 'Accept: application/octet-stream' > "$name"
+          test -s "$name"
+          sha256sum "$name"
+          gh api --method DELETE "repos/$GH_REPO/releases/assets/$ASSET_ID" >/dev/null
+          gh release upload v0.1.352 "$name" --repo "$GH_REPO"
+          gh api "repos/$GH_REPO/releases/448566649/assets" --jq ".[] | select(.name==\"$name\") | \"\(.size) \(.digest)\""
+
