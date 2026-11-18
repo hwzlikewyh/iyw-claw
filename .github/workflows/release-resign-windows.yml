@@ -143,7 +143,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
-        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.9
+        run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.10
       - name: Repackage and sign existing executable without compiling
         if: ${{ !inputs.refresh_bootstrapper }}
         shell: pwsh
