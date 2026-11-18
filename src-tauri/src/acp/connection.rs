@@ -1426,6 +1426,7 @@ pub(crate) async fn spawn_agent_connection(
     let spawn_gate = connection_tasks.begin_spawn().await?;
     let mut preferred_config_values = preferred_config_values;
     let mut runtime_env = runtime_env;
+    crate::plugin_runtime::session_env::project(version_center_db.as_ref(), database_conversation_id, &mut runtime_env).await;
     if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
         if let Some(conn) = version_center_db.as_ref() {
             crate::commands::mcp_conversation_runtime::project_xinghe(conn, database_conversation_id, &mut runtime_env).await?;
@@ -1721,7 +1722,7 @@ pub(crate) async fn spawn_agent_connection(
     let terminal_environment_stage = startup_trace.stage("terminal_environment_prepare");
     let mut terminal_base_env: BTreeMap<String, String> = runtime_env
         .iter()
-        .filter(|(k, _)| k.starts_with("GIT_CONFIG_"))
+        .filter(|(k, _)| k.starts_with("GIT_CONFIG_") || crate::plugin_runtime::session_env::is_session_key(k))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     // Also surface a iyw-claw-installed OfficeCLI on the terminal's PATH: agents run

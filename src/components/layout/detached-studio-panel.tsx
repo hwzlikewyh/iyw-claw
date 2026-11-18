@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { AppTitleBar } from "./app-title-bar"
+import { StudioFileFrame } from "./studio-file-frame"
 import { openOpenfilmStudio, type PluginPanelChoice } from "@/lib/plugin-panel"
 import { reportPluginWindowReady } from "@/lib/plugin-panel-window"
 import { toErrorMessage } from "@/lib/app-error"
@@ -54,7 +55,7 @@ function StudioContent({
       {error}
     </p>
   ) : url ? (
-    <iframe
+    <StudioFileFrame enabled
       src={url}
       title={label}
       className="min-h-0 w-full flex-1 border-0"

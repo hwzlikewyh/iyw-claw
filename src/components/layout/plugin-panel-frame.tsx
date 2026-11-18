@@ -10,6 +10,7 @@ import { usePluginPanelAuthority } from "./use-plugin-panel-authority"
 import { usePluginPanelDialog } from "./use-plugin-panel-dialog"
 import type { PluginPanelSyncState } from "@/lib/plugin-panel"
 import { PanelToolbar, SyncError } from "./plugin-panel-toolbar"
+import { StudioFileFrame } from "./studio-file-frame"
 import { toast } from "sonner"
 
 const APP_READY_TIMEOUT_MS = 60_000
@@ -59,6 +60,7 @@ export function PluginPanelFrame({
   )
   const content = (
     <PanelContent
+      visible={visible}
       tab={tab}
       revoked={revoked}
       sync={sync}
@@ -116,6 +118,7 @@ function useAppReadyTimeout(
 }
 
 function PanelContent({
+  visible,
   tab,
   revoked,
   sync,
@@ -132,6 +135,7 @@ function PanelContent({
   onDetach,
   moving,
 }: {
+  visible: boolean
   tab: PluginPanelTab
   revoked: boolean | undefined
   sync?: PluginPanelSyncState
@@ -177,7 +181,9 @@ function PanelContent({
       />
       <div className="relative min-h-0 flex-1">
         {revoked ? null : tab.kind === "studio-url" ? (
-          <iframe
+          <StudioFileFrame
+            key={tab.id}
+            enabled={visible && !moving}
             src={tab.url}
             title={tab.label}
             className="size-full border-0 bg-background"

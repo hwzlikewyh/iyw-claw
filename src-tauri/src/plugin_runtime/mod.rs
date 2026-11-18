@@ -15,6 +15,7 @@ pub(crate) mod policy;
 mod reaper;
 pub(crate) mod recovery;
 pub mod registry;
+pub(crate) mod session_env;
 pub mod router;
 mod router_prepare;
 mod router_accounts;

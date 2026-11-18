@@ -72,9 +72,7 @@ function watchRetryScope(
       store.activeTabId === tabId &&
       store.tabs.some(
         (item) =>
-          (item.id === tabId &&
-            (item.conversationId === tab.conversationId ||
-              (tab.kind === "studio-url" && tab.conversationId === null))) ||
+          (item.id === tabId && (item.conversationId ?? null) === tab.conversationId) ||
           (item.id === tabId &&
             tab.conversationId != null &&
             tab.conversationId < 0 &&

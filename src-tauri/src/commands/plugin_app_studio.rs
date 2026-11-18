@@ -61,7 +61,11 @@ pub async fn open_studio_core(
     let entrypoint = openfilm_entrypoint(&plugin_root)?;
     let node = crate::managed_environment::require_tool_entrypoint("node")
         .map_err(AppCommandError::configuration_missing)?;
-    let (studio_home, shared_home) = openfilm_studio_homes(&scope, request.conversation_id)?;
+    let session = match request.conversation_id {
+        Some(id) if id < 0 => super::draft_workspace(&db.conn, id).await?.conversation_id.map(i64::from).or(Some(id)),
+        other => other,
+    };
+    let (studio_home, shared_home) = openfilm_studio_homes(&scope, session)?;
     let working_dir = workspace_dir.unwrap_or_else(|| studio_home.clone());
     let output = run_openfilm(&node, &entrypoint, &working_dir, &studio_home, &shared_home).await?;
     if !output.status.success() {
@@ -78,20 +82,31 @@ pub async fn open_studio_core(
     Ok(OpenStudioResponse { url })
 }
 
-fn openfilm_studio_homes(
-    scope: &str,
-    conversation_id: Option<i64>,
-) -> Result<(PathBuf, PathBuf), AppCommandError> {
-    use sha2::{Digest, Sha256};
-
-    let scope_key = format!("{:x}", Sha256::digest(scope.as_bytes()));
-    let base = crate::acp::agent_storage::AgentStoragePaths::active()
+fn studio_root(scope: &str) -> Result<PathBuf, AppCommandError> {
+    let scope_key = crate::plugin_runtime::session_env::account_hash(scope);
+    Ok(crate::plugin_runtime::session_env::data_root()
         .ok_or_else(|| AppCommandError::configuration_missing("Agent storage is unavailable"))?
-        .root()
-        .join("plugin-data")
         .join(OPENFILM_PLUGIN_SLUG)
         .join(scope_key)
-        .join("studio");
+        .join("studio"))
+}
+
+pub(super) fn bind_studio_draft(scope: &str, draft: i32, conversation: i32) -> Result<(), AppCommandError> {
+    let root = studio_root(scope)?;
+    if !root.join(draft.to_string()).is_dir() { return Ok(()); }
+    let home = root.join(conversation.to_string());
+    let alias = home.join("fusion-draft");
+    if home.join("run.json").exists() || alias.exists() { return Ok(()); }
+    std::fs::create_dir_all(&home).map_err(AppCommandError::io)?;
+    let mut pointer = tempfile::NamedTempFile::new_in(home).map_err(AppCommandError::io)?;
+    use std::io::Write;
+    write!(pointer, "{draft}").map_err(AppCommandError::io)?;
+    pointer.persist_noclobber(alias).map_err(|error| AppCommandError::io(error.error))?;
+    Ok(())
+}
+
+fn openfilm_studio_homes(scope: &str, conversation_id: Option<i64>) -> Result<(PathBuf, PathBuf), AppCommandError> {
+    let base = studio_root(scope)?;
     let shared = base.join("shared");
     let studio_home =
         base.join(conversation_id.map_or_else(|| "standalone".to_string(), |id| id.to_string()));

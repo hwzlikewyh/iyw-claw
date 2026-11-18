@@ -135,6 +135,7 @@ async fn bind(
             "插件草稿与发送会话的工作区不一致",
         ));
     }
+    let _operation = crate::plugin_runtime::registry::lock_mutation().await;
     let mut contexts = workspaces().lock().unwrap_or_else(|p| p.into_inner());
     let current = contexts.get_mut(&id).ok_or_else(invalid)?;
     if current
@@ -143,6 +144,7 @@ async fn bind(
     {
         return Err(AppCommandError::permission_denied("插件草稿已关联其他会话"));
     }
+    super::plugin_app_studio::bind_studio_draft(&current.account_scope, id, conversation_id)?;
     current.conversation_id = Some(conversation_id);
     tracing::info!(
         draft_context_id = id,
