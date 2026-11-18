@@ -19,23 +19,18 @@ function measureCapacity(
   const grid =
     node.parentElement?.querySelector<HTMLElement>("[data-market-grid]")
   if (!grid?.getClientRects().length || !grid.clientWidth) return null
-  const card =
-    grid.querySelector<HTMLElement>("article") ??
-    grid.querySelector<HTMLElement>("[data-market-skeleton]")
+  const cards = grid.querySelectorAll("article")
+  const card = cards[0]
   if (!card) return null
   const width = card.getBoundingClientRect().width
   if (Math.abs(width - state.width) > 1) {
     state.width = width
     state.height = 0
   }
-  if (card.tagName === "ARTICLE")
-    state.height = Math.max(
-      state.height,
-      ...Array.from(
-        grid.querySelectorAll("article"),
-        (item) => item.getBoundingClientRect().height
-      )
-    )
+  state.height = Math.max(
+    state.height,
+    ...Array.from(cards, (item) => item.getBoundingClientRect().height)
+  )
   const style = getComputedStyle(grid)
   const top =
     grid.getBoundingClientRect().top -
@@ -47,7 +42,7 @@ function measureCapacity(
     parseFloat(getComputedStyle(scroll).paddingBottom)
   return fitMarketPage({
     availableHeight: scroll.clientHeight - top - reserved,
-    cardHeight: state.height || card.getBoundingClientRect().height,
+    cardHeight: state.height,
     rowGap: parseFloat(style.rowGap) || 0,
     columns: style.gridTemplateColumns.split(" ").filter(Boolean).length,
   })

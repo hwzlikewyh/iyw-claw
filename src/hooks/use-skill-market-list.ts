@@ -87,8 +87,8 @@ function useListControls(
     setRevision((value) => value + 1)
   }, [requestRef, setList])
   const move = useCallback(
-    (page: number, pageSize: number) => {
-      invalidateList(requestRef, setList)
+    (page: number, pageSize: number, keepItems = false) => {
+      invalidateList(requestRef, setList, keepItems)
       setPosition({
         page: marketPage(page),
         pageSize: marketPageSize(pageSize),
@@ -105,7 +105,7 @@ function useListControls(
     setAutomatic(size === 0)
     if (size > 0) move(1, size)
   }
-  const autoSize = useCallback((size: number) => move(1, size), [move])
+  const autoSize = useCallback((size: number) => move(1, size, true), [move])
   useEffect(() => {
     if (initial.persist !== false)
       persistMarketPage(position.page, position.pageSize, automatic)
@@ -125,10 +125,16 @@ function useListControls(
 
 function invalidateList(
   requestRef: React.RefObject<{ value: number }>,
-  setList: React.Dispatch<React.SetStateAction<typeof INITIAL_LIST>>
+  setList: React.Dispatch<React.SetStateAction<typeof INITIAL_LIST>>,
+  keepItems = false
 ) {
   ++requestRef.current.value
-  setList((current) => ({ ...current, items: [], loading: true, error: null }))
+  setList((current) => ({
+    ...current,
+    items: keepItems ? current.items : [],
+    loading: true,
+    error: null,
+  }))
 }
 
 type RequestInput = Pick<

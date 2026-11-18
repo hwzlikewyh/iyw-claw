@@ -29,7 +29,7 @@ export function CapabilityMarketShell(props: Props) {
     <div className="h-full min-h-0 bg-[#f3f5f6] p-2 dark:bg-[#171717] max-sm:p-0">
       <main
         data-market-scroll
-        className="@container h-full overflow-y-auto rounded-2xl border bg-background px-[30px] pt-[26px] pb-5 max-sm:rounded-none max-sm:border-x-0 max-sm:px-[18px] max-sm:pt-[22px] [&_button]:rounded-md"
+        className="@container h-full overflow-y-scroll rounded-2xl border bg-background px-[30px] pt-[26px] pb-5 [scrollbar-gutter:stable] supports-[scrollbar-gutter:stable]:overflow-y-auto max-sm:rounded-none max-sm:border-x-0 max-sm:px-[18px] max-sm:pt-[22px] [&_button]:rounded-md"
       >
         <header className="mb-[18px] flex flex-wrap items-center justify-between gap-6 max-sm:gap-4">
           <div>
