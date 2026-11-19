@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use sea_orm::DatabaseConnection;
@@ -16,7 +16,7 @@ use crate::web::event_bridge::{emit_with_state, EventEmitter};
 #[derive(Default)]
 pub(crate) struct AgentInputRuntime {
     db: OnceLock<Arc<AppDatabase>>,
-    workers: Mutex<HashSet<String>>,
+    workers: Mutex<HashMap<String, bool>>,
     dispatch_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
@@ -54,10 +54,19 @@ impl AgentInputRuntime {
             .await
             .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
         let agent_type = validate_target(&state, conversation_id).await?;
-        let item =
-            agent_input_outbox_service::create(&db.conn, id, conversation_id, agent_type, payload)
-                .await
-                .map_err(|error| AcpError::protocol(error.to_string()))?;
+        let lock = self.dispatch_lock(conn_id).await;
+        let _guard = lock.lock().await;
+        let interrupt = interrupt_target(&state, conn_id, &payload).await;
+        let item = agent_input_outbox_service::create(
+            &db.conn,
+            id,
+            conversation_id,
+            agent_type,
+            payload,
+            interrupt,
+        )
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?;
         emit_input(&state, &emitter, item.clone()).await;
         self.ensure_worker(manager.clone_ref(), conn_id.to_string())
             .await;
@@ -69,15 +78,39 @@ impl AgentInputRuntime {
         manager: ConnectionManager,
         conn_id: String,
     ) {
-        if !self.workers.lock().await.insert(conn_id.clone()) {
+        let mut workers = self.workers.lock().await;
+        if let Some(recheck) = workers.get_mut(&conn_id) {
+            *recheck = true;
             return;
         }
+        workers.insert(conn_id.clone(), false);
         let runtime = Arc::clone(self);
         tokio::spawn(async move {
-            crate::acp::agent_input_worker::run(&runtime, &manager, &conn_id).await;
-            runtime.workers.lock().await.remove(&conn_id);
+            loop {
+                crate::acp::agent_input_worker::run(&runtime, &manager, &conn_id).await;
+                let mut workers = runtime.workers.lock().await;
+                if workers.get_mut(&conn_id).is_some_and(std::mem::take) {
+                    continue;
+                }
+                workers.remove(&conn_id);
+                return;
+            }
         });
     }
+}
+
+async fn interrupt_target<'a>(
+    state: &tokio::sync::RwLock<SessionState>,
+    connection_id: &'a str,
+    payload: &AgentInputPayload,
+) -> Option<(&'a str, i64)> {
+    if payload.delivery != super::InputDelivery::Interrupt {
+        return None;
+    }
+    let session = state.read().await;
+    session
+        .turn_in_flight
+        .then_some((connection_id, session.turn_generation))
 }
 
 pub(super) async fn validate_target(
@@ -94,7 +127,7 @@ pub(super) async fn validate_target(
 }
 
 pub(crate) async fn emit_current(
-    db: &Arc<AppDatabase>,
+    db: &AppDatabase,
     state: &Arc<tokio::sync::RwLock<SessionState>>,
     emitter: &EventEmitter,
     id: &str,
@@ -128,6 +161,7 @@ pub(super) async fn emit_input(
         agent_type = %item.agent_type,
         status = item.status.as_str(),
         strategy = item.strategy.map(AgentInputStrategy::as_str),
+        delivery = ?item.payload.delivery,
         payload_blocks = item.payload.blocks.len(),
         native_steer_eligible = capabilities.native_steer_for(&item.payload).is_some(),
         feedback_eligible = capabilities.supports_feedback(&item.payload),
@@ -173,10 +207,27 @@ impl ConnectionManager {
         self.agent_input_runtime.install_db(Arc::new(AppDatabase {
             conn: db.conn.clone(),
         }));
-        let item =
-            agent_input_outbox_service::create(&db.conn, id, conversation_id, agent_type, payload)
-                .await
-                .map_err(|error| AcpError::protocol(error.to_string()))?;
+        let connection = self
+            .find_connection_by_conversation_id(conversation_id)
+            .await;
+        let target = match connection.as_deref() {
+            Some(id) => self.get_state_and_emitter(id).await,
+            None => None,
+        };
+        let interrupt = match (&target, connection.as_deref()) {
+            (Some((state, _)), Some(id)) => interrupt_target(state, id, &payload).await,
+            _ => None,
+        };
+        let item = agent_input_outbox_service::create(
+            &db.conn,
+            id,
+            conversation_id,
+            agent_type,
+            payload,
+            interrupt,
+        )
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?;
         let Some(conn_id) = self
             .find_connection_by_conversation_id(conversation_id)
             .await
@@ -184,7 +235,9 @@ impl ConnectionManager {
             return Ok(item);
         };
         if let Some((state, emitter)) = self.get_state_and_emitter(&conn_id).await {
-            emit_input(&state, &emitter, item.clone()).await;
+            let lock = self.agent_input_runtime.dispatch_lock(&conn_id).await;
+            let _guard = lock.lock().await;
+            emit_current(db, &state, &emitter, &item.id).await;
             self.agent_input_runtime
                 .ensure_worker(self.clone_ref(), conn_id)
                 .await;

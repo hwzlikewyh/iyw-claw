@@ -4,6 +4,8 @@ import { useCallback, type PointerEvent } from "react"
 import Image from "next/image"
 import { Reorder, useDragControls } from "motion/react"
 import {
+  ArrowUp,
+  Pencil,
   CircleAlert,
   GripVertical,
   Clock3,
@@ -25,7 +27,10 @@ import { PlainTextWithBadges } from "@/components/message/plain-text-with-badges
 import { UserResourceLinks } from "@/components/message/user-resource-links"
 import { extractUserResourcesFromDraft } from "@/lib/prompt-draft"
 import type { AgentInputItem, PromptDraft } from "@/lib/types"
-import { inputDeliveryKey } from "./agent-input-delivery-context"
+import {
+  inputDeliveryKey,
+  useAgentInputDelivery,
+} from "./agent-input-delivery-context"
 
 export interface AgentInputWaitingRowProps {
   item: AgentInputItem
@@ -34,6 +39,7 @@ export interface AgentInputWaitingRowProps {
   onDelete?: (id: string) => void
   onRetry?: (id: string) => void
   onForceThrough?: (messageId: string, expectedPrefixIds: string[]) => void
+  onSendNow?: (id: string) => void
   onReorderFinished?: () => void
   reorderDisabled: boolean
   forceDisabled: boolean
@@ -71,7 +77,10 @@ function WaitingMessage({ item }: { item: AgentInputItem }) {
       <div className="text-[10px] font-medium text-muted-foreground">
         {t(inputDeliveryKey(item))}
       </div>
-      <div className="line-clamp-3 text-xs text-foreground/85">
+      <div
+        className="line-clamp-2 text-xs text-foreground/85"
+        title={draft.displayText}
+      >
         {draft.blocks.map((block, index) =>
           block.type === "image" ? (
             <span
@@ -145,12 +154,14 @@ export function WaitingActions(props: AgentInputWaitingRowProps) {
             {t("retry")}
           </DropdownMenuItem>
         )}
-        {item.status === "waiting" && !locked && onDelete && (
-          <DropdownMenuItem onSelect={() => onDelete(item.id)}>
-            <X className="mr-2 size-3.5" />
-            {t("delete")}
-          </DropdownMenuItem>
-        )}
+        {(item.status === "waiting" || item.status === "fallback_queued") &&
+          !locked &&
+          onDelete && (
+            <DropdownMenuItem onSelect={() => onDelete(item.id)}>
+              <X className="mr-2 size-3.5" />
+              {t("delete")}
+            </DropdownMenuItem>
+          )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -168,7 +179,9 @@ function forceInputBlocked(
 }
 
 export function AgentInputWaitingRow(props: AgentInputWaitingRowProps) {
-  const { item, onReorderFinished, reorderDisabled } = props
+  const { item, onReorderFinished, reorderDisabled, onSendNow } = props
+  const controls = useAgentInputDelivery()
+  const queueText = useTranslations("Folder.chat.messageQueue")
   const t = useTranslations("Folder.chat.agentInput")
   const dragControls = useDragControls()
   const locked = isAgentInputLocked(item)
@@ -193,6 +206,39 @@ export function AgentInputWaitingRow(props: AgentInputWaitingRowProps) {
       </button>
       <StatusIcon failed={item.status === "failed"} locked={locked} />
       <WaitingMessage item={item} />
+      {!locked && item.status !== "failed" && onSendNow && (
+        <button
+          type="button"
+          className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs hover:bg-muted"
+          onClick={() => onSendNow(item.id)}
+        >
+          <ArrowUp className="size-3" />
+          {queueText("sendNow")}
+        </button>
+      )}
+      {!locked &&
+        item.status !== "failed" &&
+        controls?.online &&
+        controls.onEdit && (
+          <button
+            type="button"
+            className="shrink-0 rounded p-1 hover:bg-muted"
+            title={queueText("editItem")}
+            onClick={() => controls.onEdit?.(item.id)}
+          >
+            <Pencil className="size-3" />
+          </button>
+        )}
+      {!locked && item.status !== "failed" && props.onDelete && (
+        <button
+          type="button"
+          className="shrink-0 rounded p-1 hover:bg-muted"
+          title={t("delete")}
+          onClick={() => props.onDelete?.(item.id)}
+        >
+          <X className="size-3" />
+        </button>
+      )}
       <WaitingActions {...props} />
     </>
   )

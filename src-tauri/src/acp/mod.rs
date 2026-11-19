@@ -4,10 +4,12 @@ mod agent_image_input;
 mod agent_input;
 mod agent_input_capabilities;
 mod agent_input_control;
+mod agent_input_edit;
 mod agent_input_dispatch;
 mod agent_input_lifecycle;
 mod agent_input_native_turn;
 mod agent_input_resume;
+mod input_boundary;
 mod agent_input_worker;
 mod agent_input_worker_dispatch;
 mod agent_input_worker_force;
@@ -156,7 +158,7 @@ pub use session_state::{LiveSessionSnapshot, SessionState};
 // Re-export the inner types of LiveSessionSnapshot for downstream consumers; not all are
 // directly named in Rust today (they ride along through the snapshot struct), so silence
 // dead-import warnings rather than dropping them.
-pub use agent_input::{AgentInputItem, AgentInputPayload, AgentInputStatus, AgentInputStrategy};
+pub use agent_input::{AgentInputChange, AgentInputItem, AgentInputPayload, AgentInputStatus, AgentInputStrategy, InputDelivery};
 #[allow(unused_imports)]
 pub use session_state::{
     LiveContentBlock, LiveMessage, PendingPermissionState, ToolCallOutput, ToolCallState,

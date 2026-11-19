@@ -449,6 +449,11 @@ pub enum ConnectionCommand {
     SafeCancel {
         expected_turn_generation: i64,
     },
+    InputBoundary {
+        generation: i64,
+        interrupt: bool,
+        reply: super::input_boundary::Reply,
+    },
     NativeSteer {
         message_id: String,
         blocks: Vec<PromptInputBlock>,
@@ -7510,6 +7515,9 @@ async fn run_conversation_loop<'a>(
                                     ).await;
                                     let _ = reply.send(result);
                                 }
+                                Some(ConnectionCommand::InputBoundary { generation, interrupt, reply }) => {
+                                    super::input_boundary::dispatch(cx.clone(), sid.0.as_ref(), state, generation, interrupt, reply).await;
+                                }
                                 Some(ConnectionCommand::SideQuestion { request, reply }) => {
                                     side_lane.dispatch(cx.clone(), sid.0.as_ref(), request, reply);
                                 }
@@ -7878,6 +7886,9 @@ async fn run_conversation_loop<'a>(
                     (state, emitter), request,
                 ).await;
                 let _ = reply.send(result);
+            }
+            Some(ConnectionCommand::InputBoundary { generation, interrupt, reply }) => {
+                super::input_boundary::dispatch(session.connection(), session.session_id().0.as_ref(), state, generation, interrupt, reply).await;
             }
             Some(ConnectionCommand::SideQuestion { request, reply }) => {
                 side_lane.dispatch(

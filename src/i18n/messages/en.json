@@ -628,6 +628,7 @@
     "collapseProcess": "Collapse process",
     "inputWaiting": "Waiting to continue",
     "inputSubmitting": "Submitting",
+    "inputPrioritized": "Prioritized for the next turn",
     "inputQueued": "Queued for the next turn",
     "inputDelivered": "Delivered",
     "inputFailed": "Send failed · Content preserved",
@@ -4328,6 +4329,11 @@
       },
       "messageQueue": {
         "addToQueue": "Queue message",
+        "sendBehavior": "When the agent is responding",
+        "smartBehavior": "Choose automatically",
+        "interruptBehavior": "Interrupt current response",
+        "queueBehavior": "Queue after current response",
+        "sendNow": "Send now",
         "saveEdit": "Save",
         "cancelEdit": "Cancel edit",
         "editItem": "Edit",
@@ -4346,6 +4352,8 @@
         "deleteFailed": "Couldn't remove this waiting message",
         "retryFailed": "Couldn't retry this message",
         "reorderFailed": "Couldn't reorder waiting messages",
+        "sendNowFailed": "Could not prioritize this message",
+        "editFailed": "Could not update the queued message. Your edit is still in the composer.",
         "safeForceFailed": "Couldn't safely force send the selected messages",
         "durableQueueFailed": "The message remains in this queue, but durable saving failed. Keep this page open and retry"
       },

@@ -15,6 +15,7 @@ interface AgentInputWaitingDisplayProps {
   onRetry?: (id: string) => void
   onReorder?: (orderedIds: string[]) => Promise<void>
   onForceThrough?: (messageId: string, expectedPrefixIds: string[]) => void
+  onSendNow?: (id: string) => void
 }
 
 function sameOrder(current: AgentInputItem[], next: AgentInputItem[]): boolean {
@@ -55,6 +56,7 @@ interface MovableSectionProps {
   onDelete?: (id: string) => void
   onRetry?: (id: string) => void
   onForceThrough?: (messageId: string, expectedPrefixIds: string[]) => void
+  onSendNow?: (id: string) => void
   onCommit?: (items: AgentInputItem[]) => Promise<void>
   forceDisabled: boolean
 }
@@ -143,6 +145,7 @@ function WaitingSections(props: WaitingSectionsProps) {
           onDelete={props.onDelete}
           onRetry={props.onRetry}
           onForceThrough={props.onForceThrough}
+          onSendNow={props.onSendNow}
           reorderDisabled
           forceDisabled={forceDisabled}
         />
@@ -160,6 +163,7 @@ function WaitingSections(props: WaitingSectionsProps) {
         onDelete={props.onDelete}
         onRetry={props.onRetry}
         onForceThrough={props.onForceThrough}
+        onSendNow={props.onSendNow}
         onCommit={onCommit}
         forceDisabled={forceDisabled}
       />
@@ -190,6 +194,7 @@ export function AgentInputWaitingDisplay({
   onRetry,
   onReorder,
   onForceThrough,
+  onSendNow,
 }: AgentInputWaitingDisplayProps) {
   const visible = items.filter((item) =>
     ["waiting", "dispatching", "fallback_queued", "failed"].includes(
@@ -211,6 +216,7 @@ export function AgentInputWaitingDisplay({
         onRetry={onRetry}
         onReorder={onReorder}
         onForceThrough={onForceThrough}
+        onSendNow={onSendNow}
         forceDisabled={forceDisabled}
         items={items}
       />

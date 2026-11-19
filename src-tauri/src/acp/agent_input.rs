@@ -71,12 +71,36 @@ impl AgentInputStrategy {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputDelivery {
+    #[default]
+    Smart,
+    Queue,
+    Interrupt,
+}
+
+impl InputDelivery {
+    fn is_smart(&self) -> bool {
+        *self == Self::Smart
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentInputPayload {
     pub blocks: Vec<PromptInputBlock>,
     pub display_text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_id: Option<String>,
+    #[serde(default, skip_serializing_if = "InputDelivery::is_smart")]
+    pub delivery: InputDelivery,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum AgentInputChange {
+    SendNow,
+    Edit { payload: AgentInputPayload },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

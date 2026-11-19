@@ -1,6 +1,6 @@
 use chrono::Utc;
-use sea_orm::ExprTrait;
 use sea_orm::sea_query::Expr;
+use sea_orm::ExprTrait;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 use crate::acp::{AgentInputStatus, AgentInputStrategy};
@@ -9,7 +9,7 @@ use crate::db::error::DbError;
 
 pub async fn mark_dispatching(
     conn: &DatabaseConnection,
-    id: &str,
+    item: &crate::acp::AgentInputItem,
     connection_id: &str,
     turn_generation: i64,
     strategy: AgentInputStrategy,
@@ -18,7 +18,26 @@ pub async fn mark_dispatching(
         AgentInputStatus::Waiting.as_str(),
         AgentInputStatus::FallbackQueued.as_str(),
     ];
+    let expected = serde_json::to_string(&item.payload)
+        .map_err(|error| DbError::Validation(error.to_string()))?;
+    let Some(stored) = agent_input_outbox::Entity::find_by_id(&item.id)
+        .one(conn)
+        .await?
+    else {
+        return Ok(false);
+    };
+    if stored.payload_json != expected {
+        let parsed: crate::acp::AgentInputPayload = serde_json::from_str(&stored.payload_json)
+            .map_err(|error| DbError::Validation(error.to_string()))?;
+        if serde_json::to_string(&parsed).map_err(|error| DbError::Validation(error.to_string()))?
+            != expected
+        {
+            return Ok(false);
+        }
+    }
     let result = agent_input_outbox::Entity::update_many()
+        .filter(agent_input_outbox::Column::ForceBatchId.is_null())
+        .filter(agent_input_outbox::Column::PayloadJson.eq(stored.payload_json))
         .col_expr(
             agent_input_outbox::Column::Status,
             Expr::value(AgentInputStatus::Dispatching.as_str()),
@@ -43,7 +62,7 @@ pub async fn mark_dispatching(
             agent_input_outbox::Column::DispatchedAt,
             Expr::value(Utc::now()),
         )
-        .filter(agent_input_outbox::Column::Id.eq(id))
+        .filter(agent_input_outbox::Column::Id.eq(&item.id))
         .filter(agent_input_outbox::Column::Status.is_in(statuses))
         .exec(conn)
         .await?;
@@ -118,7 +137,10 @@ pub async fn delete_waiting(conn: &DatabaseConnection, id: &str) -> Result<bool,
             Expr::value(Utc::now()),
         )
         .filter(agent_input_outbox::Column::Id.eq(id))
-        .filter(agent_input_outbox::Column::Status.eq(AgentInputStatus::Waiting.as_str()))
+        .filter(agent_input_outbox::Column::Status.is_in([
+            AgentInputStatus::Waiting.as_str(),
+            AgentInputStatus::FallbackQueued.as_str(),
+        ]))
         .filter(agent_input_outbox::Column::ForceBatchId.is_null())
         .exec(conn)
         .await?;

@@ -56,6 +56,10 @@ import { useDocumentVisibility } from "@/hooks/use-document-visibility"
 import { useInactiveConversationHistory } from "@/hooks/use-inactive-conversation-history"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
+import {
+  useMessageQueuePreference,
+  type MessageQueueBehavior,
+} from "@/hooks/use-message-queue-preference"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { MessageListView } from "@/components/message/message-list-view"
 import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
@@ -96,6 +100,7 @@ import {
   getConversationContextPrimer,
   openSettingsWindow,
   queueAgentInput,
+  reviseAgentInput,
   reorderAgentInputs,
   retryAgentInput,
   skillActivationSet,
@@ -125,8 +130,10 @@ import { useShallow } from "zustand/react/shallow"
 import { useConversationDetail } from "@/hooks/use-conversation-detail"
 import { getPromptDraftDisplayText } from "@/lib/prompt-draft"
 import {
+  type AgentInputItem,
   type AgentOptionsSnapshot,
   type AgentType,
+  type InputDelivery,
   type ContentBlock,
   type EventEnvelope,
   type MessageTurn,
@@ -984,6 +991,8 @@ const ConversationTabView = memo(function ConversationTabView({
   const {
     queue: msgQueue,
     enqueue: mqEnqueue,
+    moveToFront: mqMoveToFront,
+    contains: mqContains,
     enqueueAgentInput: mqEnqueueAgentInput,
     requeueItemFront: mqRequeueItemFront,
     getQueueLength: mqGetQueueLength,
@@ -995,6 +1004,8 @@ const ConversationTabView = memo(function ConversationTabView({
     startEditing: mqStartEditing,
     cancelEditing: mqCancelEditing,
   } = messageQueue
+  const { behavior: queueBehavior, setBehavior: setQueueBehavior } =
+    useMessageQueuePreference()
 
   const rememberSubmittedDraft = useCallback(
     (draft: PromptDraft, modeId?: string | null) => {
@@ -1015,6 +1026,14 @@ const ConversationTabView = memo(function ConversationTabView({
       const pending = pendingPromptRecoveryRef.current
 
       if (envelope.type === "turn_complete") {
+        // React 可将短回合的 prompting 和 connected 合并为一次渲染。
+        // 结束事件必须释放本地发送门闩，即使状态边沿没有单独渲染。
+        if (
+          getRuntimeSession(effectiveConversationId)?.syncState ===
+          "awaiting_persist"
+        ) {
+          completeTurn(effectiveConversationId)
+        }
         if (pending?.connectionId === envelope.connection_id) {
           pendingPromptRecoveryRef.current = null
         }
@@ -1039,7 +1058,7 @@ const ConversationTabView = memo(function ConversationTabView({
       pending.requeued = true
       mqEnqueue(pending.draft, pending.modeId, { blocked: true })
     },
-    [conn.connectionId, mqEnqueue]
+    [conn.connectionId, mqEnqueue, effectiveConversationId, completeTurn]
   )
 
   useAcpEvent(handlePromptRecoveryEvent)
@@ -1798,6 +1817,16 @@ const ConversationTabView = memo(function ConversationTabView({
       return false
     if (!target) return true
     const live = conn.configOptions?.find(isModelConfigOption)
+    // 历史会话的固定模型可能没有可切换的 ACP 选项。
+    if (
+      !live &&
+      dbConversationId != null &&
+      conn.modelSwitchCapability === "none" &&
+      !requestedModel &&
+      !modelReapplyAttempt &&
+      !failedModel
+    )
+      return true
     const unconfirmed =
       (connectionReady ||
         conn.selectorsReady ||
@@ -1818,6 +1847,7 @@ const ConversationTabView = memo(function ConversationTabView({
     draftModelUnavailable,
     failedModel,
     modelReapplyAttempt,
+    requestedModel,
     selectedAgent,
   ])
   const selectedModelReady = ensureSelectedModelReady()
@@ -1924,7 +1954,14 @@ const ConversationTabView = memo(function ConversationTabView({
     // session.liveMessage, which the connection dispatch's sink wrote
     // synchronously as the final chunk landed (turn_complete flushes the stream
     // queue BEFORE the status change), so it already holds the final message.
-    completeTurn(effectiveConversationId)
+    const runtime = getRuntimeSession(effectiveConversationId)
+    if (
+      runtime &&
+      (runtime.liveMessage ||
+        runtime.optimisticTurns.length ||
+        runtime.syncState !== "idle")
+    )
+      completeTurn(effectiveConversationId)
 
     // Cancel previous metadata sync (handles rapid consecutive turns)
     syncCancelRef.current?.()
@@ -1975,23 +2012,102 @@ const ConversationTabView = memo(function ConversationTabView({
   // which blocks re-entry until that send settles (the turn completes, or it
   // bounces and rolls back to idle to retry the next item). A bounce backoff
   // rate-limits retries against a still-busy backend.
-  useEffect(() => {
-    if (!outboxFlushPending) return
-    const item = conn.agentInputs.find(
-      (candidate) => candidate.id === outboxFlushPending
-    )
-    if (
-      connStatus === "prompting" ||
-      item?.status === "consumed" ||
-      item?.status === "failed" ||
-      item?.status === "deleted"
-    ) {
-      setOutboxFlushPending(null)
-    }
-  }, [conn.agentInputs, connStatus, outboxFlushPending])
+  const sendQueuedMessage = useCallback(
+    (item: QueuedMessage) => {
+      const restoreRejectedItem = (accepted: boolean | void) => {
+        if (accepted !== false || mqContains(item.id)) return
+        mqRequeueItemFront({ ...item, blocked: true })
+      }
+      try {
+        const result = handleSendRef.current(item.draft, item.modeId, {
+          fromQueueFlush: true,
+          queuedMessage: item,
+        })
+        if (result instanceof Promise) {
+          void result.then(restoreRejectedItem).catch((error: unknown) => {
+            console.error("[ConversationTabView] queued message failed", {
+              messageId: item.id,
+              error,
+            })
+            restoreRejectedItem(false)
+          })
+        } else {
+          restoreRejectedItem(result)
+        }
+      } catch (error) {
+        console.error("[ConversationTabView] queued message failed", {
+          messageId: item.id,
+          error,
+        })
+        restoreRejectedItem(false)
+      }
+    },
+    [mqContains, mqRequeueItemFront]
+  )
+
+  const handleSendAgentInputNow = useCallback(
+    (id: string) => {
+      const conversationId = dbConvIdRef.current
+      if (!conn.connectionId || conversationId == null || conn.isViewer) return
+      void reviseAgentInput(conn.connectionId, conversationId, id, {
+        action: "send_now",
+      }).catch((error) => {
+        console.error("[agent-input] send now failed", { messageId: id, error })
+        toast.error(tAgentInput("sendNowFailed"))
+      })
+    },
+    [conn.connectionId, conn.isViewer, tAgentInput]
+  )
+
+  const handleQueueSendNow = useCallback(
+    (id: string) => {
+      if (!mqMoveToFront(id)) return
+      if (
+        connStatus !== "prompting" ||
+        conn.isViewer ||
+        !dbConvIdRef.current ||
+        !selectedModelReady
+      )
+        return
+      const item = mqDequeue()
+      if (!item) return
+      if (item.delivery === "agent_input" || item.draft.skillPackage) {
+        mqRequeueItemFront(item)
+        return
+      }
+      void queueAgentInput(dbConvIdRef.current, item.id, {
+        blocks: item.draft.blocks,
+        display_text: item.draft.displayText,
+        mode_id: item.modeId,
+        delivery: "interrupt",
+      }).catch((error) => {
+        mqRequeueItemFront({
+          ...item,
+          delivery: "agent_input",
+          inputDelivery: "interrupt",
+          blocked: true,
+        })
+        console.error("[agent-input] immediate submission failed", {
+          messageId: id,
+          error,
+        })
+        toast.error(tAgentInput("durableQueueFailed"))
+      })
+    },
+    [
+      connStatus,
+      conn.isViewer,
+      selectedModelReady,
+      mqDequeue,
+      mqRequeueItemFront,
+      mqMoveToFront,
+      tAgentInput,
+    ]
+  )
 
   useEffect(() => {
-    if (!connectionReady || !selectedModelReady) return
+    if (!connectionReady || !selectedModelReady || mqEditingItemId != null)
+      return
     if (forkPending) return
     if (runtimeSyncState === "awaiting_persist") return
     if (outboxFlushPending) return
@@ -2008,14 +2124,7 @@ const ConversationTabView = memo(function ConversationTabView({
       )
         return
       const next = autoSendQueueRef.current()
-      if (next) {
-        // Mark this as the queue auto-flush: it sends the dequeued head now and,
-        // on a bounce, returns it to the FRONT (vs a direct send → tail).
-        handleSendRef.current(next.draft, next.modeId, {
-          fromQueueFlush: true,
-          queuedMessage: next,
-        })
-      }
+      if (next) sendQueuedMessage(next)
     }, wait)
     return () => clearTimeout(timer)
   }, [
@@ -2026,7 +2135,9 @@ const ConversationTabView = memo(function ConversationTabView({
     runtimeSyncState,
     msgQueueLength,
     msgQueueHeadBlocked,
+    mqEditingItemId,
     outboxFlushPending,
+    sendQueuedMessage,
   ])
 
   // Mirror the connection's liveMessage into the runtime session OUTSIDE React.
@@ -2148,6 +2259,57 @@ const ConversationTabView = memo(function ConversationTabView({
     }
   }, [effectiveConversationId, removeConversation, setPendingCleanup])
 
+  const enqueueAgentDraft = useCallback(
+    async (
+      draft: PromptDraft,
+      modeId: string | null,
+      delivery: InputDelivery
+    ) => {
+      const id = `agent-input-${randomUUID()}`
+      const conversationId = dbConvIdRef.current
+      if (conversationId == null) {
+        mqEnqueueAgentInput(id, draft, modeId, delivery)
+        return true
+      }
+      try {
+        const payload = {
+          blocks: draft.blocks,
+          display_text: draft.displayText,
+          mode_id: modeId,
+          delivery,
+        }
+        if (conn.connectionId && connStatus === "prompting") {
+          await submitAgentInput(conn.connectionId, conversationId, id, payload)
+        } else {
+          await queueAgentInput(conversationId, id, payload)
+        }
+      } catch (error) {
+        mqRequeueItemFront({
+          id,
+          draft,
+          modeId,
+          delivery: "agent_input",
+          inputDelivery: delivery,
+          blocked: true,
+        })
+        console.error("[agent-input] durable submission failed", {
+          conversationId,
+          messageId: id,
+          error,
+        })
+        toast.error(tAgentInput("durableQueueFailed"))
+      }
+      return true
+    },
+    [
+      conn.connectionId,
+      connStatus,
+      mqEnqueueAgentInput,
+      mqRequeueItemFront,
+      tAgentInput,
+    ]
+  )
+
   const handleSend = useCallback(
     (
       draft: PromptDraft,
@@ -2164,7 +2326,12 @@ const ConversationTabView = memo(function ConversationTabView({
       }
     ) => {
       const fromQueueFlush = opts?.fromQueueFlush ?? false
-      if (forkPendingRef.current) return false
+      if (forkPendingRef.current) {
+        if (fromQueueFlush && opts?.queuedMessage) {
+          mqRequeueItemFront(opts.queuedMessage)
+        }
+        return false
+      }
       // Defense in depth for restored queue items or callers bypassing the composer.
       if (parseSideQuestion(draft.displayText) !== null) {
         if (fromQueueFlush && opts?.queuedMessage) {
@@ -2260,55 +2427,37 @@ const ConversationTabView = memo(function ConversationTabView({
         return
       }
       if (shouldQueueBeforeConnection(connectionReady, fromQueueFlush)) {
-        const conversationId = dbConvIdRef.current
-        if (conversationId != null) {
-          const messageId = `agent-input-${randomUUID()}`
-          mqEnqueueAgentInput(messageId, draft, selectedModeIdArg ?? null)
-          void queueAgentInput(conversationId, messageId, {
-            blocks: draft.blocks,
-            display_text: draft.displayText,
-            mode_id: selectedModeIdArg ?? null,
-          })
-            .then(() => {
-              mqRemove(messageId)
-            })
-            .catch((error) => {
-              console.error("[agent-input] durable recovery queue failed", {
-                conversationId,
-                messageId,
-                error,
-              })
-              saveMessageInputDraft(
-                buildConversationDraftStorageKey(conversationId),
-                draft.displayText
-              )
-              toast.error(tAgentInput("durableQueueFailed"))
-            })
-        } else {
-          mqEnqueue(draft, selectedModeIdArg ?? null)
-        }
+        const pending =
+          dbConvIdRef.current != null
+            ? enqueueAgentDraft(draft, selectedModeIdArg ?? null, "queue")
+            : mqEnqueue(draft, selectedModeIdArg ?? null)
         setHasSentMessage(true)
         void ensureConnected().catch((error) => {
           console.error("[ConversationTabView] restore before send:", error)
         })
+        return pending
+      }
+      if (!connectionReady) {
+        if (fromQueueFlush && opts?.queuedMessage) {
+          mqRequeueItemFront(opts.queuedMessage)
+        }
         return
       }
-      if (!connectionReady) return
       // Preserve FIFO: a direct send issued while the queue is non-empty joins
       // the tail rather than racing ahead of the queued items. Read the
       // queue length synchronously (it reflects a same-tick bounce requeue).
+      const hostHasPending = conn.agentInputs.some((item) =>
+        ["waiting", "dispatching", "fallback_queued"].includes(item.status)
+      )
       if (
         shouldQueueDirectSend(
           fromQueueFlush,
           mqGetQueueLength(),
-          conn.agentInputs.filter(
-            (item) =>
-              item.status === "waiting" ||
-              item.status === "dispatching" ||
-              item.status === "fallback_queued"
-          ).length
+          Number(hostHasPending)
         )
       ) {
+        if (!mqGetQueueLength() && dbConvIdRef.current != null)
+          return enqueueAgentDraft(draft, selectedModeIdArg ?? null, "queue")
         mqEnqueue(draft, selectedModeIdArg ?? null)
         return
       }
@@ -2323,29 +2472,27 @@ const ConversationTabView = memo(function ConversationTabView({
         }
         setOutboxFlushPending(queuedMessage.id)
         rememberSubmittedDraft(queuedMessage.draft, queuedMessage.modeId)
-        void submitAgentInput(connectionId, conversationId, queuedMessage.id, {
-          blocks: queuedMessage.draft.blocks,
-          display_text: queuedMessage.draft.displayText,
-          mode_id: queuedMessage.modeId,
-        })
-          .then((item) => {
-            if (
-              item.status === "consumed" ||
-              item.status === "failed" ||
-              item.status === "deleted"
-            ) {
-              setOutboxFlushPending(null)
-            }
-          })
+        return submitAgentInput(
+          connectionId,
+          conversationId,
+          queuedMessage.id,
+          {
+            blocks: queuedMessage.draft.blocks,
+            display_text: queuedMessage.draft.displayText,
+            mode_id: queuedMessage.modeId,
+            delivery: queuedMessage.inputDelivery ?? "smart",
+          }
+        )
+          .then(() => true)
           .catch((error) => {
             console.error("[agent-input] queued submission failed", {
               messageId: queuedMessage.id,
               error,
             })
-            setOutboxFlushPending(null)
-            mqRequeueItemFront(queuedMessage)
+            toast.error(tAgentInput("durableQueueFailed"))
+            return false
           })
-        return
+          .finally(() => setOutboxFlushPending(null))
       }
 
       // Single-flight the unbound new-tab create. A second direct submit fired
@@ -2395,14 +2542,14 @@ const ConversationTabView = memo(function ConversationTabView({
         turnBounced = true
         lastFlushBounceAtRef.current = Date.now()
         removeOptimisticTurn(effectiveConversationId, optimisticTurn.id)
-        // FIFO: the auto-flush draft WAS the queue head → return it to the
-        // front; a direct send (queue was empty when it left) → tail.
-        if (fromQueueFlush) {
-          if (queuedMessage) {
-            mqRequeueItemFront(queuedMessage)
-          } else {
-            mqEnqueue(draft, selectedModeIdArg ?? null)
-          }
+        if (dbConvIdRef.current != null && !fromQueueFlush) {
+          void enqueueAgentDraft(
+            draft,
+            selectedModeIdArg ?? null,
+            conn.isViewer ? "queue" : queueBehavior
+          )
+        } else if (queuedMessage) {
+          mqRequeueItemFront(queuedMessage)
         } else {
           mqEnqueue(draft, selectedModeIdArg ?? null)
         }
@@ -2658,8 +2805,9 @@ const ConversationTabView = memo(function ConversationTabView({
       appendOptimisticTurn,
       removeOptimisticTurn,
       mqEnqueue,
-      mqEnqueueAgentInput,
-      mqRemove,
+      enqueueAgentDraft,
+      queueBehavior,
+      conn.isViewer,
       mqRequeueItemFront,
       mqGetQueueLength,
       bindConversationTab,
@@ -2728,38 +2876,20 @@ const ConversationTabView = memo(function ConversationTabView({
     )
   }, [visibleAutoContinuation])
 
-  const enqueueAgentDraft = useCallback(
-    (prepared: PromptDraft, selectedModeIdArg: string | null) => {
-      const messageId = `agent-input-${randomUUID()}`
-      const conversationId = dbConvIdRef.current
-      mqEnqueueAgentInput(messageId, prepared, selectedModeIdArg)
-      if (conversationId == null) return true
-      void queueAgentInput(conversationId, messageId, {
-        blocks: prepared.blocks,
-        display_text: prepared.displayText,
-        mode_id: selectedModeIdArg,
-      })
-        .then(() => mqRemove(messageId))
-        .catch((error) => {
-          console.error("[agent-input] durable submission failed", {
-            messageId,
-            error,
-          })
-          saveMessageInputDraft(
-            buildConversationDraftStorageKey(conversationId),
-            prepared.displayText
-          )
-          toast.error(tAgentInput("durableQueueFailed"))
-        })
-      return true
-    },
-    [mqEnqueueAgentInput, mqRemove, tAgentInput]
-  )
-
   const handlePromptingSubmit = useCallback(
-    (draft: PromptDraft, selectedModeIdArg: string | null) => {
+    (
+      draft: PromptDraft,
+      selectedModeIdArg: string | null,
+      behavior: MessageQueueBehavior
+    ) => {
+      const enqueuePrompt = (prepared: PromptDraft) =>
+        enqueueAgentDraft(
+          prepared,
+          selectedModeIdArg,
+          conn.isViewer && behavior === "interrupt" ? "queue" : behavior
+        )
       const packageRef = draft.skillPackage
-      if (!packageRef) return enqueueAgentDraft(draft, selectedModeIdArg)
+      if (!packageRef) return enqueuePrompt(draft)
       const toastId = packageRef.hiddenFromDisplay
         ? undefined
         : toast.loading(
@@ -2774,10 +2904,7 @@ const ConversationTabView = memo(function ConversationTabView({
           if (toastId !== undefined) {
             toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
           }
-          return enqueueAgentDraft(
-            { ...draft, skillPackage: undefined },
-            selectedModeIdArg
-          )
+          return enqueuePrompt({ ...draft, skillPackage: undefined })
         })
         .catch((error) => {
           toast.error("技能包准备失败", {
@@ -2795,7 +2922,13 @@ const ConversationTabView = memo(function ConversationTabView({
           return false
         })
     },
-    [enqueueAgentDraft, selectedAgent, tWelcome, workingDirForConnection]
+    [
+      enqueueAgentDraft,
+      conn.isViewer,
+      selectedAgent,
+      tWelcome,
+      workingDirForConnection,
+    ]
   )
 
   const handleDeleteAgentInput = useCallback(
@@ -2884,7 +3017,7 @@ const ConversationTabView = memo(function ConversationTabView({
     options: connectionConfigOptions,
     send: (draft) =>
       connStatus === "prompting"
-        ? handlePromptingSubmit(draft, selectedModeId)
+        ? handlePromptingSubmit(draft, selectedModeId, queueBehavior)
         : handleSend(draft, selectedModeId),
   })
 
@@ -3147,39 +3280,72 @@ const ConversationTabView = memo(function ConversationTabView({
     [acpActions, tabId]
   )
 
-  // Queue edit flow: derive editing draft text from queue state
-  const editingQueueDraftText = useMemo(() => {
-    if (!mqEditingItemId) return null
-    const item = msgQueue.find((m) => m.id === mqEditingItemId)
-    return item?.draft.displayText ?? null
-  }, [mqEditingItemId, msgQueue])
-
-  // The editing item's full blocks, so the composer can restore inline badges +
-  // attachments (not just the display text) when re-opening a queued message.
-  const editingQueueDraftBlocks = useMemo(() => {
-    if (!mqEditingItemId) return null
-    const item = msgQueue.find((m) => m.id === mqEditingItemId)
-    return item?.draft.blocks ?? null
-  }, [mqEditingItemId, msgQueue])
+  const [editingStoredInput, setEditingStoredInput] =
+    useState<AgentInputItem | null>(null)
+  const editingLocal = msgQueue.find((item) => item.id === mqEditingItemId)
+  const editingQueueDraftText =
+    editingStoredInput?.payload.display_text ??
+    editingLocal?.draft.displayText ??
+    null
+  const editingQueueDraftBlocks =
+    editingStoredInput?.payload.blocks ?? editingLocal?.draft.blocks ?? null
 
   const handleQueueEdit = useCallback(
     (id: string) => {
+      setEditingStoredInput(
+        conn.agentInputs.find(
+          (item) =>
+            item.id === id &&
+            (item.status === "waiting" || item.status === "fallback_queued")
+        ) ?? null
+      )
       mqStartEditing(id)
     },
-    [mqStartEditing]
+    [conn.agentInputs, mqStartEditing]
   )
 
   const handleQueueCancelEdit = useCallback(() => {
+    setEditingStoredInput(null)
     mqCancelEditing()
   }, [mqCancelEditing])
 
   const handleSaveQueueEdit = useCallback(
-    (draft: PromptDraft) => {
-      if (mqEditingItemId) {
+    async (draft: PromptDraft) => {
+      if (!mqEditingItemId) return false
+      if (!editingStoredInput) {
         mqUpdateItem(mqEditingItemId, draft)
+        return true
+      }
+      if (!conn.connectionId) return false
+      try {
+        await reviseAgentInput(
+          conn.connectionId,
+          editingStoredInput.conversation_id,
+          editingStoredInput.id,
+          {
+            action: "edit",
+            payload: { blocks: draft.blocks, display_text: draft.displayText },
+          }
+        )
+        handleQueueCancelEdit()
+        return true
+      } catch (error) {
+        console.error("[agent-input] edit failed", {
+          messageId: editingStoredInput.id,
+          error,
+        })
+        toast.error(tAgentInput("editFailed"))
+        return false
       }
     },
-    [mqEditingItemId, mqUpdateItem]
+    [
+      conn.connectionId,
+      editingStoredInput,
+      handleQueueCancelEdit,
+      mqEditingItemId,
+      mqUpdateItem,
+      tAgentInput,
+    ]
   )
 
   const showDraftHeader =
@@ -3510,6 +3676,7 @@ const ConversationTabView = memo(function ConversationTabView({
       onRetryAgentInput={handleRetryAgentInput}
       onReorderAgentInputs={handleReorderAgentInputs}
       onForceAgentInputsThrough={handleForceAgentInputsThrough}
+      onSendAgentInputNow={conn.isViewer ? undefined : handleSendAgentInputNow}
       isActive={isActive}
       showActiveFlow={showActiveFlow}
       queue={msgQueue}
@@ -3518,6 +3685,9 @@ const ConversationTabView = memo(function ConversationTabView({
       onQueueEdit={handleQueueEdit}
       onQueueDelete={mqRemove}
       onQueueRetry={handleQueueRetry}
+      onQueueSendNow={handleQueueSendNow}
+      queueBehavior={queueBehavior}
+      onQueueBehaviorChange={setQueueBehavior}
       editingItemId={mqEditingItemId}
       editingDraftText={editingQueueDraftText}
       editingDraftBlocks={editingQueueDraftBlocks}
@@ -3576,6 +3746,9 @@ const ConversationTabView = memo(function ConversationTabView({
               showActiveFlow={showActiveFlow}
               queue={msgQueue}
               onEnqueue={handlePromptingSubmit}
+              onQueueSendNow={handleQueueSendNow}
+              queueBehavior={queueBehavior}
+              onQueueBehaviorChange={setQueueBehavior}
               onQueueReorder={mqReorder}
               onQueueEdit={handleQueueEdit}
               onQueueDelete={mqRemove}

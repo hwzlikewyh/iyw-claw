@@ -195,7 +195,8 @@ pub(super) async fn dispatch_next(
     if let Err(error) = result {
         let status = if matches!(
             &error,
-            crate::acp::error::AcpError::ConnectionNotFound(_)
+            crate::acp::error::AcpError::TurnInProgress
+                | crate::acp::error::AcpError::ConnectionNotFound(_)
                 | crate::acp::error::AcpError::ProcessExited
                 | crate::acp::error::AcpError::InitializeTimeout
         ) {
@@ -218,6 +219,28 @@ pub(super) async fn dispatch_next(
 }
 
 impl WorkerContext<'_> {
+    pub(super) async fn fail_waiting_input(
+        &self,
+        item: &AgentInputItem,
+        error: super::error::AcpError,
+    ) {
+        tracing::warn!(input_id = %item.id, %error, "[agent-input] native input boundary failed");
+        if agent_input_outbox_service::transition_status(
+            &self.db.conn,
+            &item.id,
+            item.status,
+            AgentInputStatus::Failed,
+            Some(error.to_string()),
+        )
+        .await
+        .is_ok_and(|changed| changed)
+        {
+            emit_current(self.db, self.state, self.emitter, &item.id).await;
+        } else {
+            tokio::time::sleep(DISPATCH_CLAIM_RETRY_DELAY).await;
+        }
+    }
+
     pub(super) async fn recover_stale_dispatch(&self, item: &AgentInputItem) {
         let current_generation = self.state.read().await.turn_generation;
         if self.recover_stale_force_batch(item).await {
@@ -294,7 +317,7 @@ impl WorkerContext<'_> {
     ) -> bool {
         match agent_input_outbox_service::mark_dispatching(
             &self.db.conn,
-            &item.id,
+            item,
             self.conn_id,
             generation,
             strategy,

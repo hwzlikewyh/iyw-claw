@@ -237,6 +237,31 @@ if (
       if (pending.get(p.sessionId)?.key === key) pending.delete(p.sessionId)
     }
   }
+  const inputParser = {
+    parse(params) {
+      if (
+        typeof params?.sessionId !== "string" ||
+        typeof params.interrupt !== "boolean"
+      ) throw new Error("Invalid input boundary request")
+      return params
+    },
+  }
+  const waitForInput = async ({ params, signal }) => {
+    const id = params.sessionId
+    const sessions = agent?.sessions ?? {}
+    const session = Object.hasOwn(sessions, id) ? sessions[id] : null
+    let interrupt = params.interrupt
+    while (!signal.aborted && session && !session.queryClosed && agent.sessions[id] === session) {
+      const active = session.activeTurn
+      const turn = active && !active.settled ? active : session.turnQueue?.find((next) => !next.settled)
+      if (!turn) return { ready: true }
+      if (typeof turn.completion?.then !== "function") return { supported: false }
+      if (interrupt && !session.cancelled) await agent.cancel({ sessionId: id })
+      interrupt = false
+      await turn.completion
+    }
+    throw new Error("Input session closed")
+  }
   // Register on the original builder; leave every upstream handler intact.
   const connect = AgentApp.prototype.connect
   let connection
@@ -247,6 +272,7 @@ if (
         throw new Error(
           "Unexpected ACP connection during side-question bootstrap"
         )
+      this.onRequest("_iyw/input_boundary", inputParser, waitForInput)
       this.onRequest("_iyw/side_question", parser, handler)
       const result = connect.apply(this, args)
       resolveInstalled()

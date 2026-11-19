@@ -1033,10 +1033,13 @@ export type AgentInputStrategy =
   | "deferred_next"
   | "safe_force_next"
 
+export type InputDelivery = "smart" | "queue" | "interrupt"
+
 export interface AgentInputPayload {
   blocks: PromptInputBlock[]
   display_text: string
   mode_id?: string | null
+  delivery?: InputDelivery
 }
 
 export interface AgentInputItem {

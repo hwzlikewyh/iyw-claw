@@ -46,6 +46,20 @@ pub(super) async fn dispatch_force_batch(
         .await;
     match result {
         Ok(()) => consume_force_batch(context, &batch_id, target_generation, &items).await,
+        Err(crate::acp::error::AcpError::TurnInProgress) => {
+            if let Err(error) = agent_input_outbox_service::release_busy_force_batch(
+                &context.db.conn,
+                &items,
+                target_generation,
+            )
+            .await
+            {
+                tracing::error!(batch_id, %error, "[agent-input] could not release busy dispatch");
+            }
+            for item in &items {
+                emit_current(context.db, context.state, context.emitter, &item.id).await;
+            }
+        }
         Err(error) => fail_force_batch(context, &batch_id, error.to_string()).await,
     }
 }
@@ -173,7 +187,7 @@ async fn force_batch_already_consumed(
     true
 }
 
-async fn fail_force_batch(context: &WorkerContext<'_>, batch_id: &str, error: String) {
+pub(super) async fn fail_force_batch(context: &WorkerContext<'_>, batch_id: &str, error: String) {
     let items = agent_input_outbox_service::list_force_batch(&context.db.conn, batch_id)
         .await
         .unwrap_or_default();

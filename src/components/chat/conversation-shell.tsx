@@ -21,6 +21,7 @@ import type {
   PendingQuestion,
 } from "@/contexts/acp-connections-context"
 import type { QueuedMessage } from "@/hooks/use-message-queue"
+import type { MessageQueueBehavior } from "@/hooks/use-message-queue-preference"
 import { Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AccountRequestsBanner } from "@/components/account/account-points-status"
@@ -125,6 +126,7 @@ interface ConversationShellProps {
     messageId: string,
     expectedPrefixIds: string[]
   ) => void
+  onSendAgentInputNow?: (messageId: string) => void
   isActive?: boolean
   /** Show the composer's flowing active-session border (tiled multi-session
    *  active tab only). Threaded straight through to the composer. */
@@ -132,17 +134,21 @@ interface ConversationShellProps {
   queue?: QueuedMessage[]
   onEnqueue?: (
     draft: PromptDraft,
-    modeId: string | null
+    modeId: string | null,
+    behavior: MessageQueueBehavior
   ) => boolean | void | Promise<boolean>
   onQueueReorder?: (items: QueuedMessage[]) => void
   onQueueEdit?: (id: string) => void
   onQueueDelete?: (id: string) => void
   onQueueRetry?: (id: string) => void
+  onQueueSendNow?: (id: string) => void
+  queueBehavior?: MessageQueueBehavior
+  onQueueBehaviorChange?: (behavior: MessageQueueBehavior) => void
   editingItemId?: string | null
   editingDraftText?: string | null
   editingDraftBlocks?: PromptInputBlock[] | null
   isEditingQueueItem?: boolean
-  onSaveQueueEdit?: (draft: PromptDraft) => void
+  onSaveQueueEdit?: (draft: PromptDraft) => void | Promise<boolean>
   onCancelQueueEdit?: () => void
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   /** Optional banner pinned to the top of the panel, above the message area
@@ -172,6 +178,8 @@ export function ConversationShell(props: ConversationShellProps) {
       onRetry={props.onRetryAgentInput}
       onReorder={props.onReorderAgentInputs}
       onForceThrough={props.onForceAgentInputsThrough}
+      onSendNow={props.onSendAgentInputNow}
+      onEdit={props.onQueueEdit}
     >
       <ConversationPresentationProvider
         contextKey={props.activityContextKey}
@@ -248,6 +256,9 @@ function ConversationShellContent({
   onQueueEdit,
   onQueueDelete,
   onQueueRetry,
+  onQueueSendNow,
+  queueBehavior,
+  onQueueBehaviorChange,
   editingItemId,
   editingDraftText,
   editingDraftBlocks,
@@ -402,6 +413,9 @@ function ConversationShellContent({
                 onQueueEdit={onQueueEdit}
                 onQueueDelete={onQueueDelete}
                 onQueueRetry={onQueueRetry}
+                onQueueSendNow={onQueueSendNow}
+                queueBehavior={queueBehavior}
+                onQueueBehaviorChange={onQueueBehaviorChange}
                 editingItemId={editingItemId}
                 editingDraftText={editingDraftText}
                 editingDraftBlocks={editingDraftBlocks}

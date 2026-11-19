@@ -11,6 +11,8 @@ interface DeliveryActions {
   onRetry?: (id: string) => void
   onReorder?: (ids: string[]) => Promise<void>
   onForceThrough?: (id: string, prefix: string[]) => void
+  onEdit?: (id: string) => void
+  onSendNow?: (id: string) => void
 }
 interface DeliveryState extends DeliveryActions {
   byId: Map<string, AgentInputItem>
@@ -29,7 +31,8 @@ export function AgentInputDeliveryProvider({
   status: ConnectionStatus | null
   children: ReactNode
 }) {
-  const { onDelete, onRetry, onReorder, onForceThrough } = actions
+  const { onDelete, onRetry, onReorder, onForceThrough, onSendNow, onEdit } =
+    actions
   const value = useMemo(
     () => ({
       byId: new Map(items.map((item) => [item.id, item])),
@@ -39,8 +42,19 @@ export function AgentInputDeliveryProvider({
       onRetry,
       onReorder,
       onForceThrough,
+      onEdit,
+      onSendNow,
     }),
-    [items, status, onDelete, onRetry, onReorder, onForceThrough]
+    [
+      items,
+      status,
+      onDelete,
+      onRetry,
+      onReorder,
+      onForceThrough,
+      onSendNow,
+      onEdit,
+    ]
   )
   return (
     <DeliveryContext.Provider value={value}>
@@ -59,6 +73,10 @@ export function inputDeliveryKey(item: AgentInputItem, online = true) {
     ["waiting", "dispatching", "fallback_queued"].includes(item.status)
   )
     return "inputSyncing"
+  if (item.status === "waiting" && item.force_requested_at)
+    return "inputPrioritized"
+  if (item.status === "waiting" && item.payload.delivery === "queue")
+    return "inputQueued"
   const keys = {
     waiting: "inputWaiting",
     dispatching: "inputSubmitting",

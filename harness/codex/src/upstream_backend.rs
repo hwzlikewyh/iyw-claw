@@ -641,6 +641,10 @@ impl UpstreamClient {
             .active_turn_for(thread_id)
             .await
             .ok_or_else(|| UpstreamError::InvalidRequest("no active 星河 turn".into()))?;
+        self.interrupt_bound_turn(thread_id, &turn.turn_id).await
+    }
+
+    pub(crate) async fn interrupt_bound_turn(&self, thread_id: &str, turn_id: &str) -> Result<Value, UpstreamError> {
         let binding = self
             .binding_for(thread_id)
             .await
@@ -653,10 +657,10 @@ impl UpstreamClient {
         };
         self.interrupt_turn(
             access,
-            &turn.turn_id,
+            turn_id,
             json!({
                 "method": "turn/interrupt",
-                "params": { "threadId": thread_id, "turnId": turn.turn_id }
+                "params": { "threadId": thread_id, "turnId": turn_id }
             }),
         )
         .await

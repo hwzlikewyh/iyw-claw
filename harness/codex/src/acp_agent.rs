@@ -41,6 +41,7 @@ mod settings_mapping;
 mod settings_update;
 mod side_question;
 mod steering;
+mod input_boundary;
 mod runtime_tasks;
 mod subagent_items;
 mod tool_content;
@@ -260,10 +261,12 @@ async fn run_bridge_loop(
     let mut thinking = thinking_projection::ThinkingProjection::default();
     let mut native_title = native_title::NativeTitle::default();
     let mut side_questions = side_question::SideQuestions::default();
+    let mut input_boundary = input_boundary::InputBoundary::default();
     let mut background_poll = tokio::time::interval(background_terminals::SYNC_INTERVAL);
     background_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut background_sync_failed = false;
     loop {
+        input_boundary.release_finished(upstream, session_id.as_deref()).await;
         let settings_deadline = authority.settings_update.deadline();
         if let Some(command) = authority.settings_update.take_prompt() {
             handle_command(upstream, command, &mut session_id, &mut pending_prompt, &mut authority, &mut session_settings, &cx).await?;
@@ -299,6 +302,10 @@ async fn run_bridge_loop(
                         }
                     }
                     let command = match command {
+                        BridgeCommand::Request { method, params, response } if method == "_iyw/input_boundary" => {
+                            input_boundary.register(upstream, session_id.as_deref(), &params, response).await;
+                            continue;
+                        }
                         BridgeCommand::Request { method, params, response } if method == "_iyw/side_question" => {
                             let Some(parent) = session_id.clone() else {
                                 let _ = response.send(Err("Native side question requires an active session".into()));

@@ -4,6 +4,7 @@ pub mod runtime_tasks;
 pub mod acp_prepared;
 pub mod agent_concurrency;
 pub mod agent_input;
+pub mod agent_input_edit;
 pub mod agent_storage;
 mod agent_storage_migration;
 mod agent_storage_profile;
