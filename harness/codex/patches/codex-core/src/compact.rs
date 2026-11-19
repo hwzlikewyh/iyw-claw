@@ -395,12 +395,13 @@ async fn run_compact_task_inner_impl(
                     let retry_number = retries_for_limit + 1;
                     let delay = e.retry_after()
                         .map(|after| after.deadline().saturating_duration_since(tokio::time::Instant::now()))
-                        .or_else(|| e.retry_delay(retry_number))
+                        .or_else(|| crate::responses_retry::model_retry_delay(&e, retry_number))
                         .unwrap_or_else(|| backoff(retry_number));
                     tracing::warn!(
                         elapsed_ms = elapsed.as_millis(),
                         retries = retry_number,
                         max_retries = retry_limit,
+                        ?delay,
                         error = %e,
                         "compaction attempt failed, retrying after delay"
                     );

@@ -13,8 +13,8 @@ use crate::acp::account_credentials::AccountAccessToken;
 mod browse;
 mod catalog;
 mod connection;
-mod directory;
 mod direct;
+mod directory;
 mod display;
 mod overview;
 mod request;
@@ -24,7 +24,8 @@ use catalog::RemoteRoute;
 use connection::RemoteConnection;
 pub(super) use direct::direct_identity;
 
-const FAILURE_COOLDOWN: Duration = Duration::from_secs(15);
+const RECONNECT_DELAY: Duration = Duration::from_millis(250);
+const OFFLINE_RETRY: Duration = Duration::from_secs(3);
 pub(super) const REMOTE_PREFIX: &str = "iyw.remote.";
 pub(super) const CAPABILITY_ROUTING_INSTRUCTIONS: &str =
     include_str!("../../../resources/capability-routing.md");
@@ -38,6 +39,7 @@ pub(super) struct RemoteGateway {
     shutdown: CancellationToken,
     warmup: StdMutex<Option<tokio::task::JoinHandle<()>>>,
     refresh_signal: Arc<Notify>,
+    disconnected: Arc<Notify>,
     catalog_changes: watch::Sender<u64>,
 }
 
@@ -55,6 +57,7 @@ struct RemoteAccount {
 struct ConnectionState {
     client: Option<Arc<RemoteConnection>>,
     retry_after: Option<Instant>,
+    last_failure: Option<(Instant, ErrorData)>,
 }
 
 #[derive(Clone, Copy)]
@@ -71,6 +74,7 @@ impl RemoteGateway {
             shutdown: CancellationToken::new(),
             warmup: StdMutex::new(None),
             refresh_signal: Arc::new(Notify::new()),
+            disconnected: Arc::new(Notify::new()),
             catalog_changes: watch::channel(0).0,
         })
     }
@@ -88,6 +92,7 @@ impl RemoteGateway {
     }
 
     async fn ready(&self) -> Result<(Arc<RemoteAccount>, Arc<RemoteConnection>), ErrorData> {
+        let started = Instant::now();
         let (account, token) = self.current_account().await?;
         let mut state = account.connection.lock().await;
         if account.cancellation.is_cancelled() || account.credentials_cancel.is_cancelled() {
@@ -102,22 +107,16 @@ impl RemoteGateway {
                 return Ok((account.clone(), client.clone()));
             }
         }
-        if state
-            .retry_after
-            .is_some_and(|until| until > Instant::now())
-        {
-            return Err(failure(
-                "remote_cooling_down",
-                "Remote connection temporarily unavailable; retry later",
-                false,
-            ));
+        if let Some((at, error)) = &state.last_failure {
+            if *at >= started {
+                return Err(error.clone());
+            }
         }
         let client = tokio::select! {
             biased;
-            _ = account.credentials_cancel.cancelled() => {
-                return Err(failure("remote_account_changed", "Account changed", false));
-            },
-            result = state.refresh(token.expose(), &account.cancellation) => result?,
+            _ = account.cancellation.cancelled() => return Err(failure("remote_cancelled", "Connection cancelled", false)),
+            _ = account.credentials_cancel.cancelled() => return Err(failure("remote_account_changed", "Account changed", false)),
+            result = state.connect(token.expose(), &account.cancellation, &self.disconnected) => result?,
         };
         Ok((account.clone(), client))
     }
@@ -206,29 +205,40 @@ impl RemoteGateway {
 }
 
 impl ConnectionState {
-    async fn refresh(
+    async fn connect(
         &mut self,
         token: &str,
         cancellation: &CancellationToken,
+        disconnected: &Arc<Notify>,
     ) -> Result<Arc<RemoteConnection>, ErrorData> {
         self.client = None;
         let started = Instant::now();
-        match RemoteConnection::open(token, cancellation).await {
-            Ok(client) => {
-                tracing::info!(
-                    elapsed_ms = started.elapsed().as_millis(),
-                    "[remote-mcp] connection initialized"
-                );
-                self.retry_after = None;
-                self.client = Some(client.clone());
-                Ok(client)
+        for attempt in 0..=1 {
+            if let Some(until) = self.retry_after {
+                tokio::time::sleep_until(until.into()).await;
             }
-            Err(error) => {
-                self.retry_after = Some(Instant::now() + FAILURE_COOLDOWN);
-                log_failure("initialize", &error);
-                Err(error)
+            match RemoteConnection::open(token, cancellation, disconnected.clone()).await {
+                Ok(client) => {
+                    tracing::info!(
+                        attempt,
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "[remote-mcp] connection initialized"
+                    );
+                    self.retry_after = None;
+                    self.last_failure = None;
+                    self.client = Some(client.clone());
+                    return Ok(client);
+                }
+                Err(error) => {
+                    self.retry_after = Some(Instant::now() + RECONNECT_DELAY);
+                    if attempt == 1 || !connection::retryable_connection_error(&error) {
+                        self.last_failure = Some((Instant::now(), error.clone()));
+                        return Err(error);
+                    }
+                }
             }
         }
+        unreachable!("the final connection attempt returns its result")
     }
 }
 

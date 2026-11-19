@@ -3,11 +3,13 @@ use serde_json::{json, Value};
 pub(in crate::acp::builtin_mcp) fn transport_failure(
     stage: &'static str,
     error: &reqwest::Error,
+    request_id: Option<&str>,
 ) -> rmcp::ErrorData {
     let lookup = stage.starts_with("Fusion catalog");
     let execution_status = if lookup { "not_started" } else { "unknown" };
     tracing::warn!(
         stage,
+        request_id,
         timeout = error.is_timeout(),
         connect = error.is_connect(),
         status = error.status().map(|status| status.as_u16()),
@@ -18,12 +20,14 @@ pub(in crate::acp::builtin_mcp) fn transport_failure(
             "IYW image {stage} failed; {}",
             if lookup {
                 "no image generation was started"
+            } else if stage.starts_with("Fusion") {
+                "submission outcome unknown. Use the request ID to reconcile the original call. A different service's task list cannot confirm this submission; do not submit another generation automatically"
             } else {
                 "resolve the original submission before retrying"
             }
         ),
         Some(
-            json!({"stage": stage, "timeout": error.is_timeout(), "connect": error.is_connect(),
+            json!({"stage": stage, "request_id": request_id, "timeout": error.is_timeout(), "connect": error.is_connect(),
             "status": error.status().map(|status| status.as_u16()), "execution_status": execution_status, "retryable": false}),
         ),
     )
@@ -32,14 +36,13 @@ pub(in crate::acp::builtin_mcp) fn transport_failure(
 pub(in crate::acp::builtin_mcp) async fn response_payload(
     response: reqwest::Response,
     stage: &'static str,
+    request_id: Option<&str>,
 ) -> Result<Value, rmcp::ErrorData> {
     let status = response.status().as_u16();
-    let request_id = super::request_id(&response);
     response.json::<Value>().await.map_err(|error| {
-        let mut failure = transport_failure(stage, &error);
+        let mut failure = transport_failure(stage, &error, request_id);
         if let Some(data) = &mut failure.data {
             data["status"] = json!(status);
-            data["request_id"] = json!(request_id);
         }
         failure
     })

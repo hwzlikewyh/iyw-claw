@@ -140,8 +140,11 @@ extra discovery or generic preflight. A keyword in supplied material alone is no
    `open-computer-use`, `skill-creator`, `skill-installer`, `plugin-creator`,
    `writing-plans`, or `executing-plans`.
    Apply the remote-social and video priorities above. Images use
-   `generate_iyw_image`; no generation capability ID exists. Match inputs and
-   effects before choosing a service; complex tasks may use image models directly.
+   the host's `generate_iyw_image`: choose `generate` for text alone and `edit`
+   for reference images. If tools are deferred, load the exact local tool name
+   from the current runtime. The built-in tool has no generation capability ID.
+   Only consider a platform connector after confirmed
+   unavailability or failure of the applicable default. Install it only when needed.
    Follow [image routing and recovery](references/iyw-image-tools.md#能力匹配与兜底)
    for technical limits, model selection, bounded corrections and manual fallback.
    A failed auxiliary step does not justify rebuilding the image locally.

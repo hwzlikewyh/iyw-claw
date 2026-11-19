@@ -88,6 +88,7 @@ impl RemoteGateway {
         let arguments = Value::Object(request.arguments.unwrap_or_default());
         // 任意远端 JSON Schema 由远端权威校验，不套用内置 schema 子集验证器。
         let result = request::call(
+            self,
             &connection,
             RemoteRequest {
                 name: &tool.name,

@@ -26,6 +26,7 @@ pub(super) struct IywGatewayService {
     pub(super) conn: DatabaseConnection,
     listener: Arc<DelegationListener>,
     client: reqwest::Client,
+    loopback_client: reqwest::Client,
     pub(super) upload_client: reqwest::Client,
     pub(super) remote: Arc<super::remote_mcp::RemoteGateway>,
     pub(super) image_timeout: Option<Duration>,
@@ -43,6 +44,13 @@ impl IywGatewayService {
             .user_agent("iyw-claw")
             .build()
             .map_err(|error| format!("failed to initialize IYW gateway client: {error}"))?;
+        let loopback_client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            .user_agent("iyw-claw")
+            .build()
+            .map_err(|error| format!("failed to initialize local image gateway client: {error}"))?;
         let upload_client = reqwest::Client::builder()
             .timeout(UPLOAD_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
@@ -55,6 +63,7 @@ impl IywGatewayService {
             conn,
             listener,
             client,
+            loopback_client,
             upload_client,
             image_timeout: None,
             image_context: None,
@@ -124,27 +133,33 @@ impl IywGatewayService {
             .await
             .map_err(|error| rmcp::ErrorData::invalid_request(error.to_string(), None))?;
         let token = self.token().await?;
-        let url = crate::acp::model_gateway::endpoint(path)
-            .unwrap_or_else(|| self.url(FUSION_PREFIX, path));
-        let response = self
-            .client
-            .post(url)
+        let submission_id = uuid::Uuid::new_v4().to_string();
+        let request = match crate::acp::model_gateway::endpoint(path) {
+            Some(url) => self.loopback_client.post(url),
+            None => self.client.post(self.url(FUSION_PREFIX, path)),
+        };
+        tracing::info!(target: "builtin_mcp", operation = path, request_id = %submission_id,
+            "[iyw-image] submitting Fusion image request");
+        let response = request
             .timeout(self.image_timeout.unwrap_or(HTTP_TIMEOUT))
+            .header("x-request-id", &submission_id)
             .header("token", &token)
             .json(&body)
             .send()
             .await
-            .map_err(|error| image_transport_error("Fusion request", &error))?;
+            .map_err(|error| {
+                image_transport_error("Fusion request", &error, Some(&submission_id))
+            })?;
         let status = response.status();
-        let request_id = request_id(&response);
-        let mut payload = response_payload(response, "Fusion response").await?;
+        let request_id = request_id(&response).unwrap_or(submission_id);
+        let mut payload = response_payload(response, "Fusion response", Some(&request_id)).await?;
         if !status.is_success() {
             return Err(upstream_failure(UpstreamFailure {
                 source: "fusion",
                 operation: path,
                 status: status.as_u16(),
                 payload: &payload,
-                request_id,
+                request_id: Some(request_id),
                 token: &token,
             }));
         }
@@ -177,10 +192,11 @@ impl IywGatewayService {
             .header("token", &token)
             .send()
             .await
-            .map_err(|error| image_transport_error("Fusion catalog request", &error))?;
+            .map_err(|error| image_transport_error("Fusion catalog request", &error, None))?;
         let status = response.status();
         let request_id = request_id(&response);
-        let payload = response_payload(response, "Fusion catalog response").await?;
+        let payload =
+            response_payload(response, "Fusion catalog response", request_id.as_deref()).await?;
         if !status.is_success() {
             return Err(upstream_failure(UpstreamFailure {
                 source: "catalog",
@@ -218,10 +234,10 @@ impl IywGatewayService {
             .json(&body)
             .send()
             .await
-            .map_err(|error| image_transport_error("gateway request", &error))?;
+            .map_err(|error| image_transport_error("gateway request", &error, None))?;
         let status = response.status();
         let request_id = request_id(&response);
-        let payload = response_payload(response, "gateway response").await?;
+        let payload = response_payload(response, "gateway response", request_id.as_deref()).await?;
         let accepted =
             status.is_success() && payload.get("code").and_then(Value::as_i64) == Some(1);
         if !accepted {

@@ -42,7 +42,12 @@ impl RmcpClient {
         let mut retry_deadline = timeout.map(|duration| Instant::now() + duration);
         let mut pending_transport = Some(initial_transport);
 
-        for (attempt, retry_delay_ms) in STREAMABLE_HTTP_RETRY_DELAYS_MS
+        let delays = if self.supports_local_reconnect() {
+            super::local_reconnect::LOCAL_RETRY_DELAYS_MS
+        } else {
+            &STREAMABLE_HTTP_RETRY_DELAYS_MS
+        };
+        for (attempt, retry_delay_ms) in delays
             .iter()
             .copied()
             .map(Some)
@@ -87,9 +92,8 @@ impl RmcpClient {
                     let delay = Duration::from_millis(retry_delay_ms);
                     warn!(
                         attempt = attempt + 1,
-                        max_attempts = STREAMABLE_HTTP_RETRY_DELAYS_MS.len() + 1,
+                        max_attempts = delays.len() + 1,
                         delay_ms = delay.as_millis(),
-                        error = %error,
                         "streamable HTTP MCP initialize failed with a retryable error; retrying"
                     );
                     if !sleep_with_retry_deadline(delay, retry_deadline).await {

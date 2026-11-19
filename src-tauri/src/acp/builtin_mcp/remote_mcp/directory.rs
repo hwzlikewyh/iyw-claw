@@ -19,6 +19,7 @@ impl RemoteGateway {
         let group = arguments.get("group_id").and_then(Value::as_str).map(str::to_owned);
         account.browse_arguments(&mut arguments)?;
         let result = request::call(
+            self,
             &connection,
             RemoteRequest {
                 name: SEARCH_TOOL,
@@ -67,6 +68,7 @@ impl RemoteGateway {
             arguments["include_legacy_tools"] = json!(false);
         }
         let result = request::call(
+            self,
             &connection,
             RemoteRequest {
                 name: READ_TOOL,
@@ -105,7 +107,7 @@ impl RemoteGateway {
             ));
         }
         self.ensure_current(&account).await?;
-        let mut result = request::call(&connection, RemoteRequest {
+        let mut result = request::call(self, &connection, RemoteRequest {
             name: INVOKE_TOOL,
             arguments: json!({"tool_id": route.id, "tool_version": route.version, "arguments": call.1}),
             context, account: &account, execution: true,

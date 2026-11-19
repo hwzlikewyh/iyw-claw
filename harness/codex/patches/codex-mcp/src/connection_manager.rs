@@ -1396,7 +1396,7 @@ impl McpConnectionSet {
                 .client
                 .ready_client()
                 .ok_or_else(|| anyhow!("MCP server '{server}' is not connected"))?;
-            if client.client.is_closed().await {
+            if !client.client.supports_local_reconnect() && client.client.is_closed().await {
                 bail!("MCP server '{server}' is not connected");
             }
             client

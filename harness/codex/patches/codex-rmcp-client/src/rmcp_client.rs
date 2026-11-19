@@ -112,6 +112,8 @@ use crate::tool_list_changes::track_tool_list_changes;
 use crate::utils::build_default_headers;
 use codex_config::types::OAuthCredentialsStoreMode;
 
+#[path = "local_reconnect.rs"]
+mod local_reconnect;
 #[path = "stdio_handshake.rs"]
 mod stdio_handshake;
 #[path = "streamable_http_retry.rs"]
@@ -1252,7 +1254,7 @@ impl RmcpClient {
         &self,
         params: Option<serde_json::Value>,
     ) -> Result<CancellableEventStreamRequest> {
-        let service = self.service().await?;
+        let service = self.service_for_new_request().await?;
         let (sender, notifications) = event_notification_channel();
         let mut request = crate::trace_context::traced_custom_request("events/stream", params);
         request.extensions.insert(sender);
@@ -1507,8 +1509,7 @@ impl RmcpClient {
                                 "OAuth metadata discovery is unavailable for MCP server `{server_name}`; falling back to stored bearer token authentication"
                             );
                             let http_config =
-                                StreamableHttpClientTransportConfig::with_uri(url.clone())
-                                    .auth_header(access_token);
+                                local_reconnect::http_config(url).auth_header(access_token);
                             let transport = StreamableHttpClientTransport::with_client(
                                 StreamableHttpClientAdapter::new(
                                     Arc::clone(http_client),
@@ -1525,8 +1526,7 @@ impl RmcpClient {
                         Err(err) => Err(err),
                     }
                 } else {
-                    let mut http_config =
-                        StreamableHttpClientTransportConfig::with_uri(url.clone());
+                    let mut http_config = local_reconnect::http_config(url);
                     if let Some(StreamableHttpBearerToken::Resolved(bearer_token)) = bearer_token {
                         http_config = http_config.auth_header(bearer_token.clone());
                     }
@@ -1559,6 +1559,7 @@ impl RmcpClient {
     )> {
         // Request IDs and remembered cancellations belong to this connection, including
         // when a failed initialization or expired HTTP session creates a new transport.
+        let transport_closed = tokio_util::sync::CancellationToken::new();
         let client_service = || {
             let send_elicitation = Arc::clone(&initialize_context.send_elicitation);
             let mut info = initialize_context.client_info.clone();
@@ -1569,6 +1570,7 @@ impl RmcpClient {
                 info,
                 Box::new(move |id, request| send_elicitation(id, request)),
                 self.elicitation_pause_state.clone(),
+                transport_closed.clone(),
             )
         };
         let _initialize_deadline = match &self.transport_recipe {
@@ -1593,6 +1595,7 @@ impl RmcpClient {
                     track_tool_list_changes(
                         OrderedByteTransport::new(transport),
                         Arc::clone(&self.tool_list_revision),
+                        transport_closed.clone().drop_guard(),
                     ),
                     lifecycle,
                 )
@@ -1608,6 +1611,7 @@ impl RmcpClient {
                                 IntoTransport::<RoleClient, _, _>::into_transport(transport),
                             ),
                             Arc::clone(&self.tool_list_revision),
+                            transport_closed.clone().drop_guard(),
                         ),
                         lifecycle,
                     )
@@ -1629,6 +1633,7 @@ impl RmcpClient {
                         track_tool_list_changes(
                             capture_event_notifications(transport),
                             Arc::clone(&self.tool_list_revision),
+                            transport_closed.clone().drop_guard(),
                         ),
                         lifecycle,
                     )
@@ -1641,7 +1646,11 @@ impl RmcpClient {
             } => (
                 client_service()
                     .serve_with_lifecycle(
-                        track_tool_list_changes(transport, Arc::clone(&self.tool_list_revision)),
+                        track_tool_list_changes(
+                            transport,
+                            Arc::clone(&self.tool_list_revision),
+                            transport_closed.clone().drop_guard(),
+                        ),
                         lifecycle,
                     )
                     .boxed(),
@@ -1650,7 +1659,11 @@ impl RmcpClient {
             PendingTransport::StreamableHttpWithAccessTokenOnly { transport } => (
                 client_service()
                     .serve_with_lifecycle(
-                        track_tool_list_changes(transport, Arc::clone(&self.tool_list_revision)),
+                        track_tool_list_changes(
+                            transport,
+                            Arc::clone(&self.tool_list_revision),
+                            transport_closed.clone().drop_guard(),
+                        ),
                         lifecycle,
                     )
                     .boxed(),
@@ -1762,6 +1775,15 @@ impl RmcpClient {
         F: Fn(Arc<RunningService<RoleClient, ElicitationClientService>>) -> Fut,
         Fut: std::future::Future<Output = std::result::Result<T, rmcp::service::ServiceError>>,
     {
+        if self.supports_local_reconnect() {
+            let recovery = self.run_local_operation(label, timeout, &pause_state, &operation);
+            return match timeout {
+                Some(duration) => active_time_timeout(duration, pause_state.subscribe(), recovery)
+                    .await
+                    .map_err(|_| crate::service_error::request_timeout_error(label, duration))?,
+                None => recovery.await,
+            };
+        }
         let service = self.service().await?;
         match Self::run_service_operation_with_transient_retries(
             Arc::clone(&service),
@@ -1774,7 +1796,7 @@ impl RmcpClient {
         {
             Ok(result) => Ok(result),
             Err(error) if Self::is_session_expired_404(&error) => {
-                self.reinitialize_after_session_expiry(&service).await?;
+                self.reinitialize_session(&service).await?;
                 let recovered_service = self.service().await?;
                 Self::run_service_operation_with_transient_retries(
                     recovered_service,
@@ -1906,7 +1928,7 @@ impl RmcpClient {
             })
     }
 
-    async fn reinitialize_after_session_expiry(
+    async fn reinitialize_session(
         &self,
         failed_service: &Arc<RunningService<RoleClient, ElicitationClientService>>,
     ) -> Result<()> {
@@ -1961,6 +1983,7 @@ impl RmcpClient {
             };
         }
 
+        self.tool_list_revision.fetch_add(1, Ordering::AcqRel);
         if let Some(OAuthRuntime::Legacy(runtime)) = oauth_runtime
             && let Err(error) = runtime.persist_if_needed().await
         {
@@ -2043,10 +2066,8 @@ async fn create_oauth_transport_and_runtime(
     );
     let auth_manager = auth_client.auth_manager.clone();
 
-    let transport = StreamableHttpClientTransport::with_client(
-        auth_client,
-        StreamableHttpClientTransportConfig::with_uri(url.to_string()),
-    );
+    let transport =
+        StreamableHttpClientTransport::with_client(auth_client, local_reconnect::http_config(url));
 
     if use_stored_access_token_only {
         warn!(
