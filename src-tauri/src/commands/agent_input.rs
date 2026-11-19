@@ -19,7 +19,7 @@ fn client_items(items: Vec<AgentInputItem>) -> Vec<AgentInputItem> {
     items.into_iter().map(client_item).collect()
 }
 
-fn validate_submit(
+pub(super) fn validate_submit(
     conversation_id: i32,
     message_id: &str,
     payload: &AgentInputPayload,
@@ -60,7 +60,7 @@ fn payload_has_content(payload: &AgentInputPayload) -> bool {
     })
 }
 
-async fn require_payload_file_upload(payload: &AgentInputPayload) -> Result<(), AcpError> {
+pub(super) async fn require_payload_file_upload(payload: &AgentInputPayload) -> Result<(), AcpError> {
     crate::acp::capability_policy::require_prompt_file_upload(&payload.blocks)
         .await
         .map_err(AcpError::from_capability_error)

@@ -186,6 +186,44 @@ fn valid_transition_count(
     .then_some(members.len() as u64)
 }
 
+/// 已被并发回合占用，恢复本次领取前的取消目标，等该回合结束后再投递。
+pub async fn release_busy_force_batch(
+    conn: &DatabaseConnection,
+    items: &[AgentInputItem],
+    generation: i64,
+) -> Result<(), DbError> {
+    let txn = crate::db::begin_sqlite_write(conn).await?;
+    for item in items {
+        let changed = agent_input_outbox::Entity::update_many()
+            .col_expr(
+                agent_input_outbox::Column::Status,
+                Expr::value(item.status.as_str()),
+            )
+            .col_expr(
+                agent_input_outbox::Column::Strategy,
+                Expr::value(item.strategy.map(AgentInputStrategy::as_str)),
+            )
+            .col_expr(
+                agent_input_outbox::Column::ConnectionId,
+                Expr::value(item.connection_id.clone()),
+            )
+            .col_expr(
+                agent_input_outbox::Column::TargetTurnGeneration,
+                Expr::value(item.target_turn_generation),
+            )
+            .filter(agent_input_outbox::Column::Id.eq(&item.id))
+            .filter(agent_input_outbox::Column::TargetTurnGeneration.eq(generation))
+            .filter(agent_input_outbox::Column::Status.eq(AgentInputStatus::Dispatching.as_str()))
+            .exec(&txn)
+            .await?;
+        if changed.rows_affected != 1 {
+            return Err(DbError::Validation("force dispatch already settled".into()));
+        }
+    }
+    txn.commit().await?;
+    Ok(())
+}
+
 pub async fn fail_force_batch(
     conn: &DatabaseConnection,
     batch_id: &str,

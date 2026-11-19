@@ -1772,6 +1772,7 @@ mod tauri_app {
                 agent_input_commands::retry_agent_input,
                 agent_input_commands::reorder_agent_inputs,
                 agent_input_commands::force_agent_inputs_through,
+                crate::commands::agent_input_edit::revise_agent_input,
                 agent_input_commands::resume_agent_inputs,
                 question_commands::get_question_settings,
                 question_commands::set_question_settings,

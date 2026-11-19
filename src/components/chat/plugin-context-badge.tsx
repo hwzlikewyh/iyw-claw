@@ -1,46 +1,31 @@
-import { AppWindow } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { ComposerSourceChip } from "./composer-source-chip"
+import { usePluginPresentation } from "@/components/layout/plugin-presentation"
 
 export function PluginContextBadge({
   label,
+  slug,
   className,
   onClick,
+  onRemove,
+  removeLabel,
 }: {
   label: string
+  slug?: string
   className?: string
   onClick?: () => void
+  onRemove?: () => void
+  removeLabel?: string
 }) {
-  const content = (
-    <>
-      <AppWindow className="size-3.5 shrink-0 text-violet-600 dark:text-violet-300" />
-      <span className="truncate">{label}</span>
-    </>
-  )
-  const classes = cn(
-    "inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1 text-xs font-medium text-violet-700 dark:text-violet-300",
-    onClick &&
-      "cursor-pointer transition-colors hover:border-violet-500/40 hover:bg-violet-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50",
-    className
-  )
-
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        data-plugin-context-badge
-        title={label}
-        aria-label={label}
-        className={classes}
-        onClick={onClick}
-      >
-        {content}
-      </button>
-    )
-  }
-
+  const item = usePluginPresentation().get(slug ?? "")
   return (
-    <span data-plugin-context-badge title={label} className={classes}>
-      {content}
-    </span>
+    <ComposerSourceChip
+      kind="plugin"
+      label={label}
+      src={item?.iconUrl}
+      className={className}
+      onOpen={onClick}
+      onRemove={onRemove}
+      removeLabel={removeLabel}
+    />
   )
 }

@@ -114,6 +114,45 @@ fn seal(path: PathBuf, metadata: release::DirectArtifact) -> Result<Installer, S
     Ok(Installer { path, _lock: file })
 }
 
+fn installed_candidates(metadata: &release::DirectArtifact) -> Vec<PathBuf> {
+    let Some(root) = std::env::current_exe()
+        .ok()
+        .and_then(|path| crate::desktop_bootstrap::resolve_install_root(&path))
+    else {
+        return Vec::new();
+    };
+    let directory = root.join("installer");
+    vec![
+        directory.join(format!(
+            "原助理安装向导-{}.exe",
+            metadata.sha256.to_ascii_lowercase()
+        )),
+        directory.join("原助理安装向导.exe"),
+    ]
+}
+
+fn installed(metadata: &release::DirectArtifact) -> Option<Installer> {
+    for path in installed_candidates(metadata) {
+        if !path.is_file() {
+            continue;
+        }
+        match seal(path, metadata.clone()) {
+            Ok(installer) => {
+                tracing::info!(
+                    installer_sha256 = %metadata.sha256,
+                    "[app-update] reusing the verified installed installer"
+                );
+                return Some(installer);
+            }
+            Err(error) => tracing::warn!(
+                error = %error,
+                "[app-update] installed installer is unusable; falling back to download"
+            ),
+        }
+    }
+    None
+}
+
 pub(super) async fn prepare(task: &Task, update: &Update) -> Result<Installer, String> {
     let ext = release::extensions(update).map_err(|e| e.to_string())?;
     let metadata = ext.bootstrapper.ok_or("Installer metadata is missing")?;
@@ -124,6 +163,13 @@ pub(super) async fn prepare(task: &Task, update: &Update) -> Result<Installer, S
     )?;
     if metadata.size > MAX_BYTES {
         return Err("Installer exceeds download limit".into());
+    }
+    let installed_metadata = metadata.clone();
+    let installed = tokio::task::spawn_blocking(move || installed(&installed_metadata))
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(installer) = installed {
+        return Ok(installer);
     }
     let directory = task
         .app

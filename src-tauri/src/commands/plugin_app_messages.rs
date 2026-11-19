@@ -45,6 +45,7 @@ pub(super) async fn send_app_message(
             blocks: blocks.0,
             display_text: blocks.1,
             mode_id: None,
+            delivery: Default::default(),
         },
     )
     .await

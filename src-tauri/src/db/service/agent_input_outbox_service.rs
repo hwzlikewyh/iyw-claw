@@ -6,7 +6,7 @@ use sea_orm::{
 
 pub use super::agent_input_force_service::{
     active_force_batch, fail_force_batch, list_force_batch, mark_force_batch_dispatching,
-    transition_force_batch,
+    release_busy_force_batch, transition_force_batch,
 };
 pub use super::agent_input_outbox_mutation_service::{
     consume_native_started_turn, delete_waiting, mark_dispatching, retry_failed, transition_status,
@@ -27,13 +27,22 @@ struct SerializedInput {
 }
 
 impl SerializedInput {
-    fn active_model(&self, sort_index: i64) -> agent_input_outbox::ActiveModel {
+    fn active_model(
+        &self,
+        sort_index: i64,
+        interrupt: Option<(&str, i64)>,
+    ) -> agent_input_outbox::ActiveModel {
         agent_input_outbox::ActiveModel {
             id: Set(self.id.clone()),
             conversation_id: Set(self.conversation_id),
             agent_type: Set(self.agent_type.clone()),
             payload_json: Set(self.payload_json.clone()),
             status: Set(AgentInputStatus::Waiting.as_str().into()),
+            strategy: Set(interrupt.map(|_| AgentInputStrategy::SafeForceNext.as_str().to_owned())),
+            force_batch_id: Set(interrupt.map(|_| uuid::Uuid::new_v4().to_string())),
+            force_requested_at: Set(interrupt.map(|_| Utc::now())),
+            connection_id: Set(interrupt.map(|(id, _)| id.to_owned())),
+            target_turn_generation: Set(interrupt.map(|(_, generation)| generation)),
             dispatch_attempt: Set(0),
             sort_index: Set(sort_index),
             created_at: Set(Utc::now()),
@@ -92,6 +101,7 @@ pub async fn create(
     conversation_id: i32,
     agent_type: AgentType,
     payload: AgentInputPayload,
+    interrupt: Option<(&str, i64)>,
 ) -> Result<AgentInputItem, DbError> {
     if payload.blocks.is_empty() {
         return Err(DbError::Validation(
@@ -124,7 +134,11 @@ pub async fn create(
     let sort_index =
         super::agent_input_ordering_service::next_sort_index(&txn, serialized.conversation_id)
             .await?;
-    match serialized.active_model(sort_index).insert(&txn).await {
+    match serialized
+        .active_model(sort_index, interrupt)
+        .insert(&txn)
+        .await
+    {
         Ok(model) => {
             txn.commit().await?;
             parse_model(model)

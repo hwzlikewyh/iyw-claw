@@ -150,6 +150,7 @@ async fn queue_reply(
         blocks: vec![PromptInputBlock::Text { text: text.clone() }],
         display_text: text,
         mode_id: None,
+        delivery: Default::default(),
     };
     runtime
         .2

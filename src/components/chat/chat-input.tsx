@@ -14,6 +14,7 @@ import type {
   AvailableCommandInfo,
 } from "@/lib/types"
 import type { QueuedMessage } from "@/hooks/use-message-queue"
+import type { MessageQueueBehavior } from "@/hooks/use-message-queue-preference"
 import {
   MessageInput,
   type ComposerInjectContent,
@@ -61,17 +62,21 @@ interface ChatInputProps {
   queue?: QueuedMessage[]
   onEnqueue?: (
     draft: PromptDraft,
-    modeId: string | null
+    modeId: string | null,
+    behavior: MessageQueueBehavior
   ) => boolean | void | Promise<boolean>
   onQueueReorder?: (items: QueuedMessage[]) => void
   onQueueEdit?: (id: string) => void
   onQueueDelete?: (id: string) => void
   onQueueRetry?: (id: string) => void
+  onQueueSendNow?: (id: string) => void
+  queueBehavior?: MessageQueueBehavior
+  onQueueBehaviorChange?: (behavior: MessageQueueBehavior) => void
   editingItemId?: string | null
   editingDraftText?: string | null
   editingDraftBlocks?: PromptInputBlock[] | null
   isEditingQueueItem?: boolean
-  onSaveQueueEdit?: (draft: PromptDraft) => void
+  onSaveQueueEdit?: (draft: PromptDraft) => void | Promise<boolean>
   onCancelQueueEdit?: () => void
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   onSideQuestion?: (question: string) => boolean
@@ -124,6 +129,9 @@ export const ChatInput = memo(function ChatInput({
   onQueueEdit,
   onQueueDelete,
   onQueueRetry,
+  onQueueSendNow,
+  queueBehavior = "smart",
+  onQueueBehaviorChange,
   editingItemId,
   editingDraftText,
   editingDraftBlocks,
@@ -176,6 +184,7 @@ export const ChatInput = memo(function ChatInput({
             onEdit={onQueueEdit}
             onDelete={onQueueDelete}
             onRetry={onQueueRetry ?? (() => {})}
+            onSendNow={onQueueSendNow}
             editingItemId={editingItemId ?? null}
           />
         )}
@@ -209,10 +218,14 @@ export const ChatInput = memo(function ChatInput({
         isActive={isActive}
         showActiveFlow={showActiveFlow}
         hasQueuedMessages={(queue?.length ?? 0) > 0}
+        queueBehavior={queueBehavior}
+        onQueueBehaviorChange={onQueueBehaviorChange}
         onEnqueue={
           onEnqueue
-            ? (draft, mode) =>
-                requestsBlocked || sendDisabled ? false : onEnqueue(draft, mode)
+            ? (draft, mode, behavior) =>
+                requestsBlocked || sendDisabled
+                  ? false
+                  : onEnqueue(draft, mode, behavior)
             : undefined
         }
         editingItemId={editingItemId}

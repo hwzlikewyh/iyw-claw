@@ -28,7 +28,8 @@ pub(super) struct WorkerSnapshot {
     capabilities: AgentInputCapabilities,
     has_tools: bool,
     has_running_tools: bool,
-    wake: tokio::sync::futures::OwnedNotified,
+    pub(super) wake: std::pin::Pin<Box<tokio::sync::futures::OwnedNotified>>,
+    pub(super) native_input_boundary: bool,
 }
 
 pub(super) struct WorkerContext<'a> {
@@ -41,6 +42,7 @@ pub(super) struct WorkerContext<'a> {
 
 #[derive(Default)]
 struct WorkerTracking {
+    boundary: super::input_boundary::NativeBoundary,
     tool_for: Option<String>,
     cancel_requested_for: Option<String>,
     turn_generation: i64,
@@ -163,7 +165,11 @@ async fn worker_snapshot(state: &Arc<tokio::sync::RwLock<SessionState>>) -> Opti
         .with_current_mode(snapshot.current_mode.clone()),
         has_tools,
         has_running_tools,
-        wake,
+        wake: Box::pin(wake),
+        native_input_boundary: matches!(
+            snapshot.agent_type,
+            crate::models::AgentType::Codex | crate::models::AgentType::ClaudeCode
+        ),
     })
 }
 
@@ -172,7 +178,7 @@ impl WorkerTracking {
         &mut self,
         context: &WorkerContext<'_>,
         item: AgentInputItem,
-        snapshot: WorkerSnapshot,
+        mut snapshot: WorkerSnapshot,
     ) {
         self.reset(&item.id, snapshot.turn_generation);
         if snapshot.native_background_blocks_input {
@@ -186,6 +192,21 @@ impl WorkerTracking {
                 context.recover_stale_dispatch(&item).await;
             }
             return;
+        }
+        if item.payload.delivery != super::InputDelivery::Smart {
+            use super::input_boundary::BoundaryResult;
+            match self.boundary.wait(context, &mut snapshot, false).await {
+                BoundaryResult::Changed => return,
+                BoundaryResult::Failed(error) => {
+                    context.fail_waiting_input(&item, error).await;
+                    return;
+                }
+                BoundaryResult::Ready | BoundaryResult::Unsupported => {}
+            }
+            if snapshot.turn_in_flight {
+                snapshot.wake.await;
+                return;
+            }
         }
         if snapshot.turn_in_flight {
             // A native ACP wrapper may explicitly report `promptRequired`:
@@ -217,23 +238,51 @@ impl WorkerTracking {
         &mut self,
         context: &WorkerContext<'_>,
         items: Vec<AgentInputItem>,
-        snapshot: WorkerSnapshot,
+        mut snapshot: WorkerSnapshot,
     ) {
         let Some(batch_id) = items.first().and_then(|item| item.force_batch_id.clone()) else {
             return;
         };
         self.reset(&batch_id, snapshot.turn_generation);
-        let capabilities = &snapshot.capabilities;
         let had_tools = snapshot.has_tools || self.tool_for.as_deref() == Some(batch_id.as_str());
         if snapshot.native_background_blocks_input {
             snapshot.wake.await;
             return;
         }
+        let first = &items[0];
+        let explicit = first.strategy == Some(super::AgentInputStrategy::SafeForceNext);
+        let same_turn = first.connection_id.as_deref() == Some(context.conn_id)
+            && first.target_turn_generation == Some(snapshot.turn_generation);
+        if explicit && first.status != AgentInputStatus::Dispatching {
+            use super::input_boundary::BoundaryResult;
+            let interrupt = same_turn && snapshot.turn_in_flight;
+            match self.boundary.wait(context, &mut snapshot, interrupt).await {
+                BoundaryResult::Changed => return,
+                BoundaryResult::Failed(error) => {
+                    super::agent_input_worker_force::fail_force_batch(
+                        context,
+                        &batch_id,
+                        error.to_string(),
+                    )
+                    .await;
+                    return;
+                }
+                BoundaryResult::Ready if snapshot.turn_in_flight => {
+                    snapshot.wake.await;
+                    return;
+                }
+                BoundaryResult::Unsupported | BoundaryResult::Ready => {}
+            }
+        }
         if snapshot.turn_in_flight {
-            if snapshot.has_running_tools {
+            if explicit && (!same_turn || first.status == AgentInputStatus::Dispatching) {
+                snapshot.wake.await;
+                return;
+            }
+            if !explicit && snapshot.has_running_tools {
                 self.tool_for = Some(batch_id);
             } else if self.cancel_requested_for.as_deref() != Some(batch_id.as_str())
-                && (!had_tools || capabilities.supports_post_tool_cancel())
+                && (explicit || !had_tools || snapshot.capabilities.supports_post_tool_cancel())
             {
                 match context
                     .manager
@@ -268,6 +317,7 @@ impl WorkerTracking {
     }
 
     fn clear(&mut self) {
+        self.boundary.reset_receipt();
         self.tool_for = None;
         self.cancel_requested_for = None;
     }

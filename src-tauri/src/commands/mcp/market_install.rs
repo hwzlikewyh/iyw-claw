@@ -34,7 +34,7 @@ pub(super) async fn install(
     let cli_auth = bind_cli(conn, option, (&mut values, id)).await?;
     progress::begin_commit()?;
     let mut spec = bind_spec(option, values)?;
-    spec["iyw_market"] = json!({"id":id,"name":doc.name,"description":doc.description,"version":doc.latest_version,"option":option.id,"agents":option.agents,"auth_mode":option.auth_mode});
+    spec["iyw_market"] = json!({"id":id,"name":doc.name,"description":doc.description,"icon_url":doc.icon_url,"version":doc.latest_version,"option":option.id,"agents":option.agents,"auth_mode":option.auth_mode});
     if let Some(auth) = cli_auth { spec["iyw_market"]["cli_auth"] = auth; }
     Ok(spec)
 }

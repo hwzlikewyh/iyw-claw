@@ -2615,7 +2615,10 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
       if (part.pluginContext) {
         return (
           <div key={`plugin-context-${keyId}`} className="mb-1">
-            <PluginContextBadge label={part.pluginContext.label} />
+            <PluginContextBadge
+              label={part.pluginContext.label}
+              slug={part.pluginContext.pluginSlug}
+            />
           </div>
         )
       }

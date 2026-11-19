@@ -11,8 +11,14 @@ export function insertPluginReferences(
   }
 ) {
   const existing = new Set<string>()
+  let hasPluginSource = false
   editor.state.doc.descendants((node) => {
     if (node.type.name === "reference" && node.attrs.refType === "skill") {
+      if (
+        node.attrs.meta?.composerSource?.kind === "plugin" &&
+        node.attrs.meta.composerSource.slug === input.plugin.slug
+      )
+        hasPluginSource = true
       existing.add(String(node.attrs.id))
     }
   })
@@ -26,12 +32,16 @@ export function insertPluginReferences(
         { ...skill, name: input.plugin.label },
         input.prefix
       )
+      reference.meta = {
+        ...reference.meta,
+        composerSource: { kind: "plugin", slug: input.plugin.slug },
+      }
       if (hasExistingPluginReference || index > 0) {
         reference.meta = { ...reference.meta, hiddenFromDisplay: true }
       }
       return reference
     })
-  if (!references.length && input.plugin.skills.length) return
+  if (!references.length && hasPluginSource) return
   const { $from } = editor.state.selection
   const charBefore =
     $from.parentOffset > 0
@@ -47,8 +57,22 @@ export function insertPluginReferences(
   for (const reference of references) {
     chain = chain.insertReference(reference).insertContent(" ")
   }
-  if (!input.plugin.skills.length) {
-    chain = chain.insertContent({ type: "text", text: input.instruction })
+  if (!references.length) {
+    chain = chain
+      .insertReference({
+        refType: "skill",
+        id: input.plugin.slug,
+        label: input.plugin.label,
+        uri: null,
+        meta: {
+          composerSource: {
+            kind: "plugin",
+            slug: input.plugin.slug,
+            instruction: input.instruction,
+          },
+        },
+      })
+      .insertContent(" ")
   }
   chain.run()
 }

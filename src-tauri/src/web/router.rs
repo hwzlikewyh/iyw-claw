@@ -417,6 +417,11 @@ pub fn build_router(
             post(handlers::agent_input::list_agent_inputs),
         )
         .route(
+            "/revise_agent_input",
+            post(handlers::agent_input::revise_agent_input)
+                .layer(DefaultBodyLimit::max(INLINE_IMAGE_PROMPT_MAX_BODY_BYTES)),
+        )
+        .route(
             "/delete_agent_input",
             post(handlers::agent_input::delete_agent_input),
         )

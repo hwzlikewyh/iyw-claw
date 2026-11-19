@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { PackageCheck } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,7 @@ import {
   InstallSuccess,
 } from "@/components/skills/market/install-panel-parts"
 import type { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
+import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { installErrorAction } from "@/lib/skill-market"
 import type { AgentType } from "@/lib/types"
 
@@ -50,7 +51,6 @@ export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
 
 function useInstallPanelState(props: SkillMarketInstallPanelProps) {
   const { session, start, retry, reset } = props.controller
-  const [selected, setSelected] = useState<Set<AgentType>>(new Set())
   const onInstalledRef = useRef(props.onInstalled)
   const notifiedRef = useRef(false)
 
@@ -74,7 +74,6 @@ function useInstallPanelState(props: SkillMarketInstallPanelProps) {
     : null
   const close = useCallback(() => {
     reset()
-    setSelected(new Set())
     props.onClose()
   }, [props, reset])
   const openConnectors = useCallback(() => {
@@ -84,10 +83,15 @@ function useInstallPanelState(props: SkillMarketInstallPanelProps) {
 
   return {
     session,
-    selected,
     errorAction,
-    setSelected,
-    start: () => void start([...selected]),
+    start: (agentTypes: AgentType[]) => {
+      console.info("[SkillMarketInstallPanel] Installing for detected agents", {
+        skillId: session.plan?.targetSkillId,
+        version: session.plan?.targetVersion,
+        agentTypes,
+      })
+      void start(agentTypes)
+    },
     retry,
     close,
     openConnectors,
@@ -119,9 +123,7 @@ function InstallPanelDialog({
         <InstallPanelHeader target={target} />
         <InstallPanelBody
           session={panel.session}
-          selected={panel.selected}
           errorAction={panel.errorAction}
-          onSelectedChange={panel.setSelected}
           onStart={panel.start}
           onRetry={panel.retry}
           onClose={panel.close}
@@ -157,10 +159,8 @@ function InstallPanelHeader({
 
 interface InstallPanelBodyProps {
   session: InstallSession
-  selected: Set<AgentType>
   errorAction: InstallAction
-  onSelectedChange: (next: Set<AgentType>) => void
-  onStart: () => void
+  onStart: (agentTypes: AgentType[]) => void
   onRetry: () => void
   onClose: () => void
   onOpenConnectors: () => void
@@ -189,10 +189,8 @@ function InstallPanelBody(props: InstallPanelBodyProps) {
     return (
       <InstallConfirmation
         plan={session.plan}
-        selected={props.selected}
         includesConnectors={includesConnectors}
         requiresAgentTargets={requiresAgentTargets}
-        onSelectedChange={props.onSelectedChange}
         onStart={props.onStart}
       />
     )
@@ -217,28 +215,31 @@ function InstallPanelBody(props: InstallPanelBodyProps) {
   return null
 }
 
-function InstallConfirmation({
-  plan,
-  selected,
-  includesConnectors,
-  requiresAgentTargets,
-  onSelectedChange,
-  onStart,
-}: {
+interface InstallConfirmationProps {
   plan: NonNullable<ReturnType<typeof useSkillMarketInstall>["session"]["plan"]>
-  selected: Set<AgentType>
   includesConnectors: boolean
   requiresAgentTargets: boolean
-  onSelectedChange: (next: Set<AgentType>) => void
-  onStart: () => void
-}) {
+  onStart: (agentTypes: AgentType[]) => void
+}
+
+function InstallConfirmation({
+  plan,
+  includesConnectors,
+  requiresAgentTargets,
+  onStart,
+}: InstallConfirmationProps) {
   const t = useTranslations("SkillMarketV2")
+  const { agents, fresh } = useAcpAgents()
+  const targets =
+    fresh && requiresAgentTargets
+      ? agents.filter((agent) => agent.enabled && agent.installed_version)
+      : []
   return (
     <div className="space-y-4 p-4">
       <InstallPlanMetrics
         totalBytes={plan.totalBytes}
         dependencyCount={plan.dependencyCount}
-        targetCount={selected.size}
+        targetCount={targets.length}
       />
       {includesConnectors ? (
         <p className="border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
@@ -246,42 +247,35 @@ function InstallConfirmation({
         </p>
       ) : null}
       {requiresAgentTargets ? (
-        <AgentTargets selected={selected} onChange={onSelectedChange} />
+        <AgentTargets count={targets.length} fresh={fresh} />
       ) : null}
       <InstallConfirmationActions
-        selectedCount={selected.size}
+        targetCount={targets.length}
         includesConnectors={includesConnectors}
         requiresAgentTargets={requiresAgentTargets}
-        onStart={onStart}
+        onStart={() => onStart(targets.map((agent) => agent.agent_type))}
       />
     </div>
   )
 }
 
 function InstallConfirmationActions({
-  selectedCount,
+  targetCount,
   includesConnectors,
   requiresAgentTargets,
   onStart,
 }: {
-  selectedCount: number
+  targetCount: number
   includesConnectors: boolean
   requiresAgentTargets: boolean
   onStart: () => void
 }) {
   const t = useTranslations("SkillMarketV2")
   return (
-    <div className="flex items-center justify-between gap-3">
-      {requiresAgentTargets ? (
-        <p className="text-[10px] text-muted-foreground">
-          {t("install.profileRule")}
-        </p>
-      ) : (
-        <span />
-      )}
+    <div className="flex justify-end">
       <Button
         size="sm"
-        disabled={requiresAgentTargets && selectedCount === 0}
+        disabled={requiresAgentTargets && targetCount === 0}
         onClick={onStart}
       >
         {t(

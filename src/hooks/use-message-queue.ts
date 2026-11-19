@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useRef, useState } from "react"
-import type { PromptDraft } from "@/lib/types"
+import type { InputDelivery, PromptDraft } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 
 export interface QueuedMessage {
@@ -9,6 +9,7 @@ export interface QueuedMessage {
   draft: PromptDraft
   modeId: string | null
   delivery: "prompt" | "agent_input"
+  inputDelivery?: InputDelivery
   /** A failed host preflight remains editable but is not auto-flushed again
    * until the user edits or reorders it. */
   blocked?: boolean
@@ -25,10 +26,13 @@ export interface UseMessageQueueReturn {
     modeId: string | null,
     options?: EnqueueOptions
   ) => void
+  moveToFront: (id: string) => boolean
+  contains: (id: string) => boolean
   enqueueAgentInput: (
     id: string,
     draft: PromptDraft,
-    modeId: string | null
+    modeId: string | null,
+    inputDelivery?: InputDelivery
   ) => void
   /**
    * Put a draft back at the FRONT of the queue. Used when an auto-flushed item
@@ -91,13 +95,35 @@ export function useMessageQueue(): UseMessageQueueReturn {
   )
 
   const enqueueAgentInput = useCallback(
-    (id: string, draft: PromptDraft, modeId: string | null) => {
+    (
+      id: string,
+      draft: PromptDraft,
+      modeId: string | null,
+      inputDelivery?: InputDelivery
+    ) => {
       commit([
         ...queueRef.current,
-        { id, draft, modeId, delivery: "agent_input" },
+        { id, draft, modeId, delivery: "agent_input", inputDelivery },
       ])
     },
     [commit]
+  )
+
+  const moveToFront = useCallback(
+    (id: string) => {
+      const current = queueRef.current
+      const index = current.findIndex((item) => item.id === id)
+      if (index < 0 || current[index].blocked || editingItemId === id)
+        return false
+      if (index === 0) return true
+      commit([
+        current[index],
+        ...current.slice(0, index),
+        ...current.slice(index + 1),
+      ])
+      return true
+    },
+    [commit, editingItemId]
   )
 
   const requeueFront = useCallback(
@@ -173,6 +199,10 @@ export function useMessageQueue(): UseMessageQueueReturn {
   )
 
   const getQueueLength = useCallback(() => queueRef.current.length, [])
+  const contains = useCallback(
+    (id: string) => queueRef.current.some((item) => item.id === id),
+    []
+  )
 
   const startEditing = useCallback((id: string) => {
     setEditingItemId(id)
@@ -185,6 +215,8 @@ export function useMessageQueue(): UseMessageQueueReturn {
   return {
     queue,
     enqueue,
+    moveToFront,
+    contains,
     enqueueAgentInput,
     requeueFront,
     requeueItemFront,

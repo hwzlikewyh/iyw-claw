@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Link2, Loader2, Search, Settings2 } from "lucide-react"
+import { ComposerSourceIcon } from "./composer-source-chip"
+import { useConnectorIcons } from "./use-connector-icons"
 import { useTranslations } from "next-intl"
 import { useTabStore } from "@/contexts/tab-context"
 import {
@@ -39,6 +41,7 @@ export function ConversationConnectorMenu({
     (state) => state.tabs.find((tab) => tab.id === tabId)?.agentType ?? null
   )
   const [open, setOpen] = useState(false)
+  const icons = useConnectorIcons(open)
   const [query, setQuery] = useState("")
   const [data, setData] = useState<ConversationConnectors | null>(null)
   const [busy, setBusy] = useState(false)
@@ -204,6 +207,8 @@ export function ConversationConnectorMenu({
             <DropdownMenuCheckboxItem
               key={item.id}
               className="gap-3 pr-3 [&_[data-slot=dropdown-menu-checkbox-item-indicator]]:hidden"
+              title={item.name}
+              textValue={item.name}
               checked={data!.selected.includes(item.id)}
               disabled={
                 busy || (!item.compatible && !data!.selected.includes(item.id))
@@ -211,7 +216,11 @@ export function ConversationConnectorMenu({
               onSelect={(event) => event.preventDefault()}
               onCheckedChange={(enabled) => toggle(item.id, enabled)}
             >
-              <Link2 className="size-4 shrink-0 text-muted-foreground" />
+              <ComposerSourceIcon
+                kind="connector"
+                label={item.name}
+                src={icons.get(item.id)}
+              />
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">
                   {item.name}

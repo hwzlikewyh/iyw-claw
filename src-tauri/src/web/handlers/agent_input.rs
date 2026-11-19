@@ -101,6 +101,32 @@ pub async fn delete_agent_input(
     Ok(Json(item))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviseAgentInputParams {
+    #[serde(flatten)]
+    target: MutateAgentInputParams,
+    change: crate::acp::AgentInputChange,
+}
+
+pub async fn revise_agent_input(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ReviseAgentInputParams>,
+) -> Result<Json<AgentInputItem>, AppCommandError> {
+    let target = params.target;
+    crate::commands::agent_input_edit::revise_agent_input_core(
+        &state.db,
+        &state.connection_manager,
+        &target.connection_id,
+        target.conversation_id,
+        &target.message_id,
+        params.change,
+    )
+    .await
+    .map(Json)
+    .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))
+}
+
 pub async fn retry_agent_input(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<MutateAgentInputParams>,

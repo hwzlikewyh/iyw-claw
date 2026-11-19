@@ -24,15 +24,26 @@ pub(crate) async fn recover_connection(
     let Some((state, emitter)) = manager.get_state_and_emitter(connection_id).await else {
         return Ok(());
     };
+    let lock = manager
+        .agent_input_runtime
+        .dispatch_lock(connection_id)
+        .await;
+    let _guard = lock.lock().await;
     let (turn_in_flight, turn_generation) = {
         let snapshot = state.read().await;
-        (snapshot.turn_in_flight, snapshot.turn_generation)
+        (
+            snapshot.turn_in_flight || snapshot.turn_completion_pending,
+            snapshot.turn_generation,
+        )
     };
     let items = agent_input_outbox_service::list_recoverable(db, conversation_id).await?;
     for item in &items {
+        let same_turn = turn_in_flight
+            && item.connection_id.as_deref() == Some(connection_id)
+            && item.target_turn_generation == Some(turn_generation);
         if let Some(batch_id) = item.force_batch_id.as_deref() {
             let uncertain = item.status == AgentInputStatus::Dispatching;
-            if uncertain {
+            if uncertain && !same_turn {
                 let batch = agent_input_outbox_service::list_force_batch(db, batch_id).await?;
                 agent_input_outbox_service::fail_force_batch(
                     db,
@@ -46,22 +57,22 @@ pub(crate) async fn recover_connection(
                 continue;
             }
         }
-        if item.status == AgentInputStatus::Dispatching
-            && (!turn_in_flight || item.target_turn_generation != Some(turn_generation))
-        {
-            let uncertain_native = item.strategy == Some(AgentInputStrategy::NativeSteer);
+        if item.status == AgentInputStatus::Dispatching && !same_turn {
+            let uncertain_delivery = item.strategy == Some(AgentInputStrategy::NativeSteer)
+                || (item.strategy == Some(AgentInputStrategy::DeferredNext)
+                    && item.connection_id.as_deref() != Some(connection_id));
             let changed = agent_input_outbox_service::transition_status(
                 db,
                 &item.id,
                 AgentInputStatus::Dispatching,
-                if uncertain_native {
+                if uncertain_delivery {
                     AgentInputStatus::Failed
                 } else {
                     AgentInputStatus::FallbackQueued
                 },
                 Some(
-                    if uncertain_native {
-                        "native_steer_result_unknown_after_connection_restart"
+                    if uncertain_delivery {
+                        "dispatch_result_unknown_after_connection_restart"
                     } else {
                         "dispatch_claim_recovered_after_connection_restart"
                     }

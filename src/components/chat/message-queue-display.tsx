@@ -2,7 +2,7 @@
 
 import { useCallback, type PointerEvent } from "react"
 import { Reorder, useDragControls } from "motion/react"
-import { GripVertical, Pencil, RotateCcw, X } from "lucide-react"
+import { ArrowUp, GripVertical, Pencil, RotateCcw, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
 import type { QueuedMessage } from "@/hooks/use-message-queue"
@@ -13,6 +13,7 @@ interface MessageQueueDisplayProps {
   onEdit: (id: string) => void
   onDelete: (id: string) => void
   onRetry: (id: string) => void
+  onSendNow?: (id: string) => void
   editingItemId: string | null
 }
 
@@ -23,6 +24,7 @@ interface QueueItemProps {
   onEdit: (id: string) => void
   onDelete: (id: string) => void
   onRetry: (id: string) => void
+  onSendNow?: (id: string) => void
 }
 
 function QueueItem({
@@ -32,6 +34,7 @@ function QueueItem({
   onEdit,
   onDelete,
   onRetry,
+  onSendNow,
 }: QueueItemProps) {
   const t = useTranslations("Folder.chat.messageQueue")
   const dragControls = useDragControls()
@@ -70,6 +73,18 @@ function QueueItem({
       <span className="min-w-0 flex-1 truncate text-[10px] text-foreground/80">
         {item.draft.displayText}
       </span>
+      {onSendNow ? (
+        <button
+          type="button"
+          disabled={item.blocked}
+          onClick={() => onSendNow(item.id)}
+          className="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40"
+          title={t("sendNow")}
+        >
+          <ArrowUp className="h-3 w-3" />
+          {t("sendNow")}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => onEdit(item.id)}
@@ -107,6 +122,7 @@ export function MessageQueueDisplay({
   onEdit,
   onDelete,
   onRetry,
+  onSendNow,
   editingItemId,
 }: MessageQueueDisplayProps) {
   if (queue.length === 0) return null
@@ -129,6 +145,7 @@ export function MessageQueueDisplay({
             onEdit={onEdit}
             onDelete={onDelete}
             onRetry={onRetry}
+            onSendNow={onSendNow}
           />
         ))}
       </Reorder.Group>

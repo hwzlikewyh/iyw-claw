@@ -21,6 +21,25 @@ export interface ConversationConnectors {
   migrated: string[]
 }
 
+const CONNECTORS_CHANGED = "iyw-claw:conversation-connectors-changed"
+
+export function onConversationConnectorsChanged(
+  conversationId: number,
+  listener: (data: ConversationConnectors) => void
+) {
+  const handle = (event: Event) => {
+    const update = (
+      event as CustomEvent<{
+        conversationId: number
+        data: ConversationConnectors
+      }>
+    ).detail
+    if (update?.conversationId === conversationId) listener(update.data)
+  }
+  window.addEventListener(CONNECTORS_CHANGED, handle)
+  return () => window.removeEventListener(CONNECTORS_CHANGED, handle)
+}
+
 export function getConversationConnectors(
   conversationId: number | null,
   agentType: AgentType | null
@@ -67,12 +86,23 @@ export async function prepareConnectorConversation(
   }
 }
 
-export function setConversationConnectors(input: {
+export async function setConversationConnectors(input: {
   conversationId: number
   revision: number
   selected: string[]
 }) {
-  return getTransport().call<ConversationConnectors>("mcp_conversation_set", {
-    input,
-  })
+  const transport = getTransport()
+  const data = await transport.call<ConversationConnectors>(
+    "mcp_conversation_set",
+    {
+      input,
+    }
+  )
+  if (typeof window !== "undefined" && transport === getTransport())
+    window.dispatchEvent(
+      new CustomEvent(CONNECTORS_CHANGED, {
+        detail: { conversationId: input.conversationId, data },
+      })
+    )
+  return data
 }

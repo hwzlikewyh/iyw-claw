@@ -54,7 +54,7 @@ impl ConnectionManager {
         Ok(items)
     }
 
-    async fn target(
+    pub(super) async fn target(
         &self,
         conn_id: &str,
         conversation_id: i32,

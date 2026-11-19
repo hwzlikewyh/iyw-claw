@@ -374,6 +374,33 @@ export async function deleteAgentInput(
   })
 }
 
+export async function reviseAgentInput(
+  connectionId: string,
+  conversationId: number,
+  messageId: string,
+  change:
+    | { action: "send_now" }
+    | { action: "edit"; payload: AgentInputPayload }
+): Promise<AgentInputItem> {
+  const payload =
+    change.action === "edit"
+      ? {
+          ...change,
+          payload: {
+            ...change.payload,
+            blocks: normalizeAgentInputBlocks(change.payload.blocks),
+          },
+        }
+      : change
+  const transport = await prepareUiInput(conversationId)
+  return transport.call("revise_agent_input", {
+    connectionId,
+    conversationId,
+    messageId,
+    change: payload,
+  })
+}
+
 export async function retryAgentInput(
   connectionId: string,
   conversationId: number,

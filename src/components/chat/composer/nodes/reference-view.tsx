@@ -39,6 +39,7 @@ export function ReferenceView({
     <NodeViewWrapper
       as="span"
       className={task ? "iyw-claw-task-reference" : "iyw-claw-reference"}
+      data-composer-source-node={attrs.meta?.composerSource ? "" : undefined}
       contentEditable={false}
       aria-hidden={task || undefined}
     >

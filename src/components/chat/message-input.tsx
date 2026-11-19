@@ -3,7 +3,10 @@
 import { useAccountChatRequestsBlocked } from "@/components/account/use-account-request-guard"
 import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
+import { ConversationConnectorComposerChips } from "@/components/chat/conversation-connector-composer-chips"
 import { ConversationPluginMenu } from "@/components/chat/conversation-plugins"
+import { getInstalledMarketInfo } from "@/lib/skill-market"
+import { ComposerSkillIcon } from "./composer-skill-icon"
 import { ConversationSkillMenu } from "@/components/chat/conversation-skills"
 import { insertPluginReferences } from "@/components/chat/composer/plugin-reference"
 import type { ComposerPluginChoice } from "@/lib/composer-plugins"
@@ -65,6 +68,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -102,6 +107,10 @@ import {
   imageFilesFromClipboardApi,
 } from "@/lib/clipboard-images"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
+import {
+  isMessageQueueBehavior,
+  type MessageQueueBehavior,
+} from "@/hooks/use-message-queue-preference"
 import {
   quickMessagesList,
   prepareChatImagePath,
@@ -384,8 +393,11 @@ interface MessageInputProps {
   hasQueuedMessages?: boolean
   onEnqueue?: (
     draft: PromptDraft,
-    modeId: string | null
+    modeId: string | null,
+    behavior: MessageQueueBehavior
   ) => boolean | void | Promise<boolean>
+  queueBehavior?: MessageQueueBehavior
+  onQueueBehaviorChange?: (behavior: MessageQueueBehavior) => void
   /** Id of the queue item being edited — the stable key for (re)hydration, so
    *  switching between two items with identical display text still reloads. */
   editingItemId?: string | null
@@ -397,7 +409,7 @@ interface MessageInputProps {
    */
   editingDraftBlocks?: PromptInputBlock[] | null
   isEditingQueueItem?: boolean
-  onSaveQueueEdit?: (draft: PromptDraft) => void
+  onSaveQueueEdit?: (draft: PromptDraft) => void | Promise<boolean>
   onCancelQueueEdit?: () => void
   /** Fork the session and send `draft`. A synchronous false keeps the draft;
    *  accepted attempts clear immediately and the parent re-queues async failures. */
@@ -886,6 +898,8 @@ export function MessageInput({
   showActiveFlow = false,
   hasQueuedMessages = false,
   onEnqueue,
+  queueBehavior = "smart",
+  onQueueBehaviorChange,
   editingItemId,
   editingDraftText,
   editingDraftBlocks,
@@ -1004,7 +1018,8 @@ export function MessageInput({
   const [runningTask, setRunningTask] = useState<ReferenceAttrs | null>(null)
   // Flips true once the RichComposer's async (immediatelyRender:false) editor has
   // mounted, so the hydration effect can use the imperative handle.
-  const [composerReady, setComposerReady] = useState(false)
+  const [composerEditor, setComposerEditor] = useState<Editor | null>(null)
+  const composerReady = composerEditor !== null
   const [composerHydrated, setComposerHydrated] = useState(false)
   // `attachments` now holds only images; non-image files live inline as editor
   // reference badges. This map carries the real bytes-bearing block for each
@@ -1610,10 +1625,6 @@ export function MessageInput({
     scheduleDraftSave()
     detectSlashTriggerRef.current?.()
   }, [setAttachments, syncComposerEmpty, scheduleDraftSave])
-
-  const handleComposerReady = useCallback(() => {
-    setComposerReady(true)
-  }, [])
 
   const availableModes = useMemo(() => modes ?? [], [modes])
   const rawConfigOptions = useMemo(() => configOptions ?? [], [configOptions])
@@ -2739,6 +2750,14 @@ export function MessageInput({
         applyTaskReference(editor, reference)
         return
       }
+      reference.meta = {
+        ...reference.meta,
+        composerSource: {
+          kind: "skill",
+          slug: skill.id,
+          marketId: getInstalledMarketInfo(skill).marketId ?? undefined,
+        },
+      }
       const { $from } = editor.state.selection
       const charBefore =
         $from.parentOffset > 0
@@ -3777,8 +3796,27 @@ export function MessageInput({
 
     // Edit mode: save back to queue item
     if (isEditingQueueItem && onSaveQueueEdit) {
-      onSaveQueueEdit(draft)
-      resetComposer()
+      if (sendPendingRef.current) return
+      const version = composerMutationVersionRef.current
+      const saving = onSaveQueueEdit(draft)
+      if (saving instanceof Promise) {
+        sendPendingRef.current = true
+        setSendPending(true)
+        void saving
+          .then((accepted) => {
+            if (accepted && version === composerMutationVersionRef.current)
+              resetComposer()
+          })
+          .catch((error) =>
+            console.error("[MessageInput] queue edit failed", { error })
+          )
+          .finally(() => {
+            sendPendingRef.current = false
+            setSendPending(false)
+          })
+      } else {
+        resetComposer()
+      }
       return
     }
 
@@ -3786,7 +3824,11 @@ export function MessageInput({
     if (isPrompting) {
       if (!onEnqueue || sendPendingRef.current) return
       const snapshot = capturePendingSend(draft)
-      const result = onEnqueue(draft, showModeSelector ? effectiveModeId : null)
+      const result = onEnqueue(
+        draft,
+        showModeSelector ? effectiveModeId : null,
+        queueBehavior
+      )
       if (result === false) return
       resetComposer()
       if (result instanceof Promise) {
@@ -3874,6 +3916,7 @@ export function MessageInput({
     isPrompting,
     onSaveQueueEdit,
     onEnqueue,
+    queueBehavior,
     onSend,
     effectiveModeId,
     showModeSelector,
@@ -4279,6 +4322,7 @@ export function MessageInput({
     <div className="flex items-center gap-1">
       <Button
         onClick={onCancelQueueEdit}
+        disabled={sendPending}
         variant="ghost"
         size="icon"
         className="h-8 w-8"
@@ -4288,7 +4332,7 @@ export function MessageInput({
       </Button>
       <Button
         onClick={handleSend}
-        disabled={!hasSendableContent || hasUnstagedImage}
+        disabled={sendPending || !hasSendableContent || hasUnstagedImage}
         size="icon"
         className="h-8 w-8"
         title={tQueue("saveEdit")}
@@ -4310,16 +4354,41 @@ export function MessageInput({
       <Send className="size-4" />
     </Button>
   ) : isPrompting ? (
-    <Button
-      onClick={onCancel}
-      disabled={!onCancel}
-      size="icon"
-      className="iyw-claw-prompting-button iyw-claw-send-button h-8 w-8"
-      title={t("stopGeneration")}
-      aria-label={t("stopGeneration")}
-    >
-      <Square className="size-3.5 fill-current" />
-    </Button>
+    <div className="flex items-center gap-1">
+      {hasSendableContent && onEnqueue && (
+        <Button
+          onClick={handleSend}
+          size="icon"
+          className="iyw-claw-send-button h-8 w-8"
+          disabled={
+            sendDisabled ||
+            accountRequestsBlocked ||
+            sendPending ||
+            hasUnstagedImage ||
+            voice.status !== "idle"
+          }
+          title={tQueue(
+            queueBehavior === "queue"
+              ? "addToQueue"
+              : queueBehavior === "interrupt"
+                ? "interruptBehavior"
+                : "smartBehavior"
+          )}
+        >
+          <Send className="size-4" />
+        </Button>
+      )}
+      <Button
+        onClick={onCancel}
+        disabled={!onCancel}
+        size="icon"
+        className="iyw-claw-prompting-button iyw-claw-send-button h-8 w-8"
+        title={t("stopGeneration")}
+        aria-label={t("stopGeneration")}
+      >
+        <Square className="size-3.5 fill-current" />
+      </Button>
+    </div>
   ) : onForkSend ? (
     <div className="flex items-center">
       <Button
@@ -4448,9 +4517,18 @@ export function MessageInput({
                     handleSkillAutocompleteSelect(skill)
                   }}
                 >
-                  <BookOpenText className="mt-0.5 size-4 shrink-0 text-primary/80" />
+                  <ComposerSkillIcon
+                    id={skill.id}
+                    label={skill.name || skill.id}
+                    marketId={getInstalledMarketInfo(skill).marketId}
+                  />
                   <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className="shrink-0 font-medium">{skill.name}</span>
+                    <span
+                      className="max-w-32 truncate font-medium"
+                      title={skill.name}
+                    >
+                      {skill.name}
+                    </span>
                     <span
                       className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
                       title={skill.description ?? undefined}
@@ -4486,7 +4564,7 @@ export function MessageInput({
                 // blank areas (padding, the dead space below a short message, the
                 // action-bar gaps) so the whole input reads as clickable-to-type;
                 // interactive controls re-assert their own cursor (see globals.css).
-                "iyw-claw-composer-chrome @container relative flex flex-col rounded-xl border border-input bg-transparent transition-colors",
+                "iyw-claw-composer-chrome [&_[data-composer-source-node]]:hidden @container relative flex flex-col rounded-xl border border-input bg-transparent transition-colors",
                 // Keep the active-session ring subtle so the moving runner
                 // remains visible while the editor is focused.
                 isPrompting
@@ -4494,8 +4572,8 @@ export function MessageInput({
                     ? "bg-background focus-within:border-primary/30 focus-within:ring-[1px] focus-within:ring-inset focus-within:ring-primary/20"
                     : "focus-within:border-primary/30 focus-within:ring-[1px] focus-within:ring-primary/20"
                   : folderBranchPickerAttached
-                    ? "bg-background focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
-                    : "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+                    ? "bg-background focus-within:border-ring/65 focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/30"
+                    : "focus-within:border-ring/65 focus-within:ring-1 focus-within:ring-ring/30",
                 // Prompting uses the compositor-friendly runner. The tiled active
                 // flow is reserved for idle, focused-out composers; inactive
                 // tiles keep the plain border.
@@ -4509,11 +4587,17 @@ export function MessageInput({
               )}
             >
               <ComposerActivityBorder active={isPrompting} />
-              <PluginComposerChip tabId={attachmentTabId} />
-              <KnowledgeComposerChip
-                tabId={attachmentTabId}
-                onOpen={() => setKnowledgeOpen(true)}
-              />
+              <div className="flex max-h-20 min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto px-3 pt-2 pb-0.5 empty:hidden">
+                <PluginComposerChip
+                  tabId={attachmentTabId}
+                  editor={composerEditor}
+                />
+                <KnowledgeComposerChip
+                  tabId={attachmentTabId}
+                  onOpen={() => setKnowledgeOpen(true)}
+                />
+                <ConversationConnectorComposerChips tabId={attachmentTabId} />
+              </div>
               {visibleTask && (
                 <TaskModeRail
                   task={visibleTask}
@@ -4544,7 +4628,7 @@ export function MessageInput({
                 mentionUiLabels={mentionUiLabels}
                 tabLabels={referenceGroupLabels}
                 onChange={handleComposerChange}
-                onReady={handleComposerReady}
+                onReady={setComposerEditor}
                 onSubmit={handleSend}
                 onFocus={onFocus}
                 onPasteFiles={handlePasteFiles}
@@ -4631,6 +4715,31 @@ export function MessageInput({
                         <BookOpenText className="size-4" />
                         {t("cloudKnowledge")}
                       </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Cog className="size-4" />
+                          {tQueue("sendBehavior")}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="min-w-48">
+                          <DropdownMenuRadioGroup
+                            value={queueBehavior}
+                            onValueChange={(value) => {
+                              if (isMessageQueueBehavior(value))
+                                onQueueBehaviorChange?.(value)
+                            }}
+                          >
+                            <DropdownMenuRadioItem value="smart">
+                              {tQueue("smartBehavior")}
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="interrupt">
+                              {tQueue("interruptBehavior")}
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="queue">
+                              {tQueue("queueBehavior")}
+                            </DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                           <MessageSquareText className="size-4" />
