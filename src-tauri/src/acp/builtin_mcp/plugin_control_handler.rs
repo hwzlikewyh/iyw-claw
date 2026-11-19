@@ -76,7 +76,7 @@ impl BuiltinMcpHandler {
                 request_id,
                 request_cancel: request_cancel.clone(),
                 question_id: "plugin-install-approval",
-                header: "Install plugin",
+                header: "Install",
                 question: prompt,
                 approve_label: "Install",
             })
