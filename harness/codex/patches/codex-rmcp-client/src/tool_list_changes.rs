@@ -28,6 +28,7 @@ impl ToolListRevision {
 pub(crate) fn track_tool_list_changes<T, E, A>(
     transport: T,
     revision: Arc<AtomicU64>,
+    closed: tokio_util::sync::DropGuard,
 ) -> impl Transport<RoleClient, Error = E> + 'static
 where
     T: IntoTransport<RoleClient, E, A>,
@@ -36,10 +37,12 @@ where
     ToolListChanges {
         inner: transport.into_transport(),
         revision,
+        closed: Some(closed),
     }
 }
 
 struct ToolListChanges<T> {
+    closed: Option<tokio_util::sync::DropGuard>,
     inner: T,
     revision: Arc<AtomicU64>,
 }
@@ -55,7 +58,10 @@ impl<T: Transport<RoleClient> + 'static> Transport<RoleClient> for ToolListChang
     }
 
     async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
-        let message = self.inner.receive().await?;
+        let Some(message) = self.inner.receive().await else {
+            self.closed.take();
+            return None;
+        };
         if let JsonRpcMessage::Notification(notification) = &message
             && matches!(
                 notification.notification,
@@ -68,6 +74,7 @@ impl<T: Transport<RoleClient> + 'static> Transport<RoleClient> for ToolListChang
     }
 
     fn close(&mut self) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.closed.take();
         self.inner.close()
     }
 }

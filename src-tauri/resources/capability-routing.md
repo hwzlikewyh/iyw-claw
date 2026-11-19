@@ -5,6 +5,20 @@ required operation. The current account's capability overview and advertised
 definitions determine coverage; examples and platform lists are not exhaustive.
 A URL is an input to an operation, not an instruction to use generic web fetching.
 
+For ordinary image creation or editing, use the current host's `generate_iyw_image`.
+With no source image use `generate` (images/generations). With source images use
+`edit` (images/edits). These are alternatives selected by input. If the host
+defers tools, look up the exact tool name in the agent's tool registry first and
+use the returned namespace. A model list or a remote member with the same name
+is a separate tool. In a delegated task, report a missing host tool to the
+parent so it can use its own registered tool.
+
+Consider a platform image tool only after the applicable default route is
+confirmed unavailable or has definitively failed. Use an available compatible
+fallback first. Install a platform connector only if that fallback needs it.
+For an unknown submission, use the original service's status operation if one
+was returned. Otherwise retain its request ID for reconciliation and stop.
+
 Use a matching advertised dedicated tool with a complete schema, or reuse a
 current complete catalog definition. Otherwise, before generic web fetching,
 browser scraping, a local script or third-party CLI for external content or

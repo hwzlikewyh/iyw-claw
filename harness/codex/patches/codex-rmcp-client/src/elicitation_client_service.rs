@@ -58,6 +58,7 @@ struct OpenAiFormRequestParams {
 
 #[derive(Clone)]
 pub(crate) struct ElicitationClientService {
+    pub(crate) transport_closed: tokio_util::sync::CancellationToken,
     handler: LoggingClientHandler,
     supports_openai_form: bool,
     supports_openai_elicitation_form: bool,
@@ -111,6 +112,7 @@ impl ElicitationClientService {
         client_info: ClientConfig,
         send_elicitation: SendElicitation,
         pause_state: ElicitationPauseState,
+        transport_closed: tokio_util::sync::CancellationToken,
     ) -> Self {
         let supports_openai_form = client_info
             .capabilities
@@ -133,6 +135,7 @@ impl ElicitationClientService {
             .and_then(|settings| settings.get("userVerification"))
             .is_some_and(Value::is_object);
         Self {
+            transport_closed,
             handler: LoggingClientHandler::new(
                 client_info,
                 clone_send_elicitation(Arc::clone(&send_elicitation)),

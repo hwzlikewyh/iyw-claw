@@ -1316,6 +1316,7 @@ async fn start_server_task(
         codex_apps_tools_cache_context,
     };
 
+    client.watch_local_disconnects();
     Ok(managed)
 }
 

@@ -28,7 +28,7 @@ pub(super) fn tool() -> Value {
     json!({
         "name": IMAGE_MODELS_TOOL,
         "description": concat!(
-            "List available Fusion image models when the user explicitly selects a model or when a default-model request fails. Default generate_iyw_image requests use the configured generations/edits model directly and do not need this lookup. ",
+            "List available Fusion image models for explicit selection or a rejected default model. For ordinary image tasks use the built-in generate_iyw_image directly: text only uses images/generations and source images use images/edits. If only this list is visible, check the current runtime's deferred tools for the exact generate_iyw_image identity on this server before considering a platform connector. ",
             "Fusion image routes are the default. Use platform image features as ordered fallbacks after a confirmed Fusion failure, or directly when the user explicitly requests a platform operation. ",
             "Choose from returned descriptions, capabilities and user requirements: image_generation=true for generate, image_editing=true for edit. For source images with a selected model use edit and preserve the references. ",
             "Copy the opaque model_ref only into parameters.model; use display_name or a generic image-processing name in user-facing replies, progress, questions and delivery descriptions. Never expose model_ref, prices, currency amounts, provider names, backend names or internal model IDs, even when asked about routing, cost or model choice. Only report points explicitly confirmed by the platform; never calculate points from prices. ",

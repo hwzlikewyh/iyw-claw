@@ -1,8 +1,9 @@
 # 图片 MCP 的传输、并发与模型选择
 
-`generate_iyw_image` 优先使用适用的平台功能；复杂、多重视觉约束或需要更自由控制的任务
-使用图片模型。普通文生图可以使用 `micro-generate`，改款、系列延伸、多图融合分别使用
-`variation`、`extend`、`mix`。选择 Fusion 图片模型时，无图用 `generate`，有图用 `edit`。
+普通图片任务通过当前会话的内置 `generate_iyw_image` 执行。无参考图走
+`images/generations`，有参考图走 `images/edits`。仅在适用的默认入口确认不可用或明确失败后，
+才选择满足原始要求的平台备选，例如 `micro-generate`、`variation`、`extend` 或 `mix`。
+仅当备选需要额外连接器时才安装。提交结果未知时保留原请求编号供核查。
 
 ## 平台模型选择
 

@@ -4,9 +4,10 @@ use std::time::Duration;
 use rmcp::model::{ClientCapabilities, ClientInfo, Implementation, Tool};
 use rmcp::service::{Peer, QuitReason, RoleClient};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use rmcp::transport::streamable_http_client::StreamableHttpError;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::{ErrorData, ServiceExt};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -35,18 +36,22 @@ impl RemoteConnection {
     pub(super) async fn open(
         token: &str,
         cancel: &CancellationToken,
+        disconnected: Arc<Notify>,
     ) -> Result<Arc<Self>, ErrorData> {
         let lifetime = cancel.child_token();
         let guard = lifetime.clone().drop_guard();
-        let connection = tokio::time::timeout(CONNECT_TIMEOUT, Self::connect(token, lifetime))
-            .await
-            .map_err(|_| {
-                failure(
-                    "remote_initialize_timeout",
-                    "Remote MCP initialization timed out",
-                    false,
-                )
-            })??;
+        let connection = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            Self::connect(token, lifetime, disconnected),
+        )
+        .await
+        .map_err(|_| {
+            failure(
+                "remote_initialize_timeout",
+                "Remote MCP initialization timed out",
+                false,
+            )
+        })??;
         guard.disarm();
         tracing::info!(
             tool_count = connection.tools.len(),
@@ -55,7 +60,11 @@ impl RemoteConnection {
         Ok(Arc::new(connection))
     }
 
-    async fn connect(token: &str, cancellation: CancellationToken) -> Result<Self, ErrorData> {
+    async fn connect(
+        token: &str,
+        cancellation: CancellationToken,
+        disconnected: Arc<Notify>,
+    ) -> Result<Self, ErrorData> {
         let info = ClientInfo::new(
             ClientCapabilities::default(),
             Implementation::new("iyw-claw-gateway", env!("CARGO_PKG_VERSION")),
@@ -63,12 +72,26 @@ impl RemoteConnection {
         let service = info
             .serve_with_ct(transport(token)?, cancellation.clone())
             .await
-            .map_err(|_| {
-                failure(
+            .map_err(|error| match error {
+                rmcp::service::ClientInitializeError::ConnectionClosed(_) => failure(
+                    "remote_transport_initialize",
+                    "Remote MCP handshake lost its transport",
+                    false,
+                ),
+                rmcp::service::ClientInitializeError::TransportError { error, .. }
+                    if transient_transport(&error) =>
+                {
+                    failure(
+                        "remote_transport_initialize",
+                        "Remote MCP handshake lost its transport",
+                        false,
+                    )
+                }
+                _ => failure(
                     "remote_initialize_failed",
                     "Remote MCP initialization failed",
                     false,
-                )
+                ),
             })?;
         let tools = list_tools(&service).await?;
         let instructions = service
@@ -76,7 +99,13 @@ impl RemoteConnection {
             .and_then(|info| info.instructions.clone())
             .unwrap_or_default();
         let peer = service.peer().clone();
-        let task = tokio::spawn(service.waiting());
+        let closed = cancellation.clone();
+        let task = tokio::spawn(async move {
+            let result = service.waiting().await;
+            closed.cancel();
+            disconnected.notify_one();
+            result
+        });
         Ok(Self {
             peer,
             instructions,
@@ -182,4 +211,41 @@ fn validate_directory(tools: Vec<Tool>) -> Result<Vec<Tool>, ErrorData> {
         }
     }
     Ok(tools)
+}
+
+pub(super) fn retryable_connection_error(error: &ErrorData) -> bool {
+    matches!(
+        error.data.as_ref().and_then(|data| data["code"].as_str()),
+        Some(
+            "remote_transport_initialize"
+                | "remote_initialize_timeout"
+                | "remote_transport_failed"
+                | "remote_transport_closed"
+                | "MCP_TIMEOUT"
+        )
+    )
+}
+
+pub(super) fn transient_transport(error: &rmcp::transport::DynamicTransportError) -> bool {
+    match error
+        .error
+        .downcast_ref::<StreamableHttpError<reqwest_mcp::Error>>()
+    {
+        Some(StreamableHttpError::Client(error)) => {
+            error.is_connect()
+                || error.is_timeout()
+                || error.is_body()
+                || error
+                    .status()
+                    .is_some_and(|status| status.is_server_error())
+        }
+        Some(
+            StreamableHttpError::Io(_)
+            | StreamableHttpError::Sse(_)
+            | StreamableHttpError::UnexpectedEndOfStream
+            | StreamableHttpError::TransportChannelClosed
+            | StreamableHttpError::SessionExpired,
+        ) => true,
+        _ => false,
+    }
 }

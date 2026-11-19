@@ -6,7 +6,7 @@ use rmcp::ErrorData;
 use serde_json::Value;
 
 use super::connection::RemoteConnection;
-use super::{failure, RemoteAccount, RemoteContext};
+use super::{failure, RemoteAccount, RemoteContext, RemoteGateway};
 
 const DIRECTORY_TIMEOUT: Duration = Duration::from_secs(10);
 const INVOKE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -22,25 +22,45 @@ pub(super) struct RemoteRequest<'a> {
 }
 
 pub(super) async fn call(
+    gateway: &RemoteGateway,
     connection: &RemoteConnection,
     request: RemoteRequest<'_>,
 ) -> Result<CallToolResult, ErrorData> {
     let _permit = super::resources::admit(request.execution)?;
-    let result = match send(connection, &request).await {
-        Ok(handle) => receive(handle, &request).await,
+    let result = call_once(connection, &request).await;
+    if request.execution || !result.as_ref().is_err_and(is_transport_failure) {
+        return result;
+    }
+    let (account, next) = gateway.ready_for(request.context).await?;
+    if !std::ptr::eq(account.as_ref(), request.account) {
+        return Err(failure(
+            "remote_account_changed",
+            "Account changed during directory read",
+            false,
+        ));
+    }
+    call_once(&next, &request).await
+}
+
+async fn call_once(
+    connection: &RemoteConnection,
+    request: &RemoteRequest<'_>,
+) -> Result<CallToolResult, ErrorData> {
+    let result = match send(connection, request).await {
+        Ok(handle) => receive(handle, request).await,
         Err(error) => Err(error),
     };
-    if result
-        .as_ref()
-        .err()
-        .and_then(|error| error.data.as_ref())
-        .and_then(|data| data.get("code"))
-        .and_then(Value::as_str)
-        .is_some_and(|code| code.starts_with("remote_transport"))
-    {
+    if result.as_ref().is_err_and(is_transport_failure) {
         connection.stop();
     }
     result
+}
+
+fn is_transport_failure(error: &ErrorData) -> bool {
+    matches!(
+        error.data.as_ref().and_then(|data| data["code"].as_str()),
+        Some("remote_transport_failed" | "remote_transport_closed")
+    )
 }
 
 async fn send(
@@ -212,9 +232,21 @@ pub(super) fn service_error(error: ServiceError, execution: bool) -> ErrorData {
             "Remote MCP request cancelled",
             execution,
         ),
+        ServiceError::TransportClosed => failure(
+            "remote_transport_closed",
+            "Remote MCP connection closed",
+            execution,
+        ),
+        ServiceError::TransportSend(error) if super::connection::transient_transport(&error) => {
+            failure(
+                "remote_transport_failed",
+                "Remote MCP transport failed; no request was replayed",
+                execution,
+            )
+        }
         _ => failure(
-            "remote_transport_failed",
-            "Remote MCP transport failed; no request was replayed",
+            "remote_request_failed",
+            "Remote MCP request failed",
             execution,
         ),
     }

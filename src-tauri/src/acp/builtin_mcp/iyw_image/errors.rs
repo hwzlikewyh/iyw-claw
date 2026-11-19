@@ -67,7 +67,7 @@ fn upstream_details(input: &UpstreamFailure<'_>) -> Value {
         .as_str()
         .and_then(identifier)
         .unwrap_or_else(|| "upstream_status_error".into());
-    let message = ["message", "msg", "reason"]
+    let message = ["message", "msg", "reason", "detail"]
         .iter()
         .find_map(|key| error.get(*key).and_then(Value::as_str))
         .map(|value| safe_message(value, input.token));
@@ -127,6 +127,7 @@ fn can_retry(input: &UpstreamFailure<'_>, code: &str, stage: &str) -> bool {
     input.source == "fusion"
         && execution_status(input, code) != "unknown"
         && (matches!(input.status, 429 | 503)
+            || (input.status == 404 && input.payload == &json!({"detail": "Not Found"}))
             || matches!(stage, "output_download" | "output_persist")
             || matches!(
                 code,
@@ -138,7 +139,17 @@ fn execution_status(input: &UpstreamFailure<'_>, code: &str) -> &'static str {
     if input.source == "catalog" {
         return "not_started";
     }
-    if input.source != "fusion" || matches!(code, "upstream_failed" | "upstream_wait_canceled") {
+    if input.source != "fusion"
+        || matches!(
+            code,
+            "upstream_failed"
+                | "upstream_wait_canceled"
+                | "EXECUTION_UNKNOWN"
+                | "cloud_gateway_timeout"
+                | "cloud_gateway_transport"
+                | "local_gateway_unavailable"
+        )
+    {
         return "unknown";
     }
     "failed"

@@ -20,8 +20,8 @@ use codex_protocol::protocol::WarningEvent;
 use tokio::time::Instant;
 use tracing::warn;
 
-const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
-const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
+const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(10);
+const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(120);
 const MANAGED_GATEWAY_PROVIDER: &str = "iyw-claw";
 pub(crate) const MANAGED_GATEWAY_MAX_RETRIES: u64 = 3;
 
@@ -69,19 +69,36 @@ pub(crate) enum ResponsesStreamRequest {
     RemoteCompactionV2,
 }
 
+#[derive(Default)]
 pub(crate) struct ResponsesStreamRetryState {
     retries: u64,
     connection_retries: u64,
-    connection_retry_delay: Duration,
 }
 
-impl Default for ResponsesStreamRetryState {
-    fn default() -> Self {
-        Self {
-            retries: 0,
-            connection_retries: 0,
-            connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
-        }
+fn connection_backoff(attempt: u64) -> Duration {
+    codex_client::backoff(
+        INITIAL_CONNECTION_RETRY_DELAY,
+        attempt.clamp(1, u64::from(u32::MAX)),
+    )
+    .min(MAX_CONNECTION_RETRY_DELAY)
+}
+
+pub(crate) fn model_retry_delay(err: &CodexErr, attempt: u64) -> Option<Duration> {
+    let delay = err.retry_delay(attempt)?;
+    if err.retry_after().is_some() {
+        return Some(delay);
+    }
+    match err.details() {
+        CodexErrorDetails::ConnectionFailed(_)
+        | CodexErrorDetails::ResponseStreamFailed(_)
+        | CodexErrorDetails::Stream(_)
+        | CodexErrorDetails::UnexpectedStatus(_)
+        | CodexErrorDetails::RateLimitExceeded(_)
+        | CodexErrorDetails::InternalServerError
+        | CodexErrorDetails::Io(_)
+        | CodexErrorDetails::RequestTimeout
+        | CodexErrorDetails::Timeout => Some(connection_backoff(attempt)),
+        _ => Some(delay),
     }
 }
 
@@ -164,7 +181,7 @@ pub(crate) async fn handle_response_stream_error(
     } else {
         retry_count
     };
-    let Some(delay) = err.retry_delay(delay_attempt) else {
+    let Some(delay) = model_retry_delay(&err, delay_attempt) else {
         return Err(err);
     };
     let retry_after = err.retry_after();
@@ -179,7 +196,9 @@ pub(crate) async fn handle_response_stream_error(
         && !turn_context.session_source.is_internal()
         && !turn_context.provider.info().is_amazon_bedrock()
     {
-        let retry_delay = retry_state.connection_retry_delay;
+        let retry_delay = err.server_retry_delay().unwrap_or_else(|| {
+            connection_backoff(retry_state.connection_retries.saturating_add(1))
+        });
         warn!(
             turn_id = %turn_context.sub_id,
             error = %err,
@@ -191,9 +210,6 @@ pub(crate) async fn handle_response_stream_error(
         retry_state.connection_retries = retry_state.connection_retries.saturating_add(1);
         codex_client::record_retry!(retry_state.connection_retries, retry_delay, operation);
         tokio::time::sleep(retry_delay).await;
-        retry_state.connection_retry_delay = retry_delay
-            .saturating_mul(2)
-            .min(MAX_CONNECTION_RETRY_DELAY);
         return Ok(());
     }
 
