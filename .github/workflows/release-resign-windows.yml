@@ -82,6 +82,7 @@ jobs:
     timeout-minutes: 60
     concurrency:
       group: windows-signing-${{ github.repository }}
+      queue: max
       cancel-in-progress: false
     env:
       TAURI_TARGET_TRIPLE: x86_64-pc-windows-msvc
