@@ -1,28 +1,6 @@
 "use client"
 
-/**
- * Collapsed chip for the inline-start conversation overlays (the message
- * navigator, the plan panel, and the sub-agent panel).
- *
- * Rests as a dimmed bullet — a flat start-side edge with a rounded end-side (a
- * "bullet" pointing toward where it expands: right in LTR, mirrored in RTL),
- * flush to the inline-start edge; minimal and unobtrusive so it doesn't crowd
- * the message area, and brightens to full opacity on hover/focus. Built from
- * logical properties (`rounded-s/e`, `pe`, an `rtl:`-flipped chevron) so it
- * mirrors cleanly under `dir="rtl"`. The summary is `display:none` at rest, so
- * the resting button is only the responsive icon cap (flat start-side, round
- * end-side, no way for text to leak); on hover or keyboard focus it switches
- * to `flex` and reveals the full pill (summary + chevron). Clicking it expands
- * the owning overlay. Shared so every chip in the stack stays pixel identical.
- *
- * `summary` is the visible text AND the button's accessible name (`aria-label`),
- * so what a screen reader / voice-control user gets matches what a sighted user
- * reads on hover (WCAG 2.5.3); `aria-expanded` conveys the collapsed disclosure
- * state. A 1px border traces the top, bottom, and rounded end — the flush
- * start edge stays open; keyboard focus adds an inset `ring`. The icon cap is
- * 28px on compact viewports and 32px from `sm` upward, giving these edge
- * controls a clearer target without crowding narrow conversations.
- */
+/** 入口图标固定在所属边缘，悬停或键盘聚焦时向会话内侧展开名称。 */
 
 import type { ReactNode } from "react"
 import { ChevronRightIcon } from "lucide-react"
@@ -37,24 +15,32 @@ interface CollapsedOverlayChipProps {
   summary: string
   /** Expands the owning overlay into its full card. */
   onClick: () => void
+  edge?: "start" | "end"
+  disabled?: boolean
 }
 
 export function CollapsedOverlayChip({
   icon,
   summary,
   onClick,
+  edge = "start",
+  disabled,
 }: CollapsedOverlayChipProps) {
   return (
-    <div className="pointer-events-none flex">
+    <div className="pointer-events-none flex max-w-full shrink-0">
       <button
         type="button"
         aria-label={summary}
         aria-expanded={false}
+        disabled={disabled}
         onClick={onClick}
         className={cn(
-          "group/chip pointer-events-auto flex max-w-[min(22rem,calc(100vw-2rem))] items-center rounded-s-none rounded-e-full border-y border-e",
-          "bg-secondary/70 text-secondary-foreground opacity-60 shadow-md transition-[background-color,opacity] duration-150 hover:bg-secondary hover:opacity-100 focus-visible:opacity-100",
-          "cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
+          "group/chip pointer-events-auto flex min-w-0 max-w-[min(22rem,calc(100vw-2rem))] items-center border-y",
+          edge === "end"
+            ? "flex-row-reverse rounded-s-full border-s"
+            : "rounded-e-full border-e opacity-60",
+          "bg-secondary/70 text-secondary-foreground shadow-md transition-[background-color,opacity] duration-150 hover:bg-secondary hover:opacity-100 focus-visible:opacity-100",
+          "cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 disabled:cursor-default disabled:opacity-50"
         )}
       >
         {/* Fixed icon cap — the whole resting chip is just this bullet cap. */}
@@ -62,9 +48,19 @@ export function CollapsedOverlayChip({
           {icon}
         </span>
         {/* Summary: hidden at rest (no width), revealed on hover/focus. */}
-        <span className="hidden min-w-0 items-center gap-1 pe-3 text-sm font-medium group-hover/chip:flex group-focus-visible/chip:flex">
+        <span
+          className={cn(
+            "hidden min-w-0 items-center gap-1 text-sm font-medium group-hover/chip:flex group-focus-visible/chip:flex",
+            edge === "end" ? "flex-row-reverse ps-3" : "pe-3"
+          )}
+        >
           <span className="truncate">{summary}</span>
-          <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground",
+              edge === "end" ? "ltr:-scale-x-100" : "rtl:-scale-x-100"
+            )}
+          />
         </span>
       </button>
     </div>

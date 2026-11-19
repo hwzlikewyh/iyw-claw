@@ -247,7 +247,13 @@ function resolvePanelSizeRange(
   return { minSize, maxSize }
 }
 
-function WorkspaceContent({ children }: { children: React.ReactNode }) {
+function WorkspaceContent({
+  children,
+  railSlotRef,
+}: {
+  children: React.ReactNode
+  railSlotRef: RefCallback<HTMLDivElement>
+}) {
   const { mode, filesMaximized } = useWorkspaceView()
   const { isOpen: browserOpen } = useBrowser()
   const { isOpen: pageOpen } = useInteractivePage()
@@ -328,6 +334,13 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   )
 
   const { isConversations } = useWorkbenchRoute()
+  const railInConversation = isConversations && !filesOverlay
+  const railSlot = (
+    <div
+      ref={railSlotRef}
+      className="pointer-events-none absolute inset-0 z-40"
+    />
+  )
   const fileWorkspaceVisible =
     isConversations &&
     !pageOpen &&
@@ -354,7 +367,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
           >
             <section
               className={cn(
-                "flex h-full min-h-0 flex-col overflow-hidden",
+                "relative flex h-full min-h-0 flex-col overflow-hidden",
                 !pageOpen &&
                   !browserOpen &&
                   mode === "conversation" &&
@@ -368,6 +381,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
               <div className="relative flex-1 min-h-0 overflow-hidden">
                 {children}
               </div>
+              {railInConversation && railSlot}
             </section>
           </ResizablePanel>
           <ResizableHandle
@@ -425,6 +439,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
           <WorkbenchRoutePage />
         </div>
       ) : null}
+      {!railInConversation && railSlot}
     </div>
   )
 }
@@ -530,9 +545,11 @@ function MobileFolderWorkspaceShell({
 function FolderWorkspaceShell({
   children,
   auxSlotRef,
+  railSlotRef,
 }: {
   children: React.ReactNode
   auxSlotRef: RefCallback<HTMLDivElement>
+  railSlotRef: RefCallback<HTMLDivElement>
 }) {
   const { zoomLevel } = useZoomLevel()
   const {
@@ -968,7 +985,9 @@ function FolderWorkspaceShell({
                 defaultSize={workspaceDefaultSize}
                 minSize={15}
               >
-                <WorkspaceContent>{children}</WorkspaceContent>
+                <WorkspaceContent railSlotRef={railSlotRef}>
+                  {children}
+                </WorkspaceContent>
               </ResizablePanel>
 
               <ResizableHandle
@@ -1035,12 +1054,12 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
       {isMobile ? (
         <MobileFolderWorkspaceShell>{children}</MobileFolderWorkspaceShell>
       ) : (
-        <div className="flex min-h-0 min-w-0 flex-1">
-          <FolderWorkspaceShell auxSlotRef={setAuxSlot}>
-            {children}
-          </FolderWorkspaceShell>
-          <div ref={setAuxRailSlot} className="shrink-0" />
-        </div>
+        <FolderWorkspaceShell
+          auxSlotRef={setAuxSlot}
+          railSlotRef={setAuxRailSlot}
+        >
+          {children}
+        </FolderWorkspaceShell>
       )}
       <MobileAuxPanel
         mobile={isMobile}
