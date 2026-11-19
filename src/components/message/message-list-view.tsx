@@ -80,6 +80,7 @@ import type { GatewayModel } from "@/lib/gateway-model-parser"
 import { copyTextToClipboard } from "@/lib/utils"
 import { isModelConfigOption } from "@/lib/model-config-groups"
 import { VirtualizedMessageThread } from "@/components/message/virtualized-message-thread"
+import { ConversationHistoryControls } from "./conversation-history-controls"
 import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
 import { SubAgentDelegationsPopover } from "@/components/message/sub-agent-delegations-popover"
 import {
@@ -195,10 +196,6 @@ type ThreadRenderItem =
       key: string
       kind: "typing"
       sourceId: string
-    }
-  | {
-      key: string
-      kind: "history"
     }
 
 // Module-scope so the reference is stable across renders — lets the memoized
@@ -761,8 +758,8 @@ export function MessageListView({
   }, [conversationId])
   const animationEnabled = animationScope === conversationId && isActive
   const liveMessage = session?.liveMessage ?? null
-  const hasEarlierHistory = (session?.detail?.history_start ?? 0) > 0
-  const { loadEarlierHistory } = useConversationRuntimeActions()
+  const historyStart = session?.detail?.history_start
+  const { loadEarlierHistory, refetchDetail } = useConversationRuntimeActions()
   const timelineTurns = useConversationRuntimeStore((s) =>
     selectTimelineTurns(s, conversationId)
   )
@@ -951,9 +948,6 @@ export function MessageListView({
       })
     }
 
-    if (hasEarlierHistory || (detailError && items.length > 0)) {
-      items.unshift({ key: "load-earlier-history", kind: "history" })
-    }
     return { threadItems: items }
   }, [
     adapterText,
@@ -963,8 +957,6 @@ export function MessageListView({
     turnAdapter,
     groupCache,
     assistantGroupCache,
-    hasEarlierHistory,
-    detailError,
     persistedSessionId,
   ])
 
@@ -1064,35 +1056,6 @@ export function MessageListView({
               />
             </MessageEntrance>
           )
-        case "history":
-          return (
-            <div className="flex flex-col items-center gap-2">
-              {hasEarlierHistory && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={detailLoading}
-                  aria-busy={detailLoading}
-                  onClick={() => loadEarlierHistory(conversationId)}
-                >
-                  {detailLoading ? (
-                    <Loader2 className="me-1.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ChevronDown className="me-1.5 h-4 w-4 rotate-180" />
-                  )}
-                  {t("loadEarlier")}
-                </Button>
-              )}
-              {detailError && (
-                <p
-                  role="alert"
-                  className="text-sm text-destructive break-words"
-                >
-                  {detailError}
-                </p>
-              )}
-            </div>
-          )
         default:
           return null
       }
@@ -1106,20 +1069,15 @@ export function MessageListView({
       animationEnabled,
       conversationId,
       resolvedArtifactConversationId,
-      detailLoading,
-      detailError,
-      hasEarlierHistory,
       enableUserMemoryActions,
       conversationDisplayMode,
       collapseCompletedTurn,
       autoOpenErrors,
       lastAssistantItem?.key,
-      loadEarlierHistory,
       modelOptions,
       gatewayModels,
       session?.detail?.summary.model,
       sessionActions,
-      t,
     ]
   )
 
@@ -1293,6 +1251,22 @@ export function MessageListView({
       persistedConversationId={resolvedArtifactConversationId}
     >
       <BackgroundTaskStatusScope turns={timelineTurns}>
+        <ConversationHistoryControls
+          key={conversationId}
+          historyStart={historyStart}
+          canReload={
+            (resolvedArtifactConversationId ?? 0) > 0 && hasRenderableContent
+          }
+          loading={session?.detailLoading ?? false}
+          error={detailError}
+          onReload={() =>
+            refetchDetail(conversationId, {
+              preserveLive: connStatus === "prompting",
+            })
+          }
+          onLoadEarlier={() => loadEarlierHistory(conversationId)}
+          scrollApiRef={scrollApiRef}
+        />
         <MessageThread
           className="flex-1 min-h-0 @container/message-thread"
           resize={shouldUseSmoothResize ? "smooth" : undefined}
@@ -1300,7 +1274,7 @@ export function MessageListView({
           <AutoScrollOnSend signal={sendSignal} />
           <VirtualizedMessageThread
             items={threadItems}
-            historyStart={session?.detail?.history_start}
+            historyStart={historyStart}
             getItemKey={getThreadItemKey}
             renderItem={renderThreadItem}
             emptyState={emptyState}

@@ -122,7 +122,8 @@ function useInstallStart({
   return useCallback(
     async (agentTypes: AgentType[]) => {
       const plan = planRef.current
-      if (!plan || agentTypes.length === 0) return
+      // 纯面板插件不需要 Agent 安装目标，后端会按清单返回空目标列表。
+      if (!plan) return
       setSession((current) => ({
         ...current,
         status: "running",
