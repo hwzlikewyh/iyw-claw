@@ -257,10 +257,9 @@ jobs:
           sparse-checkout: |
             .github/scripts/release
             src-tauri/scripts
-      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Reuse pinned signing toolchain
         if: ${{ !contains(inputs.target, '-win7-') }}
-        with:
-          targets: ${{ inputs.target }}
+        run: ./.release-tools/.github/scripts/release/ensure-signing-toolchain.ps1
       - name: Prepare Win7 signing toolchain
         if: contains(inputs.target, '-win7-')
         run: |
