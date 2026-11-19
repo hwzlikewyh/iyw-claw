@@ -6,13 +6,8 @@ import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useBrowser } from "@/contexts/browser-context"
 import { useInteractivePage } from "@/contexts/interactive-page-context"
-import { Button } from "@/components/ui/button"
+import { CollapsedOverlayChip } from "@/components/chat/collapsed-overlay-chip"
 import { isPluginPanelVisibleForConversation } from "@/lib/plugin-panel"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { PluginIcon } from "./plugin-icon"
 import { usePluginPresentation } from "./plugin-presentation"
 import type { PluginPanelTab, usePluginPanels } from "./use-plugin-panels"
@@ -34,27 +29,25 @@ export function CollapsedPluginRail({
   )
   if (!slot || isOpen || !restored || !tabs.length) return null
   return createPortal(
-    <div className="pointer-events-none flex h-full min-h-0 w-9 flex-col pb-3 pt-24">
-      <nav
-        aria-label={t("openedApps")}
-        className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain"
-      >
-        {tabs.map((tab) => (
-          <PluginRailButton
-            key={tab.id}
-            tab={tab}
-            moving={panels.detachingId === tab.id}
-            open={() => {
-              closePanel()
-              void closeBrowser()
-              route.openConversations()
-              setActiveTab(`app:${tab.id}`)
-              setOpen(true)
-            }}
-          />
-        ))}
-      </nav>
-    </div>,
+    <nav
+      aria-label={t("openedApps")}
+      className="pointer-events-none absolute end-2 top-24 bottom-3 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2 overflow-y-auto overscroll-contain ps-2 pb-2 [scrollbar-width:none] lg:end-8 [&::-webkit-scrollbar]:hidden"
+    >
+      {tabs.map((tab) => (
+        <PluginRailButton
+          key={tab.id}
+          tab={tab}
+          moving={panels.detachingId === tab.id}
+          open={() => {
+            closePanel()
+            void closeBrowser()
+            route.openConversations()
+            setActiveTab(`app:${tab.id}`)
+            setOpen(true)
+          }}
+        />
+      ))}
+    </nav>,
     slot
   )
 }
@@ -71,22 +64,14 @@ function PluginRailButton({
   const t = useTranslations("PluginPanels")
   const name = usePluginPresentation().get(tab.pluginSlug)?.label || tab.label
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="pointer-events-auto size-7 shrink-0 rounded-md"
-          aria-label={t("openNamed", { name })}
-          disabled={moving}
-          onClick={open}
-        >
-          <PluginIcon slug={tab.pluginSlug} label={name} />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="left" sideOffset={6}>
-        {name}
-      </TooltipContent>
-    </Tooltip>
+    <CollapsedOverlayChip
+      edge="end"
+      icon={
+        <PluginIcon slug={tab.pluginSlug} label={name} className="size-6" />
+      }
+      summary={t("openNamed", { name })}
+      disabled={moving}
+      onClick={open}
+    />
   )
 }
