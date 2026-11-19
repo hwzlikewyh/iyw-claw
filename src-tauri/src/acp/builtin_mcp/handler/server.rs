@@ -68,6 +68,11 @@ impl ServerHandler for BuiltinMcpHandler {
                     _ => true,
                 })
                 .collect::<Vec<_>>();
+            if authority.agent_type() == crate::models::AgentType::ClaudeCode {
+                for tool in &mut tools {
+                    adapt_claude_input_schema(tool);
+                }
+            }
             tools.extend(direct_tools);
             ensure_active(&authority, &context.ct)?;
             let names = tools
@@ -97,6 +102,22 @@ impl ServerHandler for BuiltinMcpHandler {
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, ErrorData>> + MaybeSendFuture + '_ {
         self.call(request, context)
+    }
+}
+
+fn adapt_claude_input_schema(tool: &mut rmcp::model::Tool) {
+    let schema = &tool.input_schema;
+    if schema.get("type").and_then(serde_json::Value::as_str) != Some("object")
+        || !schema.contains_key("oneOf")
+        || ["if", "then", "else"].iter().any(|key| schema.contains_key(*key))
+    {
+        return;
+    }
+    // 远山会从目录中移除顶层 oneOf。根类型已经限定为 object，条件分支保持同一组互斥约束。
+    let schema = std::sync::Arc::make_mut(&mut tool.input_schema);
+    if let Some(variants) = schema.remove("oneOf") {
+        schema.insert("if".into(), serde_json::json!({"type": "object"}));
+        schema.insert("then".into(), serde_json::json!({"oneOf": variants}));
     }
 }
 
