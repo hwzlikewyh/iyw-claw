@@ -122,9 +122,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: dtolnay/rust-toolchain@1.99.1
-        with:
-          targets: x86_64-pc-windows-msvc
+      - name: Reuse pinned signing toolchain
+        shell: pwsh
+        run: ./.release-tools/.github/scripts/release/ensure-signing-toolchain.ps1
       - name: Prepare existing bundle inputs
         shell: pwsh
         run: |
