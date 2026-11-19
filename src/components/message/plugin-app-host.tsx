@@ -27,10 +27,6 @@ export type PluginAppHostProps = {
 }
 
 const FAILURE_DETAIL_LIMIT = 1200
-const shown = new WeakMap<
-  Window,
-  { message: string; timer: ReturnType<typeof setTimeout> | undefined }
->()
 
 export function PluginAppHost(props: PluginAppHostProps) {
   const iframe = useRef<HTMLIFrameElement>(null)
@@ -108,12 +104,9 @@ export function PluginAppHost(props: PluginAppHostProps) {
   )
 }
 
-// 面板运行在 sandbox 内，异常不会冒泡到宿主；这里读取代理文档记录的第一条失败原因，
-// 让用户可直接看到模块加载/CSP 这类具体错误，而不是笼统的“不可用”。
+// 面板运行在 sandbox 内，异常不会冒泡到宿主；代理文档把失败原因转发到本窗口消息里。
 function readFailure(scope: Window | null | undefined): string | null {
   if (!scope) return null
-  const entry = shown.get(scope)
-  if (entry) return entry.message
   try {
     const report = (
       scope as Window & {
@@ -121,10 +114,7 @@ function readFailure(scope: Window | null | undefined): string | null {
       }
     ).__iywPluginAppFailure?.()
     const message = report?.trim()
-    if (!message) return null
-    const value = { message: message.slice(0, FAILURE_DETAIL_LIMIT), timer: undefined }
-    shown.set(scope, value)
-    return value.message
+    return message ? message.slice(0, FAILURE_DETAIL_LIMIT) : null
   } catch {
     return null
   }
