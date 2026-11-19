@@ -35,7 +35,10 @@ import {
   type AgentRuntimeErrorMessages,
 } from "@/lib/agent-runtime-error"
 import { normalizeToolResultError } from "@/lib/memory-policy-error"
-import { extractDeliveredImage } from "@/lib/image-delivery"
+import {
+  extractDeliveredImage,
+  isImageGenerationToolName,
+} from "@/lib/image-delivery"
 import { resolveRemoteToolDisplayNames } from "@/lib/remote-tool-display"
 import { parsePluginPromptInstruction } from "@/lib/plugin-prompt"
 import {
@@ -1163,10 +1166,6 @@ function deriveImageNameFromImageData(img: {
   return `image.${ext}`
 }
 
-function isImageGenerationToolName(toolName: string): boolean {
-  return /generate[_-]iyw[_-]image$/i.test(toolName.trim())
-}
-
 function imageNameFromUri(uri: string): string {
   try {
     const value = decodeURIComponent(
@@ -1343,6 +1342,10 @@ export function dropFailedToolParts<T extends AdaptedContentPart>(
 ): T[] {
   return parts.filter((part) => {
     if (part.type !== "tool-call" && part.type !== "tool-result") return true
+    // 图片工具的业务错误需要在会话正文提示，包括重新打开的历史会话。
+    if (part.type === "tool-call" && isImageGenerationToolName(part.toolName)) {
+      return true
+    }
     return !(
       part.state === "output-error" ||
       (part.state === "output-available" && Boolean(part.errorText?.trim()))

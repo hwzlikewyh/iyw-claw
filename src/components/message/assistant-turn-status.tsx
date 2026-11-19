@@ -2,10 +2,18 @@
 
 import { AlertCircle, CheckCircle2 } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useMemo } from "react"
 
 import { AgentIcon } from "@/components/agent-icon"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import type { AgentType } from "@/lib/types"
+import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
+import { isImageGenerationToolName } from "@/lib/image-delivery"
+import {
+  imageGenerationErrors,
+  type ImageErrorLabel,
+} from "@/lib/image-generation-errors"
+import { flattenAssistantParts } from "./assistant-turn-timeline"
 
 export function AssistantIdentity({ agentType }: { agentType: AgentType }) {
   const t = useTranslations("Folder.chat.messageList")
@@ -52,6 +60,57 @@ export function CompletedProcessSummary({
         </span>
       )}
     </span>
+  )
+}
+
+function partImageErrors(part: AdaptedContentPart): ImageErrorLabel[] {
+  if (
+    part.type === "generated-image" &&
+    isImageGenerationToolName(part.sourceToolName ?? "")
+  ) {
+    if (part.status === "pending" || part.status === "in_progress") return []
+    const failed = part.status === "failed"
+    return imageGenerationErrors(
+      part.sourceToolOutput ?? (failed ? part.revisedPrompt : null),
+      failed
+    )
+  }
+  if (
+    part.type === "tool-call" &&
+    isImageGenerationToolName(part.toolName) &&
+    part.state.startsWith("output-")
+  ) {
+    return imageGenerationErrors(
+      part.errorText ?? part.output,
+      part.state === "output-error"
+    )
+  }
+  return []
+}
+
+export function ImageGenerationNotices({
+  parts,
+}: {
+  parts: AdaptedContentPart[]
+}) {
+  const t = useTranslations("Folder.chat.messageList")
+  const labels = useMemo(
+    () => [...new Set(flattenAssistantParts(parts).flatMap(partImageErrors))],
+    [parts]
+  )
+  if (!labels.length) return null
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-1.5 text-sm text-destructive"
+    >
+      <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <div>
+        {labels.map((label) => (
+          <p key={label}>{t(label)}</p>
+        ))}
+      </div>
+    </div>
   )
 }
 

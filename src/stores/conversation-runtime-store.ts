@@ -37,7 +37,10 @@ import { collapseLiveCollabBlocks } from "@/lib/collab-collapse"
 import { kimiTodoWriteEntries } from "@/lib/plan-parse"
 import { toErrorMessage } from "@/lib/app-error"
 import { parseDisplayImageMetadata } from "@/lib/display-image-metadata"
-import { extractDeliveredImage } from "@/lib/image-delivery"
+import {
+  extractDeliveredImage,
+  isImageGenerationToolName,
+} from "@/lib/image-delivery"
 import {
   computeTurnMetadataPatches,
   resolveForkMessageId,
@@ -508,7 +511,7 @@ function isImageGenerationToolCall(
   },
   toolName: string
 ): boolean {
-  if (toolName === "generate_iyw_image") return true
+  if (isImageGenerationToolName(toolName)) return true
   const title = (info.title ?? "").trim()
   if (title === "Image generation") return true
   if (title.toLowerCase() === "image generation") return true
@@ -559,10 +562,6 @@ function extractRevisedPrompt(content: string | null): string | null {
   // frames in future codex-acp versions). Better to surface something to the
   // user than silently drop it.
   return trimmed
-}
-
-function isImageGenerationToolName(toolName: string): boolean {
-  return /generate[_-]iyw[_-]image$/i.test(toolName.trim())
 }
 
 /** First filesystem path from an ACP tool call's `locations` (`[{ path }]`), or null. */
@@ -936,6 +935,11 @@ export function buildStreamingTurnsFromLiveMessage(
           // image bytes arrived. Without this the in-flight skeleton would
           // sit there until TurnComplete clears `active_tool_calls`.
           const status = narrowToolCallStatus(block.info.status)
+          const toolOutput =
+            isImageGenerationToolName(toolName) &&
+            (status === "completed" || status === "failed")
+              ? resolvedOutput
+              : null
           if (imgs.length === 0) {
             // In-flight placeholder: title arrived, image hasn't (or the
             // call failed without producing one).
@@ -951,7 +955,7 @@ export function buildStreamingTurnsFromLiveMessage(
                 : null,
               status,
               tool_name: toolName,
-              tool_output: deliveredImage ? resolvedOutput : null,
+              tool_output: toolOutput,
             })
           } else {
             for (const img of imgs) {
@@ -973,7 +977,7 @@ export function buildStreamingTurnsFromLiveMessage(
                     },
                 status,
                 tool_name: toolName,
-                tool_output: deliveredImage ? resolvedOutput : null,
+                tool_output: toolOutput,
               })
             }
           }

@@ -16,6 +16,8 @@ export interface AgentRuntimeErrorMessages {
 const RUNTIME_ERROR_URL_RE =
   /(?:^|[,;]|\s)\s*(?:url|uri|endpoint)\s*:\s*https?:\/\/[^\s<>"'`]+|\bhttps?:\/\/[^\s<>"'`]+/gi
 
+export const SPACE_QUOTA_MESSAGE = "配额不足，请联系空间管理员"
+
 const UPSTREAM_BILLING_ERROR_RE =
   /insufficient[ _-]+(?:balance|quota|credit|funds)|(?:balance|quota|credit)[ _-]+(?:insufficient|exhausted)|credit balance (?:is )?too low|payment[ _-]+required|billing[ _-]+(?:hard[ _-]+limit|not[ _-]+active)|余额不足|额度不足|配额不足|剩余额度|欠费/i
 
@@ -28,6 +30,7 @@ function isUpstreamBillingError(message: string): boolean {
 
 /** 隐藏上游欠费详情，并移除其他诊断中的传输地址。 */
 export function sanitizeAgentRuntimeErrorDetails(message: string): string {
+  if (message.includes(SPACE_QUOTA_MESSAGE)) return SPACE_QUOTA_MESSAGE
   if (isUpstreamBillingError(message)) return ""
   return maskAgentSdkBrandText(message.replace(RUNTIME_ERROR_URL_RE, ""))
 }
@@ -176,6 +179,7 @@ export function classifyAgentRuntimeError(
 ): AgentRuntimeErrorKind | null {
   const normalized = message.trim()
   if (!normalized || !looksLikeRuntimeError(normalized)) return null
+  if (normalized.includes(SPACE_QUOTA_MESSAGE)) return "quotaExceeded"
   if (
     isUpstreamBillingError(normalized) ||
     /upstream_service_unavailable|service unavailable, please try again later/i.test(
@@ -214,5 +218,8 @@ export function formatAgentRuntimeError(
   messages: AgentRuntimeErrorMessages
 ): string | null {
   const kind = classifyAgentRuntimeError(message)
+  if (kind === "quotaExceeded" && message.includes(SPACE_QUOTA_MESSAGE)) {
+    return SPACE_QUOTA_MESSAGE
+  }
   return kind ? messages[kind] : null
 }
