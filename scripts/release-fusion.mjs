@@ -110,8 +110,7 @@ async function artifactInputs(context, release, directory) {
     const matches = release.assets.filter((asset) =>
       asset.name.endsWith(ending)
     )
-    // 历史发布仍可同步；新发布由 Windows 签名任务生成 Win7 专用向导记录。
-    if (!matches.length && target === "windows7" && packageKind === "bootstrapper")
+    if (!matches.length && target === "windows7")
       continue
     if (matches.length !== 1)
       throw new Error(`signed release asset missing or ambiguous: ${ending}`)
