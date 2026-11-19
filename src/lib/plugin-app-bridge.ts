@@ -248,7 +248,7 @@ export function buildPluginAppProxyDocument(
   const wasm =
     resourceMeta?.csp?.wasmUnsafeEval === true ? "'wasm-unsafe-eval'" : ""
   // 面板以 srcdoc 注入后文档 origin 为 opaque。WASM 编辑器把启动模块封装成 blob: URL 再动态 import，属于“外部”连接，必须在 connect-src 中显式放行；仅放行 blob:，不放开网络域。
-  const policy = `default-src 'none'; style-src 'unsafe-inline' ${resources}; script-src 'unsafe-inline' ${wasm} ${resources}; img-src data: blob: ${resources}; font-src data: ${resources}; media-src data: blob: ${resources}; connect-src ${sources(resourceMeta?.csp?.connectDomains) || "'none'"}; frame-src data: blob: ${sources(resourceMeta?.csp?.frameDomains)}; object-src 'none'; base-uri 'self' ${sources(resourceMeta?.csp?.baseUriDomains)};`
+  const policy = `default-src 'none'; style-src 'unsafe-inline' ${resources}; script-src 'unsafe-inline' ${wasm} ${resources}; img-src data: blob: ${resources}; font-src data: ${resources}; media-src data: blob: ${resources}; connect-src blob: ${sources(resourceMeta?.csp?.connectDomains) || "'none'"}; frame-src data: blob: ${sources(resourceMeta?.csp?.frameDomains)}; object-src 'none'; base-uri 'self' ${sources(resourceMeta?.csp?.baseUriDomains)};`
   return String.raw`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><style>html,body{height:100%;margin:0;overflow:hidden}</style><script>
 const MAX=${MAX_MESSAGE_BYTES};
 const RESOURCE_MAX=8*1024*1024;
@@ -287,7 +287,7 @@ function loadFrame(html,meta){
   const remoteResources=resources.filter(value=>value!=="data:"&&value!=="blob:");
   const wasm=csp.wasmUnsafeEval===true?"'wasm-unsafe-eval'":"";
   // 编辑器面板会 import(blob:) 启动 WASM 模块；opaque origin 下同样按连接校验。
-  const policy=["default-src 'none'","script-src 'unsafe-inline' "+wasm+" "+resources.join(" "),"style-src 'unsafe-inline' "+remoteResources.join(" "),"img-src data: blob: "+remoteResources.join(" "),"font-src data: "+resources.join(" "),"media-src data: blob: "+remoteResources.join(" "),"connect-src "+sources("'none'",connect),"frame-src "+sources("'none'",frames),"object-src 'none'","base-uri 'self' "+base.join(" ")].join(";");
+  const policy=["default-src 'none'","script-src 'unsafe-inline' "+wasm+" "+resources.join(" "),"style-src 'unsafe-inline' "+remoteResources.join(" "),"img-src data: blob: "+remoteResources.join(" "),"font-src data: "+resources.join(" "),"media-src data: blob: "+remoteResources.join(" "),"connect-src blob: "+sources("'none'",connect),"frame-src "+sources("'none'",frames),"object-src 'none'","base-uri 'self' "+base.join(" ")].join(";");
   frame.srcdoc='<meta http-equiv="Content-Security-Policy" content="'+policy+'">'+html;
   document.body.style.margin="0";
   document.body.appendChild(frame);
