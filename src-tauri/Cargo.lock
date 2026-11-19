@@ -10291,7 +10291,7 @@ checksum = "4754a1731458af0443709c9667302793d3f63cc90ec4ba4c8259f2b9515478e5"
 
 [[package]]
 name = "iyw-claw"
-version = "0.1.355"
+version = "0.1.356"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm",
