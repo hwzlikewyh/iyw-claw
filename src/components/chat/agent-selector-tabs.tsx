@@ -15,13 +15,17 @@ export function AgentSelectorTabs({
   disabled: boolean
   onSelect: (agentType: AgentType) => void
 }) {
+  const orderedAgents = [
+    ...agents.filter((agent) => agent.agent_type === "codex"),
+    ...agents.filter((agent) => agent.agent_type !== "codex"),
+  ]
   return (
     <div
       data-slot="agent-selector"
       className="flex min-w-0 max-w-full overflow-x-auto"
     >
       <div className="inline-flex h-8 items-center rounded-lg bg-[#f8fafc] p-0.5 dark:bg-muted">
-        {agents.map((agent) => (
+        {orderedAgents.map((agent) => (
           <button
             key={agent.agent_type}
             type="button"
