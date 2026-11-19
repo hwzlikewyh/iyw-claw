@@ -15,7 +15,10 @@ import {
   hasActiveProcess,
   type AssistantTimelineSection,
 } from "./assistant-turn-timeline"
-import { ImageArtifactRegistrationNotice } from "./assistant-turn-status"
+import {
+  ImageArtifactRegistrationNotice,
+  ImageGenerationNotices,
+} from "./assistant-turn-status"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import type { AgentType } from "@/lib/types"
@@ -86,6 +89,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
         isResponseComplete={complete}
         sections={sections}
       />
+      <ImageGenerationNotices parts={props.parts} />
       {issue && <ImageArtifactRegistrationNotice state={issue} />}
       {props.isLatest && (
         <AssistantMonitorStatus

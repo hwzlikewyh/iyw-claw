@@ -3,6 +3,10 @@ export interface DeliveredImage {
   mimeType: string
 }
 
+export function isImageGenerationToolName(toolName: string): boolean {
+  return /generate[_-]iyw[_-]image$/i.test(toolName.trim())
+}
+
 export type ImageArtifactRegistrationState =
   | "none"
   | "succeeded"
