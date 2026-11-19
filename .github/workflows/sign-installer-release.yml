@@ -129,11 +129,22 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $packageRoot 'SHA256SUMS.txt'), (($sumLines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
           Get-Content (Join-Path $packageRoot 'SHA256SUMS.txt')
 
+      - name: Sign installer for automatic updates
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw 'Updater signing key is missing' }
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'installer/packages/YuanAssistant-Setup-windows.exe'
+          npx --yes '@tauri-apps/cli@2.11.4' signer sign $exe
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath "$exe.sig")) { throw 'Installer updater signing failed' }
+
       - name: Upload signed release assets
         shell: pwsh
         working-directory: installer
         run: |
-          gh release upload "$env:INSTALLER_TAG" packages/YuanAssistant-Setup-windows.exe packages/YuanAssistant-Setup-windows.zip packages/SHA256SUMS.txt --repo hwzlikewyh/iyw-claw-installer --clobber
+          gh release upload "$env:INSTALLER_TAG" packages/YuanAssistant-Setup-windows.exe packages/YuanAssistant-Setup-windows.exe.sig packages/YuanAssistant-Setup-windows.zip packages/SHA256SUMS.txt --repo hwzlikewyh/iyw-claw-installer --clobber
 
       - name: Upload signed build artifact
         uses: actions/upload-artifact@v4
