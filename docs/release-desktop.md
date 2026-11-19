@@ -106,6 +106,7 @@ NSIS smoke 卸载使用 `_?=<已验证临时安装目录>` 原地运行，等待
 
 Linux 与 Win7 某一架构失败时，可分别使用 `Repair Linux Release`、
 `Repair Windows 7 Release`，传入原草稿的版本、源码提交、Release ID 与前端 run ID。
+原生 Linux ARM64 链接使用 LLD，处理大体积程序中的 `R_AARCH64_CALL26` 跳转范围扩展。
 原 run 保留失败记录，其它架构继续完成。全部补建成功后，`Verify Final Desktop Release`
 的 `repair_run_ids` 接受逗号分隔的补建 run ID，并核对补建工作流、目标、签名结果和
 日志中的相同源码/草稿身份。最终发布同时要求 Linux 双架构；开启 Win7 发布时还要求
