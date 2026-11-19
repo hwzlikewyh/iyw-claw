@@ -2103,8 +2103,8 @@ const ConversationTabView = memo(function ConversationTabView({
       signal: reloadSignal,
       sawLoading: false,
     }
-    refetchDetail(dbConversationId)
-  }, [dbConversationId, reloadSignal, refetchDetail])
+    refetchDetail(effectiveConversationId)
+  }, [dbConversationId, effectiveConversationId, reloadSignal, refetchDetail])
 
   useEffect(() => {
     const pending = pendingReloadState.current
@@ -3236,8 +3236,15 @@ const ConversationTabView = memo(function ConversationTabView({
     if (acpLoadError) {
       acpActions.clearAcpLoadError(tabId)
     }
-    refetchDetail(dbConversationId)
-  }, [acpActions, acpLoadError, dbConversationId, refetchDetail, tabId])
+    refetchDetail(effectiveConversationId)
+  }, [
+    acpActions,
+    acpLoadError,
+    dbConversationId,
+    effectiveConversationId,
+    refetchDetail,
+    tabId,
+  ])
   // Open (or re-activate) the singleton draft tab BEFORE closing the failing
   // tab. closeTab auto-creates a replacement draft when it removes the last
   // tab, and `openNewConversationTab` reads `rawTabsRef.current` which

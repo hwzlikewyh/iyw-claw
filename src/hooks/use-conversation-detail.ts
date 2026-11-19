@@ -60,11 +60,12 @@ function useDetailLoader(args: {
   canLoadDetail: boolean
   detail: DbConversationDetail | null
   detailLoading: boolean
+  detailError: string | null
 }): void {
   const { fetchDetail, refetchDetail } = useConversationRuntimeActions()
   useEffect(() => {
     if (!args.enabled || !args.canLoadDetail) return
-    if (args.detail || args.detailLoading) return
+    if (args.detail || args.detailLoading || args.detailError) return
     if (args.canLoadVirtual) refetchDetail(args.conversationId)
     else fetchDetail(args.conversationId)
   }, [args, fetchDetail, refetchDetail])
@@ -98,6 +99,7 @@ export function useConversationDetail(
     canLoadDetail,
     detail,
     detailLoading,
+    detailError,
   })
 
   return {
