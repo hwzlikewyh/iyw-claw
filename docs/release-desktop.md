@@ -73,7 +73,7 @@ gh workflow run release-resign-windows.yml -R hwzlikewyh/iyw-claw --ref main -f 
 
 签名向导作为单独的 `bootstrapper` 制品下载；随后从 Fusion 获取 app payload。
 向导文件不嵌入 NSIS，也不嵌入应用 ZIP。
-正常发布与重新签名流程固定使用已发布的 `v0.2.6` 统一安装器，避免带回旧版安装检查逻辑。
+正常发布与重新签名流程固定使用已发布的 `v0.2.11` 统一安装器，启动时识别已有安装并沿用原位置更新。
 
 Tauri 会在封装 NSIS 前把主 EXE 的 `__TAURI_BUNDLE_TYPE_VAR_UNK` 改成 `NSS`。
 必须启用打包器的 `signCommand` 回调，对改写后的 EXE 签名；仅在 bundle 前签名会得到
