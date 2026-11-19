@@ -165,7 +165,12 @@ fn app_label(plugin: &registry::PluginDescriptor, config: &serde_json::Value) ->
             .resources
             .iter()
             .find(|resource| resource["uri"] == config["resourceUri"])
-            .and_then(|resource| resource["title"].as_str())
+            .and_then(|resource| {
+                resource["title"].as_str().or_else(|| {
+                    // MCP App 把窗口标题声明在 _meta.ui.title，而不是顶层 title。
+                    resource["_meta"]["ui"]["title"].as_str()
+                })
+            })
             .map(str::to_string)
     });
     label
