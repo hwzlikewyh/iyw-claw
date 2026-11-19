@@ -21,17 +21,17 @@ export function KnowledgeComposerChip({
       : t("chipLabel", { count: selection.selected.length })
   const title = selection.selected.map((item) => item.name).join(", ")
   return (
-    <div className="px-3 pt-2" data-knowledge-composer-selection>
+    <div className="min-w-0 max-w-full" data-knowledge-composer-selection>
       <span className="inline-flex max-w-full items-center gap-1 rounded-md">
         <button
           type="button"
           title={title}
           aria-label={t("editChip", { name: title })}
-          className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1 text-xs font-medium text-violet-700 transition-colors hover:border-violet-500/40 hover:bg-violet-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 dark:text-violet-300"
+          className="inline-flex min-h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-muted/45 px-2 py-1 text-xs font-medium text-foreground/90 transition-colors hover:border-foreground/20 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           onClick={onOpen}
         >
           <BookOpenText className="size-3.5 shrink-0" />
-          <span className="truncate">{label}</span>
+          <span className="max-w-28 truncate">{label}</span>
         </button>
         <button
           type="button"

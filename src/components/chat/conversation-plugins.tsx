@@ -1,5 +1,6 @@
 "use client"
 
+import { ComposerSourceIcon } from "./composer-source-chip"
 import { useState } from "react"
 import { Boxes, Loader2, Search, Settings2 } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -172,6 +173,7 @@ function PluginMenuRow({
     <DropdownMenuItem
       data-plugin-choice
       disabled={busy}
+      title={choice.label}
       textValue={choice.label}
       className="min-h-11"
       onSelect={(event) => {
@@ -179,7 +181,11 @@ function PluginMenuRow({
         onSelect()
       }}
     >
-      <Boxes className="size-4 shrink-0 text-muted-foreground" />
+      <ComposerSourceIcon
+        kind="plugin"
+        label={choice.label}
+        src={choice.iconUrl}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{choice.label}</span>
         <span className="block truncate text-xs text-muted-foreground">

@@ -52,6 +52,13 @@ export interface ReferenceMeta {
    * editor's expert-replace logic (not the badge — all skills share one icon).
    */
   scope?: string
+  /** “＋”菜单选中的来源，在输入框上方按标识合并展示。 */
+  composerSource?: {
+    kind: "skill" | "plugin"
+    slug: string
+    marketId?: string
+    instruction?: string
+  }
   /** skill: category grouping. */
   category?: string
   /** skill: lucide icon name. */

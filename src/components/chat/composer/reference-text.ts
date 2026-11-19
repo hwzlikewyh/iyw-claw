@@ -116,6 +116,9 @@ export function referenceToMarkdown(attrs: ReferenceAttrs): string {
       // skills/experts — read from meta, default `/`). The label (possibly
       // localized / containing spaces) is never used; an empty id is neutralized
       // to nothing rather than emitting a broken `/command`.
+      const source = attrs.meta?.composerSource
+      if (source?.kind === "plugin" && typeof source.instruction === "string")
+        return collapseNewlines(source.instruction)
       const token = collapseNewlines(attrs.id).trim()
       if (!token) return ""
       const prefix = attrs.meta?.invocationPrefix === "$" ? "$" : "/"

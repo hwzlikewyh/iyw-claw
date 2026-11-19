@@ -15,7 +15,6 @@ import { usePluginPanels } from "./use-plugin-panels"
 import { PluginPanelFrame } from "./plugin-panel-frame"
 import { AuxPanelNavigation } from "./plugin-panel-navigation"
 import { CollapsedPluginRail } from "./collapsed-plugin-rail"
-import { PluginPresentationProvider } from "./plugin-presentation"
 
 export function AuxPanel({
   railSlot = null,
@@ -29,7 +28,8 @@ export function AuxPanel({
     []
   )
   return (
-    <PluginPresentationProvider
+    <AuxWorkspace
+      railSlot={railSlot}
       key={JSON.stringify([
         profile?.user_id,
         profile?.org_code,
@@ -37,9 +37,7 @@ export function AuxPanel({
         status,
         revision,
       ])}
-    >
-      <AuxWorkspace railSlot={railSlot} />
-    </PluginPresentationProvider>
+    />
   )
 }
 

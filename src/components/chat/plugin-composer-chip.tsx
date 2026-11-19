@@ -1,42 +1,78 @@
 "use client"
 
-import { X } from "lucide-react"
+import { useEditorState } from "@tiptap/react"
+import type { Editor } from "@tiptap/core"
 import { useTranslations } from "next-intl"
-import { PluginContextBadge } from "./plugin-context-badge"
-import { requestPluginApplicationOpen } from "@/lib/plugin-preparation-events"
 import { toast } from "sonner"
+import { usePluginPresentation } from "@/components/layout/plugin-presentation"
+import { requestPluginApplicationOpen } from "@/lib/plugin-preparation-events"
 import {
   clearComposerPlugin,
   usePluginComposerContext,
 } from "@/lib/plugin-composer-context"
+import {
+  composerSources,
+  removeComposerSource,
+} from "./composer/source-references"
+import { ComposerSourceChip } from "./composer-source-chip"
 
-export function PluginComposerChip({ tabId }: { tabId?: string | null }) {
+export function PluginComposerChip({
+  tabId,
+  editor = null,
+}: {
+  tabId?: string | null
+  editor?: Editor | null
+}) {
   const t = useTranslations("PluginPanels")
+  const items = usePluginPresentation()
   const app = usePluginComposerContext((state) =>
     tabId ? state.entries[tabId]?.selected : undefined
   )
-  if (!app || !tabId) return null
+  const references =
+    useEditorState({
+      editor,
+      selector: ({ editor }) => composerSources(editor),
+    }) ?? []
+  const sources = [...references]
+  if (
+    app &&
+    !sources.some((s) => s.kind === "plugin" && s.slug === app.pluginSlug)
+  ) {
+    sources.push({ kind: "plugin", slug: app.pluginSlug, label: app.label })
+  }
   return (
-    <div className="px-3 pt-2" data-plugin-composer-selection>
-      <span className="inline-flex max-w-full items-center gap-1 rounded-md">
-        <PluginContextBadge
-          label={app.label}
-          className="min-h-8 max-sm:min-h-11"
-          onClick={() => {
-            if (!app.appKey) return
-            if (!requestPluginApplicationOpen(app))
-              toast.error(t("openUnavailable"))
-          }}
-        />
-        <button
-          type="button"
-          className="flex min-h-7 min-w-7 items-center justify-center rounded-md hover:bg-muted max-sm:min-h-11 max-sm:min-w-11"
-          aria-label={t("removeSelection", { name: app.label })}
-          onClick={() => clearComposerPlugin(tabId)}
-        >
-          <X className="size-3.5" />
-        </button>
-      </span>
-    </div>
+    <>
+      {sources.map((source) => {
+        const panel =
+          source.kind === "plugin" && app?.pluginSlug === source.slug
+            ? app
+            : undefined
+        const item =
+          items.get(
+            source.marketId ? "market:" + source.marketId : source.slug
+          ) ?? items.get(source.slug)
+        return (
+          <ComposerSourceChip
+            key={source.kind + ":" + source.slug}
+            kind={source.kind}
+            label={source.label}
+            src={item?.iconUrl}
+            onOpen={
+              panel?.appKey && panel.state === "available"
+                ? () => {
+                    if (!requestPluginApplicationOpen(panel))
+                      toast.error(t("openUnavailable"))
+                  }
+                : undefined
+            }
+            removeLabel={t("removeSelection", { name: source.label })}
+            onRemove={() => {
+              removeComposerSource(editor, source)
+              if (panel && tabId) clearComposerPlugin(tabId)
+            }}
+          />
+        )
+      })}
+    </>
   )
 }

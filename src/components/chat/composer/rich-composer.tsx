@@ -129,7 +129,7 @@ export interface RichComposerProps {
    * `defaultText` has been applied. The host uses this to hydrate a draft /
    * queue-edit document via the imperative handle, which isn't usable earlier.
    */
-  onReady?: () => void
+  onReady?: (editor: Editor) => void
   /**
    * Enables the unified `@` mention panel. Resolves the typed query into
    * grouped suggestions (artifacts/files/agents/sessions). MUST be
@@ -384,7 +384,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         }
         // The imperative handle is now usable; let the host hydrate a draft /
         // queue-edit document that a plain-text default cannot represent.
-        onReadyRef.current?.()
+        onReadyRef.current?.(editor)
       },
       onDestroy: () => {
         editorInstanceRef.current = null

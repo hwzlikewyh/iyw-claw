@@ -22,6 +22,7 @@ export interface ComposerPluginChoice {
   slug: string
   label: string
   version: string
+  iconUrl?: string | null
   skills: AgentSkillItem[]
   blocked: boolean
 }
@@ -103,8 +104,10 @@ export function enrichPluginChoices(
     if (item.packageType !== "plugin" || !item.installedVersion) continue
     const existing = choices.get(item.id)
     if (existing) {
-      if (existing.slug === item.slug)
+      if (existing.slug === item.slug) {
         existing.label = pluginDisplayName(item.slug, item.displayName)
+        existing.iconUrl = item.iconUrl
+      }
       continue
     }
   }
@@ -114,7 +117,7 @@ export function enrichPluginChoices(
 }
 
 // 市场只补充显示名称；列表和版本以本地安装库存为准。
-export async function loadComposerPluginCatalog() {
+export async function loadInstalledComposerCatalog() {
   const result = await getSkillMarketSource().list({
     view: "installed",
     publisher: "all",
@@ -126,5 +129,11 @@ export async function loadComposerPluginCatalog() {
     cursor: null,
     limit: Number.MAX_SAFE_INTEGER,
   })
-  return result.items.filter((item) => item.packageType === "plugin")
+  return result.items
+}
+
+export async function loadComposerPluginCatalog() {
+  return (await loadInstalledComposerCatalog()).filter(
+    (item) => item.packageType === "plugin"
+  )
 }

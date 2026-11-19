@@ -1,6 +1,8 @@
 "use client"
 
 import { useRef, useState, type RefObject } from "react"
+import { getInstalledMarketInfo } from "@/lib/skill-market"
+import { ComposerSkillIcon } from "./composer-skill-icon"
 import { BookOpenText, Search } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Input } from "@/components/ui/input"
@@ -110,10 +112,15 @@ function SkillMenuItems(props: Props & { query: string }) {
     <DropdownMenuItem
       key={`${skill.scope}-${skill.id}`}
       data-skill-choice
+      title={skill.name || skill.id}
       textValue={skill.name || skill.id}
       onSelect={() => props.onSelect(skill)}
     >
-      <BookOpenText className="size-4" />
+      <ComposerSkillIcon
+        id={skill.id}
+        label={skill.name || skill.id}
+        marketId={getInstalledMarketInfo(skill).marketId}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate">{skill.name || skill.id}</span>
         {skill.description && (

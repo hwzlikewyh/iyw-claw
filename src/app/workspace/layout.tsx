@@ -63,6 +63,7 @@ import { RemoteConnectionGate } from "@/contexts/remote-connection-context"
 import { UpdateProvider } from "@/components/providers/update-provider"
 import { TabBar } from "@/components/tabs/tab-bar"
 import { TerminalPanel } from "@/components/terminal/terminal-panel"
+import { PluginPresentationProvider } from "@/components/layout/plugin-presentation"
 import { MobileAuxPanel } from "@/components/layout/mobile-aux-panel"
 import { FileWorkspaceTabBar } from "@/components/files/file-workspace-tab-bar"
 import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
@@ -1139,9 +1140,11 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                                 <WorkbenchRouteConversationSync />
                                                 <ConversationFocusBridge />
                                                 <TrayActionBridge />
-                                                <FolderLayoutShell>
-                                                  {children}
-                                                </FolderLayoutShell>
+                                                <PluginPresentationProvider>
+                                                  <FolderLayoutShell>
+                                                    {children}
+                                                  </FolderLayoutShell>
+                                                </PluginPresentationProvider>
                                               </WorkbenchRouteProvider>
                                             </AutomationsViewProvider>
                                           </SearchDialogProvider>

@@ -1,15 +1,20 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState } from "react"
+import { useIywAccount } from "@/contexts/iyw-account-context"
 import type { ReactNode } from "react"
-import { loadComposerPluginCatalog } from "@/lib/composer-plugins"
+import { loadInstalledComposerCatalog } from "@/lib/composer-plugins"
 import { onSkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
-import { getTransport } from "@/lib/transport"
+import { getTransport, onTransportChange } from "@/lib/transport"
 import { toErrorMessage } from "@/lib/app-error"
-import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 
-type Presentation = { label: string; iconUrl: string | null }
-const PresentationContext = createContext(new Map<string, Presentation>())
+type Presentation = {
+  label: string
+  iconUrl: string | null
+  kind: "skill" | "expert" | "plugin"
+}
+const EMPTY_PRESENTATIONS = new Map<string, Presentation>()
+const PresentationContext = createContext(EMPTY_PRESENTATIONS)
 
 // 只补充展示信息；已安装版本与可打开的页面仍以本地目录为准。
 export function PluginPresentationProvider({
@@ -26,20 +31,30 @@ export function PluginPresentationProvider({
 }
 
 function usePresentationCatalog() {
-  const [items, setItems] = useState(new Map<string, Presentation>())
-  const { isOpen } = useAuxPanelContext()
+  const { profile, status } = useIywAccount()
+  const [transport, setTransport] = useState(getTransport)
+  useEffect(() => onTransportChange(() => setTransport(getTransport())), [])
+  const scope = JSON.stringify([
+    profile?.user_id,
+    profile?.org_code,
+    profile?.workspace_pending,
+    status,
+  ])
+  const [result, setResult] = useState<{
+    scope: string
+    transport: typeof transport
+    items: Map<string, Presentation>
+  } | null>(null)
   useEffect(() => {
-    if (!isOpen) return
     let active = true
     let revision = 0
-    const transport = getTransport()
     const refresh = () => {
       const request = ++revision
-      void loadComposerPluginCatalog()
+      void loadInstalledComposerCatalog()
         .then((catalog) => {
           if (!active || request !== revision || transport !== getTransport())
             return
-          setItems(presentations(catalog))
+          setResult({ scope, transport, items: presentations(catalog) })
         })
         .catch((cause) => {
           if (active && request === revision)
@@ -56,22 +71,26 @@ function usePresentationCatalog() {
       unsubscribe()
       reconnect?.()
     }
-  }, [isOpen])
-  return items
+  }, [scope, transport])
+  return result?.scope === scope && result.transport === transport
+    ? result.items
+    : EMPTY_PRESENTATIONS
 }
 
 export const usePluginPresentation = () => useContext(PresentationContext)
 
 function presentations(
-  catalog: Awaited<ReturnType<typeof loadComposerPluginCatalog>>
+  catalog: Awaited<ReturnType<typeof loadInstalledComposerCatalog>>
 ) {
-  return new Map(
-    catalog.map((item) => [
-      item.slug,
-      {
-        label: item.displayName,
-        iconUrl: item.iconUrl,
-      },
-    ])
-  )
+  const items = new Map<string, Presentation>()
+  for (const item of catalog) {
+    const display = {
+      kind: item.packageType,
+      label: item.displayName,
+      iconUrl: item.iconUrl,
+    }
+    items.set(item.slug, display)
+    items.set("market:" + item.id, display)
+  }
+  return items
 }

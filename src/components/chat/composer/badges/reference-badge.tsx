@@ -1,6 +1,5 @@
 import {
   Archive,
-  BookOpenCheck,
   Bot,
   Command,
   File,
@@ -19,6 +18,7 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 
+import { ComposerSkillIcon } from "../../composer-skill-icon"
 import { AgentIcon } from "@/components/agent-icon"
 import { isAgentType } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -145,7 +145,13 @@ export function ReferenceIcon({
       } else if (meta?.scope === "expert") {
         icon = <Sparkles className={ICON_CLASS} />
       } else if (meta?.scope != null) {
-        icon = <BookOpenCheck className={ICON_CLASS} />
+        icon = (
+          <ComposerSkillIcon
+            id={data.id}
+            label={data.label || data.id}
+            marketId={meta.marketSkillId}
+          />
+        )
       } else {
         icon = <Command className={ICON_CLASS} />
       }
@@ -235,6 +241,7 @@ export function ReferenceBadge({ data, className }: ReferenceBadgeProps) {
       className={cn(
         "inline-flex max-w-[18rem] items-center gap-1 rounded-[4px] border px-1.5 py-0.5 align-middle text-[0.82em] font-medium leading-none",
         badgeColorClass(data),
+        data.refType === "skill" && "max-w-32",
         className
       )}
     >

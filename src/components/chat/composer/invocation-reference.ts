@@ -1,3 +1,4 @@
+import { getInstalledMarketInfo } from "@/lib/skill-market"
 import type { AgentSkillItem, AvailableCommandInfo } from "@/lib/types"
 
 import type { ReferenceAttrs } from "./types"
@@ -34,6 +35,10 @@ export function skillToReference(
     id: skill.id,
     label: skill.name || skill.id,
     uri: null,
-    meta: { invocationPrefix: prefix, scope: skill.scope },
+    meta: {
+      invocationPrefix: prefix,
+      scope: skill.scope,
+      marketSkillId: getInstalledMarketInfo(skill).marketId ?? undefined,
+    },
   }
 }
