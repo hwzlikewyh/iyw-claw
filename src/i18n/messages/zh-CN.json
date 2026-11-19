@@ -4797,6 +4797,7 @@
           "retry": "重新加载插件界面",
           "fullscreen": "全屏打开",
           "inline": "恢复嵌入显示",
+          "copyReason": "复制原因",
           "unavailable": "插件界面已停用或当前项目授权已变化。请完成插件准备后重新加载。"
         },
         "showingTailOutput": "为保证性能，流式输出时仅显示尾部内容。",

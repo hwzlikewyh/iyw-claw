@@ -263,6 +263,12 @@ function valid(value){
   }catch{return false}
 }
 function forward(value){if(port&&frame&&valid(value))frame.contentWindow?.postMessage(value,"*")}
+function sanitize(error){try{return String(error?.message||error||"Unknown error").slice(0,1200)}catch{return "Unknown error"}}
+let failure=null;
+function report(error){if(!failure)failure=sanitize(error)}
+Object.defineProperty(window,"__iywPluginAppFailure",{value:()=>failure,configurable:false,enumerable:false,writable:false});
+window.addEventListener("error",event=>report(event.error||event.message),true);
+window.addEventListener("unhandledrejection",event=>report(event.reason),true);
 function loadFrame(html,meta){
   if(frame||typeof html!=="string"||new TextEncoder().encode(html).byteLength>RESOURCE_MAX)return;
   frame=document.createElement("iframe");
@@ -285,7 +291,7 @@ function loadFrame(html,meta){
   frame.srcdoc='<meta http-equiv="Content-Security-Policy" content="'+policy+'">'+html;
   document.body.style.margin="0";
   document.body.appendChild(frame);
-  window.addEventListener("message",event=>{if(event.source===frame.contentWindow&&port&&valid(event.data))port.postMessage(event.data)});
+  window.addEventListener("message",event=>{if(event.data?.__iywPluginAppFailure)report(event.data.__iywPluginAppFailure);else if(event.source===frame.contentWindow&&port&&valid(event.data))port.postMessage(event.data)});
 }
 window.addEventListener("message",event=>{
   if(event.source!==window.parent||event.data?.type!=="iyw-plugin-app-init"||frame)return;

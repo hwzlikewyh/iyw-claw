@@ -4797,6 +4797,7 @@
           "retry": "Retry plugin app",
           "fullscreen": "Open fullscreen",
           "inline": "Restore inline",
+          "copyReason": "Copy reason",
           "unavailable": "This plugin app is inactive or its project authorization changed. Complete plugin preparation before reloading."
         },
         "showingTailOutput": "Showing tail output while streaming for performance.",
