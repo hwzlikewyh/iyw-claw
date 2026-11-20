@@ -151,7 +151,7 @@ impl UserMemoryService {
         let Some(input) = request
             .user_input_ref
             .as_deref()
-            .filter(|text| !text.trim().is_empty())
+            .filter(|text| super::background_learning_prefilter::worth_extracting(text))
         else {
             return Ok(Vec::new());
         };

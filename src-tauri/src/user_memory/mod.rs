@@ -15,6 +15,7 @@ mod authority_types;
 mod authority_validation;
 mod background_learning;
 mod background_learning_gateway;
+mod background_learning_prefilter;
 #[cfg(feature = "memory-bench")]
 pub mod bench;
 mod candidate_api_types;
