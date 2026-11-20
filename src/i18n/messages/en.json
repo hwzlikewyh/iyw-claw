@@ -4087,6 +4087,9 @@
         "sendMessage": "Send a message..."
       },
       "messageInput": {
+        "confirmationTimedOut": "The send confirmation is taking longer than expected. You can type again. Check the conversation and queue before resending.",
+        "sendOffline": "Waiting for the conversation to connect. Your draft is still here.",
+        "sendAccountBlocked": "Your account is not ready to send. Check the account notice. Your draft is still here.",
         "cloudKnowledge": "Cloud knowledge…",
         "askAnything": "Ask anything...",
         "scenarioVariablesRequired": "Fill in first: {variables}",
@@ -4341,6 +4344,7 @@
         "retryItem": "Retry"
       },
       "agentInput": {
+        "waitingForSetup": "Your message is queued. Check the connection and the selected model in this conversation.",
         "waiting": "Waiting",
         "dispatching": "Sending",
         "failed": "Send failed",

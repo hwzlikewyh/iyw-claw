@@ -1044,6 +1044,10 @@ pub fn build_router(
         .route("/list_log_files", post(handlers::logging::list_log_files))
         .route("/read_log_file", post(handlers::logging::read_log_file))
         .route(
+            "/report_frontend_event",
+            post(handlers::logging::report_frontend_event),
+        )
+        .route(
             "/get_log_report_context",
             post(handlers::log_report::get_log_report_context),
         )

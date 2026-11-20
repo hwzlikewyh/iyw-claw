@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
+use crate::commands::frontend_log::{self, SendEvent};
 use crate::commands::logging as logging_commands;
 use crate::commands::logging::{LogFileInfo, LogSettingsView};
 use crate::logging::hub::LogRecord;
@@ -68,6 +69,18 @@ pub async fn get_recent_logs(
 
 pub async fn list_log_files() -> Result<Json<Vec<LogFileInfo>>, AppCommandError> {
     Ok(Json(logging_commands::list_log_files_core()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportFrontendEventParams {
+    event: SendEvent,
+    conversation_id: Option<i32>,
+}
+
+pub async fn report_frontend_event(Json(params): Json<ReportFrontendEventParams>) -> Json<()> {
+    frontend_log::report_frontend_event_core(params.event, params.conversation_id);
+    Json(())
 }
 
 pub async fn read_log_file(

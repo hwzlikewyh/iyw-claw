@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
 import type { UseConnectionReturn } from "@/hooks/use-connection"
 import { isContextBudgetConfigId } from "@/lib/model-context-window"
+import { isModelConfigOption } from "@/lib/model-display-name"
+import {
+  SendPreflightTimeout,
+  waitForSendPreflight,
+} from "@/lib/send-preflight"
 import type { SessionConfigOptionInfo } from "@/lib/types"
 
 interface ContextWindowSyncParams {
@@ -18,7 +23,11 @@ interface ContextWindowRequest extends ContextWindowSyncParams {
   live: SessionConfigOptionInfo[]
   target: Record<string, string>
   signature: string
-  latest: RefObject<{ signature: string; active: boolean }>
+  latest: RefObject<{
+    signature: string
+    connectionId: string | null
+    active: boolean
+  }>
 }
 
 function contextPolicyMatches(
@@ -28,8 +37,9 @@ function contextPolicyMatches(
   return request.live.every(
     (option) =>
       option.kind.current_value === request.target[option.id] &&
-      option.kind.options.find((value) => value.value === "auto")
-        ?.description === request.values.model
+      (!request.values.model ||
+        option.kind.options.find((value) => value.value === "auto")
+          ?.description === request.values.model)
   )
 }
 
@@ -46,12 +56,18 @@ async function recoverContextWindow(
     conversationId,
     onError,
   } = request
-  if (!latest.current.active || latest.current.signature !== signature) return
+  const current = latest.current
+  if (
+    !current.active ||
+    current.signature !== signature ||
+    (current.connectionId && current.connectionId !== connection.connectionId)
+  )
+    return
   const previous = Object.fromEntries(
     live.map((option) => [option.id, option.kind.current_value])
   )
   onError(previous, error)
-  if (!connection.agentType) return
+  if (!connection.agentType || error instanceof SendPreflightTimeout) return
   await connection
     .connect(
       connection.agentType,
@@ -89,24 +105,30 @@ function applyContextWindow(
     connection.isDelegationChild
   )
     return null
+  const model = connection.configOptions?.find(isModelConfigOption)
   if (
     contextPolicyMatches(request) ||
-    connection.configOptions?.find((option) => option.id === "model")?.kind
-      .current_value !== values.model
+    (model && values.model && model.kind.current_value !== values.model)
   )
     return null
-  return connection
-    .reapplyConfig(true, conversationId, {
+  return waitForSendPreflight(
+    connection.reapplyConfig(true, conversationId, {
       ...values,
       ...target,
-    })
-    .catch((error: unknown) => recoverContextWindow(request, error))
+    }),
+    "context_timeout"
+  ).catch(async (error: unknown) => {
+    await recoverContextWindow(request, error)
+    return false
+  })
 }
 
 export function useContextWindowSync(params: ContextWindowSyncParams) {
-  const pending = useRef(false)
-  const latest = useRef<{ signature: string; active: boolean }>({
+  const pending = useRef<{ connectionId: string | null } | null>(null)
+  const deferred = useRef<string | null>(null)
+  const latest = useRef<ContextWindowRequest["latest"]["current"]>({
     signature: "",
+    connectionId: null,
     active: true,
   })
   const [revision, setRevision] = useState(0)
@@ -125,9 +147,18 @@ export function useContextWindowSync(params: ContextWindowSyncParams) {
   for (const option of params.desired) {
     target[option.id] ??= params.values[option.id] ?? option.kind.current_value
   }
-  const signature = JSON.stringify({ model: params.values.model, ...target })
+  const connectionId = params.connection.connectionId
+  const signature = JSON.stringify([
+    params.conversationId,
+    params.values.model,
+    target,
+  ])
+  const attemptKey = JSON.stringify([connectionId, signature])
   const blocked =
-    live.length > 0 && !contextPolicyMatches({ ...params, live, target })
+    !params.connection.isViewer &&
+    !params.connection.isDelegationChild &&
+    live.length > 0 &&
+    !contextPolicyMatches({ ...params, live, target })
   useEffect(() => {
     latest.current.active = true
     return () => {
@@ -135,8 +166,14 @@ export function useContextWindowSync(params: ContextWindowSyncParams) {
     }
   }, [])
   useEffect(() => {
-    latest.current = { signature, active: true }
-    if (pending.current || live.length === 0) return
+    latest.current = { signature, connectionId, active: true }
+    if (!blocked || deferred.current !== attemptKey) deferred.current = null
+    if (
+      !blocked ||
+      pending.current?.connectionId === connectionId ||
+      deferred.current === attemptKey
+    )
+      return
     const change = applyContextWindow({
       ...params,
       live,
@@ -145,11 +182,31 @@ export function useContextWindowSync(params: ContextWindowSyncParams) {
       latest,
     })
     if (!change) return
-    pending.current = true
-    void change.finally(() => {
-      pending.current = false
-      if (latest.current.active) setRevision((value) => value + 1)
-    })
-  }, [params, live, target, signature, revision])
+    const attempt = { connectionId }
+    pending.current = attempt
+    void change
+      .then((applied) => {
+        if (applied === false && pending.current === attempt)
+          deferred.current = attemptKey
+      })
+      .catch((error: unknown) => {
+        if (pending.current === attempt) deferred.current = attemptKey
+        console.error("[ContextWindow] configuration recovery failed", error)
+      })
+      .finally(() => {
+        if (pending.current !== attempt) return
+        pending.current = null
+        if (latest.current.active) setRevision((value) => value + 1)
+      })
+  }, [
+    params,
+    live,
+    target,
+    signature,
+    attemptKey,
+    revision,
+    blocked,
+    connectionId,
+  ])
   return blocked
 }

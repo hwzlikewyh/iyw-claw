@@ -4087,6 +4087,9 @@
         "sendMessage": "发送消息..."
       },
       "messageInput": {
+        "confirmationTimedOut": "发送确认超时，已恢复输入。请先查看对话和队列，再决定是否重发。",
+        "sendOffline": "正在等待会话连接，输入的内容已保留。",
+        "sendAccountBlocked": "账户暂时无法发送，请查看账户提示。输入的内容已保留。",
         "cloudKnowledge": "云端知识库…",
         "askAnything": "请开始输入...",
         "scenarioVariablesRequired": "请先填写：{variables}",
@@ -4341,6 +4344,7 @@
         "retryItem": "重试"
       },
       "agentInput": {
+        "waitingForSetup": "消息仍在队列中，请查看当前会话的连接状态和所选模型。",
         "waiting": "等待中",
         "dispatching": "发送中",
         "failed": "发送失败",

@@ -122,7 +122,7 @@ pub async fn idle_sweep_task(
         if let Some(stall_timeout) = stall_timeout {
             let n = manager.recover_stalled_prompts(stall_timeout).await;
             if n > 0 {
-                tracing::info!("[ACP] observed {n} silent LLM wait(s); active turns preserved");
+                tracing::info!(observed = n, "[ACP] processed silent LLM waits");
             }
         }
     }
