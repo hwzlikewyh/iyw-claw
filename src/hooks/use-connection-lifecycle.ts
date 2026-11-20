@@ -9,6 +9,10 @@ import {
 import { useTaskContext } from "@/contexts/task-context"
 import { useConnection, type UseConnectionReturn } from "@/hooks/use-connection"
 import { TurnBusyError } from "@/lib/turn-busy"
+import {
+  SendPreflightTimeout,
+  waitForSendPreflight,
+} from "@/lib/send-preflight"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import type { AgentType, PromptDraft } from "@/lib/types"
 
@@ -639,12 +643,13 @@ export function useConnectionLifecycle({
       touchActivity(contextKey)
       const onTurnInProgress = opts?.onTurnInProgress
       return (async () => {
-        await ensureConnected()
+        await waitForSendPreflight(ensureConnected(), "connect_timeout")
         const currentModeId = modeIdRef.current
         if (modeId && modeId !== currentModeId) {
           try {
-            await connSetMode(modeId)
+            await waitForSendPreflight(connSetMode(modeId), "mode_timeout")
           } catch (error) {
+            if (error instanceof SendPreflightTimeout) throw error
             opts?.onModeError?.(error, currentModeId)
             throw error
           }
@@ -680,8 +685,8 @@ export function useConnectionLifecycle({
   const handleSetConfigOption = useCallback(
     (configId: string, valueId: string): Promise<void> => {
       touchActivity(contextKey)
-      return ensureConnected().then(() =>
-        connSetConfigOption(configId, valueId)
+      return waitForSendPreflight(ensureConnected(), "connect_timeout").then(
+        () => connSetConfigOption(configId, valueId)
       )
     },
     [connSetConfigOption, contextKey, ensureConnected, touchActivity]

@@ -5,7 +5,7 @@
 - 工具执行、工具输出和 LLM 输出分别观察，工具耗时不占用 LLM 等待窗口。
 - 工具使用自身的执行或等待参数。工具返回超时、错误或仍在运行的任务状态后，由 Agent 根据结果决定下一步。
 - 内置 MCP 不设置统一的 300 秒外层执行时限，不提前截断 Agent 为工具指定的长任务等待。
-- 模型无输出时界面继续等待，不额外弹提示、不自动取消回合、不因静默关闭连接。
+- 模型等待输出超过静默阈值（默认 600 秒）时，宿主会请求安全取消当前回合。若同一回合在宽限期后仍未结束，宿主会断开该连接。
 - 用户主动停止、底层真实断连和模型服务最终返回的错误仍按各自原有流程处理。
 
 `exec_command` 的 `yield_time_ms` 是返回进度的等待时间；交互命令返回进程 ID 后继续运行，通过 `write_stdin` 收取结果。一次性命令的 `timeout_ms` 才是该次执行预算，不能由客户端根据进度返回时间推断整轮超时。
@@ -14,7 +14,7 @@
 
 `SessionActivity` 保存内部 LLM 等待起点，不新增对外快照字段。开始回合、模型正文或思考输出、模型重试、工具完成或失败、用户交互结束时更新该起点。存在待执行或运行中的工具时，不判定 LLM 静默。
 
-`ConnectionManager::recover_stalled_prompts` 保留入口名称，但只写去重诊断日志，不发送 `SafeCancel`、`Disconnect` 或错误事件，也不安排延迟断连。`IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS` 只控制日志观察阈值。
+`ConnectionManager::recover_stalled_prompts` 按连接和回合去重。触发时发出 `prompt_stall_timeout` 和 `SafeCancel`，宽限期后仍需断连时发出 `prompt_stall_disconnect`。`IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS` 设置静默阈值，设为 0 可关闭该机制。
 
 星河内置 MCP 的线程配置明确使用 `tool_timeout_sec = 0`。当前固定版本的本地 `codex-mcp` 补丁将显式零值解释为不设置外层截止时间，正值与未配置的外部 MCP 保留原有预算处理。初始化预算独立于工具执行。
 

@@ -1751,6 +1751,11 @@ impl ConnectionManager {
                     .map_err(AcpError::from_capability_error)?;
             }
             if s.turn_in_flight || s.turn_completion_pending {
+                tracing::info!(
+                    connection_id = conn_id,
+                    settling = s.turn_completion_pending,
+                    "[ACP] prompt deferred by active turn"
+                );
                 return Err(AcpError::TurnInProgress);
             }
             if let Some(origin) = channel_origin.as_mut() {
@@ -2125,6 +2130,10 @@ impl ConnectionManager {
         // InProgress or broadcasting a phantom user message. The frontend turns
         // this rejection into a queued message above the input box.
         if turn_in_flight {
+            tracing::info!(
+                connection_id = conn_id,
+                "[ACP] linked prompt deferred by active turn"
+            );
             return Err(AcpError::TurnInProgress);
         }
 
@@ -2569,7 +2578,10 @@ impl ConnectionManager {
         cmd_tx
             .send(ConnectionCommand::SetMode { mode_id })
             .await
-            .map_err(|_| AcpError::ProcessExited)
+            .map_err(|_| {
+                tracing::warn!(connection_id = conn_id, "[ACP] mode change channel closed");
+                AcpError::ProcessExited
+            })
     }
 
     pub async fn set_config_option(
@@ -2587,6 +2599,7 @@ impl ConnectionManager {
             (conn.cmd_tx.clone(), (reply_tx, reply_rx))
         };
         let (reply_tx, reply_rx) = reply;
+        let started = std::time::Instant::now();
         cmd_tx
             .send(ConnectionCommand::SetConfigOption {
                 config_id,
@@ -2594,14 +2607,28 @@ impl ConnectionManager {
                 reply: reply_tx,
             })
             .await
-            .map_err(|_| AcpError::ProcessExited)?;
-        tokio::time::timeout(CONFIG_OPTION_TIMEOUT, reply_rx)
+            .map_err(|_| {
+                tracing::warn!(connection_id = conn_id, "[ACP] configuration channel closed");
+                AcpError::ProcessExited
+            })?;
+        let confirmed = tokio::time::timeout(CONFIG_OPTION_TIMEOUT, reply_rx)
             .await
             .map_err(|_| {
+                tracing::warn!(
+                    connection_id = conn_id,
+                    "[ACP] configuration confirmation timed out"
+                );
                 AcpError::protocol("Agent did not confirm the configuration change in time")
             })?
-            .map_err(|_| AcpError::ProcessExited)?
-            .map_err(AcpError::protocol)
+            .map_err(|_| AcpError::ProcessExited)
+            .and_then(|reply| reply.map_err(AcpError::protocol));
+        tracing::info!(
+            connection_id = conn_id,
+            accepted = confirmed.is_ok(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "[ACP] configuration confirmation"
+        );
+        confirmed
     }
 
     /// 渠道按任务取消时串行核对回合，不能停止同连接后来接受的新任务。
@@ -2786,6 +2813,7 @@ impl ConnectionManager {
         // underneath us, but we never SET it: not setting the gate is precisely
         // why a dropped fork can't wedge the connection.
         if state_arc.read().await.turn_in_flight {
+            tracing::info!(connection_id = conn_id, "[ACP] fork deferred by active turn");
             return Err(AcpError::TurnInProgress);
         }
 

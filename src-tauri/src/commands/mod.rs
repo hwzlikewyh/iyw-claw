@@ -56,6 +56,7 @@ pub mod feedback;
 pub mod file_io;
 pub mod folder_commands;
 pub mod folders;
+pub mod frontend_log;
 pub mod idle_agent_settings;
 pub mod internet_tools;
 pub mod iyw_account;

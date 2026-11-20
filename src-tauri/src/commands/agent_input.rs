@@ -75,12 +75,21 @@ pub async fn submit_agent_input_core(
     payload: AgentInputPayload,
 ) -> Result<AgentInputItem, AcpError> {
     validate_submit(conversation_id, &message_id, &payload)?;
+    tracing::info!(
+        conversation_id,
+        connection_id = %connection_id,
+        "[agent-input] submitting queued input"
+    );
     crate::commands::iyw_account::iyw_account_ensure_can_consume_core(&db.conn)
         .await.map_err(|error| AcpError::protocol(error.to_string()))?;
     require_payload_file_upload(&payload).await?;
     manager
         .submit_agent_input(db, &connection_id, conversation_id, message_id, payload)
         .await
+        .inspect(|_| tracing::info!(conversation_id, "[agent-input] input accepted"))
+        .inspect_err(|error| {
+            tracing::warn!(conversation_id, code = ?error.code(), "[agent-input] submission failed")
+        })
         .map(client_item)
 }
 
@@ -107,7 +116,10 @@ pub async fn queue_agent_input_core(
             message_id,
             payload,
         )
-        .await?;
+        .await
+        .inspect_err(|error| {
+            tracing::warn!(conversation_id, code = ?error.code(), "[agent-input] durable queue failed")
+        })?;
     tracing::info!(
         conversation_id,
         input_id = %item.id,

@@ -1,6 +1,8 @@
 "use client"
 
 import { useAccountChatRequestsBlocked } from "@/components/account/use-account-request-guard"
+import { useComposerSendGuard } from "@/hooks/use-composer-send-guard"
+import { reportSendEvent } from "@/lib/send-diagnostics"
 import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
 import { ConversationConnectorComposerChips } from "@/components/chat/conversation-connector-composer-chips"
@@ -1027,8 +1029,11 @@ export function MessageInput({
   // is reconciled into the outgoing blocks by `buildDraft`.
   const [attachments, setAttachmentState] = useState<InputAttachment[]>([])
   const attachmentsRef = useRef<InputAttachment[]>([])
-  const [sendPending, setSendPending] = useState(false)
-  const sendPendingRef = useRef(false)
+  const {
+    pending: sendPending,
+    begin: beginSend,
+    finishTurn: finishPendingTurn,
+  } = useComposerSendGuard()
   const resolvedPlaceholder = sendPending
     ? t("conversationStarting")
     : (placeholder ?? t("askAnything"))
@@ -1132,10 +1137,11 @@ export function MessageInput({
     const wasPrompting = isPromptingRef.current
     isPromptingRef.current = isPrompting
     if (wasPrompting && !isPrompting) {
+      finishPendingTurn()
       sendGenerationRef.current += 1
       setRunningTask(null)
     }
-  }, [isPrompting])
+  }, [isPrompting, finishPendingTurn])
 
   useEffect(() => {
     // navigator.clipboard is undefined at runtime in non-secure contexts even
@@ -3760,8 +3766,13 @@ export function MessageInput({
   )
 
   const sendCurrentDraft = useCallback(() => {
-    if (sendDisabled && !isEditingQueueItem) return
-    if (accountRequestsBlocked && !isEditingQueueItem) return
+    if (!isEditingQueueItem && (sendDisabled || accountRequestsBlocked)) {
+      reportSendEvent(sendDisabled ? "offline" : "account_blocked")
+      toast.info(t(sendDisabled ? "sendOffline" : "sendAccountBlocked"), {
+        id: "composer-send-blocked",
+      })
+      return
+    }
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
@@ -3796,25 +3807,32 @@ export function MessageInput({
 
     // Edit mode: save back to queue item
     if (isEditingQueueItem && onSaveQueueEdit) {
-      if (sendPendingRef.current) return
+      const attempt = beginSend()
+      if (!attempt) return
       const version = composerMutationVersionRef.current
-      const saving = onSaveQueueEdit(draft)
+      let saving: ReturnType<typeof onSaveQueueEdit>
+      try {
+        saving = onSaveQueueEdit(draft)
+      } catch (error) {
+        attempt.finish()
+        throw error
+      }
       if (saving instanceof Promise) {
-        sendPendingRef.current = true
-        setSendPending(true)
         void saving
           .then((accepted) => {
-            if (accepted && version === composerMutationVersionRef.current)
+            if (
+              accepted &&
+              attempt.active() &&
+              version === composerMutationVersionRef.current
+            )
               resetComposer()
           })
           .catch((error) =>
             console.error("[MessageInput] queue edit failed", { error })
           )
-          .finally(() => {
-            sendPendingRef.current = false
-            setSendPending(false)
-          })
+          .finally(attempt.finish)
       } else {
+        attempt.finish()
         resetComposer()
       }
       return
@@ -3822,18 +3840,25 @@ export function MessageInput({
 
     // Prompting mode: enqueue instead of sending
     if (isPrompting) {
-      if (!onEnqueue || sendPendingRef.current) return
+      if (!onEnqueue) return
       const snapshot = capturePendingSend(draft)
-      const result = onEnqueue(
-        draft,
-        showModeSelector ? effectiveModeId : null,
-        queueBehavior
-      )
+      const attempt = beginSend()
+      if (!attempt) return
+      let result: ReturnType<typeof onEnqueue>
+      try {
+        result = onEnqueue(
+          draft,
+          showModeSelector ? effectiveModeId : null,
+          queueBehavior
+        )
+      } catch (error) {
+        attempt.finish()
+        throw error
+      }
+      if (!(result instanceof Promise)) attempt.finish()
       if (result === false) return
       resetComposer()
       if (result instanceof Promise) {
-        sendPendingRef.current = true
-        setSendPending(true)
         void result
           .then((accepted) => {
             if (accepted === false) rejectPendingSend(snapshot)
@@ -3842,17 +3867,13 @@ export function MessageInput({
             console.error("[MessageInput] enqueue preflight failed", { error })
             rejectPendingSend(snapshot)
           })
-          .finally(() => {
-            sendPendingRef.current = false
-            setSendPending(false)
-          })
+          .finally(attempt.finish)
       }
       return
     }
 
-    // Only a direct send is single-flighted. Queue edits and prompting-time
-    // enqueue actions above remain usable while the previous send is accepted.
-    if (sendPendingRef.current) return
+    const attempt = beginSend(true)
+    if (!attempt) return
 
     if (
       !promptCapabilities.image &&
@@ -3867,33 +3888,32 @@ export function MessageInput({
     const sendGeneration = ++sendGenerationRef.current
     const trackSentTask = !hasQueuedMessages
     setRunningTask(null)
-    sendPendingRef.current = true
     let result: boolean | void | Promise<boolean>
     try {
       result = onSend(draft, showModeSelector ? effectiveModeId : null)
     } catch (error) {
       console.error("[MessageInput] send failed before acceptance", { error })
-      sendPendingRef.current = false
+      attempt.finish()
       resetComposer()
       rejectPendingSend(snapshot)
       return
     }
     if (result === false) {
-      sendPendingRef.current = false
+      attempt.finish()
       return
     }
     resetComposer()
     if (result === undefined || result === true) {
       if (trackSentTask) setRunningTask(sentTask)
-      sendPendingRef.current = false
+      attempt.finish()
       return
     }
-    setSendPending(true)
     void result
       .then((accepted) => {
         if (accepted === false) rejectPendingSend(snapshot)
         else if (
           trackSentTask &&
+          attempt.active() &&
           sendGenerationRef.current === sendGeneration
         ) {
           setRunningTask(sentTask)
@@ -3903,11 +3923,10 @@ export function MessageInput({
         console.error("[MessageInput] send failed before acceptance", { error })
         rejectPendingSend(snapshot)
       })
-      .finally(() => {
-        sendPendingRef.current = false
-        setSendPending(false)
-      })
+      .finally(attempt.finish)
   }, [
+    beginSend,
+    t,
     accountRequestsBlocked,
     sendDisabled,
     disabled,

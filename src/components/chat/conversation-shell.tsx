@@ -55,6 +55,7 @@ interface ConversationShellProps {
   conversationId?: number | null
   shareConversationId?: number | null
   onReconnect?: () => Promise<void>
+  canResumeOffline?: boolean
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
   defaultPath?: string
@@ -208,6 +209,7 @@ function ConversationShellContent({
   activityContextKey,
   conversationTitle,
   onReconnect,
+  canResumeOffline,
   status,
   promptCapabilities,
   defaultPath,
@@ -382,7 +384,7 @@ function ConversationShellContent({
                 </div>
               )}
               <ChatInput
-                blockOfflineSend
+                blockOfflineSend={!canResumeOffline}
                 status={status}
                 promptCapabilities={promptCapabilities}
                 defaultPath={defaultPath}
@@ -422,7 +424,7 @@ function ConversationShellContent({
                 isEditingQueueItem={isEditingQueueItem}
                 onSaveQueueEdit={onSaveQueueEdit}
                 onCancelQueueEdit={onCancelQueueEdit}
-                onForkSend={onForkSend}
+                onForkSend={canResumeOffline ? undefined : onForkSend}
                 onSideQuestion={onSideQuestion}
                 injectContent={sideInject}
                 onInjectConsumed={onSideInjectConsumed}

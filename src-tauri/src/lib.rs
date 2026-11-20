@@ -1756,6 +1756,7 @@ mod tauri_app {
                 logging_commands::get_recent_logs,
                 logging_commands::list_log_files,
                 logging_commands::open_logs_dir,
+                crate::commands::frontend_log::report_frontend_event,
                 crate::commands::log_report::get_log_report_context,
                 crate::commands::log_report::submit_log_report,
                 delegation_commands::get_delegation_settings,

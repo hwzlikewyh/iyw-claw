@@ -120,6 +120,7 @@ import {
   shouldRejectDuplicateCreate,
 } from "@/lib/queue-flush"
 import { isTransientConnectionSendError } from "@/lib/turn-busy"
+import { reportSendEvent } from "@/lib/send-diagnostics"
 import {
   getConversationIdByExternalIdFromStore,
   getRuntimeSession,
@@ -457,6 +458,8 @@ function closeTabAfterDraftOpened(tabId: string) {
   const active = state.rawTabs.find((tab) => tab.id === state.activeTabId)
   if (active?.conversationId === null) state.closeTab(tabId)
 }
+
+const QUEUE_SETUP_NOTICE_MS = 30_000
 
 const ConversationTabView = memo(function ConversationTabView({
   tabId,
@@ -927,6 +930,16 @@ const ConversationTabView = memo(function ConversationTabView({
     if (!retryChatDirectory()) handleLifecycleFocus()
   }, [retryChatDirectory, handleLifecycleFocus])
   const { status: connStatus, sessionId: connSessionId } = conn
+  const canResumeOffline = Boolean(
+    dbConversationId &&
+    externalId &&
+    canAutoConnect &&
+    workingDirForConnection?.trim() &&
+    (connStatus === null ||
+      connStatus === "connecting" ||
+      connStatus === "disconnected" ||
+      connStatus === "error")
+  )
   useEffect(() => {
     if (
       !isActive ||
@@ -1532,10 +1545,10 @@ const ConversationTabView = memo(function ConversationTabView({
       draftConfigValues
     )
     for (const { configId, valueId } of commands) {
-      if (contextWindowPending && configId !== "model") continue
       const live = conn.configOptions?.find((option) => option.id === configId)
       const isModel =
         configId === "model" || (live && isModelConfigOption(live))
+      if (contextWindowPending && !isModel) continue
       if (isModel && failedModel === valueId) continue
       const sourceConnectionId = conn.connectionId
       const pendingKey = JSON.stringify([sourceConnectionId, configId, valueId])
@@ -2045,6 +2058,22 @@ const ConversationTabView = memo(function ConversationTabView({
     [mqContains, mqRequeueItemFront]
   )
 
+  const queueWaitingForSetup =
+    isActive &&
+    msgQueueLength > 0 &&
+    !msgQueueHeadBlocked &&
+    mqEditingItemId == null &&
+    connStatus !== "prompting" &&
+    (!connectionReady || !selectedModelReady)
+  useEffect(() => {
+    if (!queueWaitingForSetup) return
+    const timer = setTimeout(() => {
+      reportSendEvent("queue_stalled", dbConversationId ?? undefined)
+      toast.info(tAgentInput("waitingForSetup"))
+    }, QUEUE_SETUP_NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [queueWaitingForSetup, dbConversationId, tAgentInput])
+
   const handleSendAgentInputNow = useCallback(
     (id: string) => {
       const conversationId = dbConvIdRef.current
@@ -2340,7 +2369,17 @@ const ConversationTabView = memo(function ConversationTabView({
         setSideOpen(true)
         return false
       }
+      if (!fromQueueFlush && canResumeOffline) {
+        mqEnqueue(draft, selectedModeIdArg ?? null)
+        setHasSentMessage(true)
+        reportSendEvent("offline", dbConvIdRef.current ?? undefined)
+        void reconnect().catch((error: unknown) => {
+          toast.error(toErrorMessage(error))
+        })
+        return true
+      }
       if (!ensureSelectedModelReady()) {
+        reportSendEvent("config_wait", dbConvIdRef.current ?? undefined)
         const modelFailed =
           failedModel === draftConfigValues.model || draftModelUnavailable
         if (fromQueueFlush && opts?.queuedMessage) {
@@ -2424,7 +2463,7 @@ const ConversationTabView = memo(function ConversationTabView({
         )
       ) {
         toast.error(tWelcome("enableAgentFirstPlaceholder"))
-        return
+        return false
       }
       if (shouldQueueBeforeConnection(connectionReady, fromQueueFlush)) {
         const pending =
@@ -2509,7 +2548,10 @@ const ConversationTabView = memo(function ConversationTabView({
           createConversationPendingRef.current
         )
       ) {
-        return
+        if (fromQueueFlush && opts?.queuedMessage) {
+          mqRequeueItemFront(opts.queuedMessage)
+        }
+        return false
       }
 
       const optimisticTurn = buildOptimisticUserTurnFromDraft(
@@ -2814,6 +2856,8 @@ const ConversationTabView = memo(function ConversationTabView({
       agentsLoaded,
       connectionReady,
       effectiveConversationId,
+      canResumeOffline,
+      reconnect,
       ensureConnected,
       ensureSelectedModelReady,
       contextWindowPending,
@@ -3601,6 +3645,7 @@ const ConversationTabView = memo(function ConversationTabView({
       runtimeConnectionId={conn.connectionId}
       conversationId={effectiveConversationId}
       shareConversationId={dbConversationId}
+      canResumeOffline={canResumeOffline}
       onReconnect={reconnect}
       onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
       sideInject={sideInject}
