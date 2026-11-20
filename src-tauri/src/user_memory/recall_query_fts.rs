@@ -9,6 +9,12 @@ use super::recall_validity::{push_query_at, valid_at_sql};
 
 const FTS_SCAN_LIMIT: usize = MAX_LANE_CANDIDATES * 4;
 const MAX_CJK_TRIGRAMS: usize = 24;
+/// 内嵌英文词的最短长度，更短的片段噪声明显。
+const MIN_EMBEDDED_WORD_CHARS: usize = 3;
+const MAX_EMBEDDED_WORDS: usize = 12;
+/// 超过该长度的查询多为粘贴的日志或文档，抽词只会引入噪声。
+const MAX_EMBEDDED_WORD_QUERY_CHARS: usize = 128;
+const EMBEDDED_WORD_STOPLIST: [&str; 4] = ["http", "https", "www", "com"];
 
 pub(super) struct FtsQuery<'a> {
     pub query: &'a str,
@@ -164,27 +170,72 @@ fn fts_lane_name(table: &'static str) -> &'static str {
 }
 
 fn fts_queries(query: &str, minimum_token_chars: usize) -> Option<FtsMatchQueries> {
-    let tokens = query
+    let raw_tokens = query
         .split_whitespace()
         .filter(|token| token.chars().count() >= minimum_token_chars)
-        .map(|token| format!("\"{}\"", token.replace('"', " ")))
         .collect::<Vec<_>>();
-    let cjk_ngrams = if minimum_token_chars == 3 {
-        cjk_trigrams(query)
-    } else {
-        Vec::new()
-    };
-    let fallback = if cjk_ngrams.is_empty() {
-        (tokens.len() > 1).then(|| tokens.join(" OR "))
-    } else {
-        let mut variants = tokens.clone();
-        variants.extend(cjk_ngrams.into_iter().map(|token| format!("\"{token}\"")));
-        Some(variants.join(" OR "))
-    };
-    (!tokens.is_empty()).then(|| FtsMatchQueries {
-        primary: tokens.join(" "),
-        fallback,
-    })
+    if raw_tokens.is_empty() {
+        return None;
+    }
+    let mut variants = raw_tokens
+        .iter()
+        .map(|token| quote_fts_term(token))
+        .collect::<Vec<_>>();
+    let primary = variants.join(" ");
+    let embedded_words = embedded_ascii_words(query, minimum_token_chars);
+    variants.extend(
+        embedded_words
+            .iter()
+            .filter(|word| {
+                !raw_tokens
+                    .iter()
+                    .any(|token| token.eq_ignore_ascii_case(word))
+            })
+            .map(|word| quote_fts_term(word)),
+    );
+    if minimum_token_chars == 3 {
+        variants.extend(cjk_trigrams(query).iter().map(|gram| quote_fts_term(gram)));
+    }
+    // 仅有单个原始 token 且没有扩展词时，fallback 与 primary 等价，无需重复查询。
+    let fallback = (variants.len() > 1).then(|| variants.join(" OR "));
+    Some(FtsMatchQueries { primary, fallback })
+}
+
+fn quote_fts_term(term: &str) -> String {
+    format!("\"{}\"", term.replace('"', " "))
+}
+
+/// 抽取中文 token 内嵌的英文词：unicode61 会把相连的中英文当成一个 token，
+/// 例如“用dbx去操作”中的 dbx 无法单独匹配，需要拆出来参与 fallback。
+fn embedded_ascii_words(query: &str, minimum_token_chars: usize) -> Vec<String> {
+    let mut words = Vec::new();
+    if query.chars().count() > MAX_EMBEDDED_WORD_QUERY_CHARS {
+        return words;
+    }
+    let minimum_chars = MIN_EMBEDDED_WORD_CHARS.max(minimum_token_chars);
+    let pieces = query
+        .split_whitespace()
+        .filter(|token| token.chars().any(is_cjk))
+        .flat_map(|token| token.split(|character: char| !is_embedded_word_char(character)));
+    for piece in pieces {
+        let word = piece.trim_matches(['_', '-']).to_ascii_lowercase();
+        if word.len() < minimum_chars || is_noise_word(&word) || words.contains(&word) {
+            continue;
+        }
+        words.push(word);
+        if words.len() >= MAX_EMBEDDED_WORDS {
+            break;
+        }
+    }
+    words
+}
+
+fn is_embedded_word_char(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+}
+
+fn is_noise_word(word: &str) -> bool {
+    word.bytes().all(|byte| byte.is_ascii_digit()) || EMBEDDED_WORD_STOPLIST.contains(&word)
 }
 
 fn cjk_trigrams(query: &str) -> Vec<String> {
