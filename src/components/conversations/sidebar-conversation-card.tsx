@@ -368,10 +368,13 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                       className="relative inline-flex shrink-0 items-center justify-center"
                       title={tSidebar("statusRunningBadge")}
                     >
-                      <Loader2
-                        className="h-3.5 w-3.5 animate-spin text-amber-600 dark:text-amber-400"
-                        aria-hidden
-                      />
+                      {/* 由外层 span 承担旋转，避免直接对 SVG 做变换动画。 */}
+                      <span className="inline-flex animate-spin" aria-hidden>
+                        <Loader2
+                          className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400"
+                          aria-hidden
+                        />
+                      </span>
                       <span className="sr-only">
                         {tSidebar("statusRunningBadge")}
                       </span>

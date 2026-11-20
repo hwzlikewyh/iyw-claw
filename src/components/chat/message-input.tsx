@@ -109,6 +109,7 @@ import {
   imageFilesFromClipboardApi,
 } from "@/lib/clipboard-images"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
+import { useWindowShown } from "@/hooks/use-window-shown"
 import {
   isMessageQueueBehavior,
   type MessageQueueBehavior,
@@ -1037,7 +1038,10 @@ export function MessageInput({
   const resolvedPlaceholder = sendPending
     ? t("conversationStarting")
     : (placeholder ?? t("askAnything"))
-  const showPlaceholderActivity = sendPending || animatePlaceholder
+  // 窗口最小化或隐藏时停掉占位文字的流光动画，恢复后照常播放。
+  const windowShown = useWindowShown()
+  const showPlaceholderActivity =
+    (sendPending || animatePlaceholder) && windowShown
   const composerMutationVersionRef = useRef(0)
   const programmaticResetRef = useRef(false)
   const setAttachments = useCallback(
