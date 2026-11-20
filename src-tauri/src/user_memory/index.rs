@@ -9,8 +9,9 @@ use super::index_checkpoint::{
 };
 use super::index_fts::{rebuild_fts, FtsLane};
 use super::index_integrity::{validate_current_rows, validate_snapshot_identities};
-use super::index_parse::{build_index_snapshot, source_digest};
+use super::index_parse::build_index_snapshot;
 use super::index_types::{IndexItem, IndexRelation, IndexSnapshot};
+use super::source_digest_cache::AuthorityIdentity;
 use super::UserMemoryService;
 
 impl UserMemoryService {
@@ -142,22 +143,24 @@ impl UserMemoryService {
     /// Read the source digest without taking the writer lock. Canonical files
     /// and candidate state are replaced atomically, so a lock-free snapshot is
     /// safe for deciding whether an already-published index can serve recall.
+    /// 权威快照未变时直接复用缓存的摘要，不再加载和校验完整快照。
     pub(crate) async fn read_index_source_digest_fast(&self) -> Result<String, AppCommandError> {
+        if let Some(digest) = self.cached_fast_source_digest().await {
+            return Ok(digest);
+        }
         let snapshot = super::authority_sql::load(&self.db, &self.authority_key()?).await?;
         super::authority_export::validate_marker(self.resolved_root()?, snapshot.as_ref())?;
+        let identity = AuthorityIdentity::of_active(snapshot.as_ref());
         let mut service = self.clone();
         service.authority = std::sync::Arc::new(std::sync::RwLock::new(snapshot));
         let policy = service.load_policy_unrecovered().await?;
-        tokio::task::spawn_blocking(move || {
-            let settings = super::index_source::readonly_snapshot(&service, &policy)?;
-            let candidates = service.read_learning_optional()?;
-            Ok(service.scoped_source_digest(&source_digest(&settings, candidates.as_ref())))
-        })
-        .await
-        .map_err(|error| {
-            AppCommandError::task_execution_failed("User memory fast source read task failed")
-                .with_detail(error.to_string())
-        })?
+        let computed = tokio::task::spawn_blocking(move || service.compute_source_digest(&policy))
+            .await
+            .map_err(|error| {
+                AppCommandError::task_execution_failed("User memory fast source read task failed")
+                    .with_detail(error.to_string())
+            })??;
+        Ok(self.remember_source_digest(identity, computed))
     }
 
     pub(super) async fn read_index_source_with<T, F>(

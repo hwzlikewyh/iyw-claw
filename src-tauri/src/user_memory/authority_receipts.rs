@@ -30,16 +30,11 @@ impl UserMemoryService {
         result: &UserMemoryRecallResult,
     ) -> Result<Vec<MemoryRecallVersion>, AppCommandError> {
         let (_guard, _file) = self.acquire_locks().await?;
-        if self.active_authority().is_none() || result.items.is_empty() {
+        let identity = self.loaded_authority_identity();
+        let Some(identity) = identity.filter(|_| !result.items.is_empty()) else {
             return Ok(Vec::new());
-        }
-        let policy = self.load_policy_unrecovered().await?;
-        let settings = super::index_source::readonly_snapshot(self, &policy)?;
-        let learning = self.read_learning_optional()?;
-        let digest = self.scoped_source_digest(&super::index_parse::source_digest(
-            &settings,
-            learning.as_ref(),
-        ));
+        };
+        let digest = self.loaded_source_digest(identity).await?;
         if result.source_digest.as_deref() != Some(&digest) {
             return Err(super::helpers::conflict(
                 "Recalled memory changed before version capture",

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tokio::sync::RwLock;
 
@@ -14,7 +15,12 @@ const PREFETCH_LIMIT: usize = 3;
 const MIN_TASK_CHARS: usize = 2;
 const MAX_HINT_CHARS: usize = 2_400;
 const MAX_MEMORY_ITEM_CHARS: usize = 400;
-const PREFETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(50);
+// 总预算须不小于内层本地召回超时（user_memory::recall 的 100 ms）加版本捕获余量，
+// 否则召回刚完成就会被外层超时丢弃。
+const LOCAL_RECALL_BUDGET_MS: u64 = 100;
+const VERSION_CAPTURE_BUDGET_MS: u64 = 50;
+const PREFETCH_BUDGET: Duration =
+    Duration::from_millis(LOCAL_RECALL_BUDGET_MS + VERSION_CAPTURE_BUDGET_MS);
 const CONTEXT_OVERFLOW: &str = "Initial memory matches exceeded the context budget. Use the advertised recall tool with a focused query when relevant.";
 
 pub(super) struct PreparedMemory {
@@ -52,11 +58,15 @@ pub(super) async fn prepare(
     state: &Arc<RwLock<SessionState>>,
     blocks: &[PromptInputBlock],
 ) -> Option<PreparedMemory> {
+    let started = Instant::now();
     match tokio::time::timeout(PREFETCH_BUDGET, prepare_inner(service, state, blocks)).await {
         Ok(memory) => memory,
         Err(_) => {
-            tracing::info!(budget_ms = PREFETCH_BUDGET.as_millis(),
-                "[memory-context] optional prefetch deferred; prompt continues");
+            tracing::info!(
+                budget_ms = PREFETCH_BUDGET.as_millis(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[memory-context] optional prefetch deferred; prompt continues"
+            );
             None
         }
     }
@@ -118,29 +128,21 @@ async fn prepare_recalled_memory(
     let scope = UserMemoryRecallScope::from_workspace_key(
         crate::commands::skill_inventory::workspace_key(Some(&workspace)),
     );
-    let result = service
-        .recall_prefetch(
-            UserMemoryRecallRequest {
-                query,
-                limit: Some(PREFETCH_LIMIT),
-            },
-            scope,
-        )
-        .await;
+    let request = UserMemoryRecallRequest {
+        query,
+        limit: Some(PREFETCH_LIMIT),
+    };
+    let started = Instant::now();
+    let result = service.recall_prefetch(request, scope).await;
+    let recall_ms = started.elapsed().as_millis();
     let mut versions = Vec::new();
     let rendered = match result {
         Ok(result) => {
-            versions = match service.recalled_versions(&result).await {
-                Ok(versions) => versions,
-                Err(error) => {
-                    tracing::warn!(code = ?error.code, "[memory-context] recalled versions changed before launch");
-                    return None;
-                }
-            };
+            versions = capture_versions(service, &result, recall_ms).await?;
             render_result(result)
         }
         Err(error) => {
-            tracing::warn!(code = ?error.code, "[memory-context] initial recall unavailable");
+            tracing::warn!(code = ?error.code, recall_ms, "[memory-context] initial recall unavailable");
             "Initial memory recall was unavailable. Continue using current evidence; do not infer that no memory exists.".to_string()
         }
     };
@@ -153,6 +155,42 @@ async fn prepare_recalled_memory(
         versions,
         service: service.clone(),
     })
+}
+
+async fn capture_versions(
+    service: &Arc<UserMemoryService>,
+    result: &UserMemoryRecallResult,
+    recall_ms: u128,
+) -> Option<Vec<crate::user_memory::MemoryRecallVersion>> {
+    let started = Instant::now();
+    let captured = service.recalled_versions(result).await;
+    let versions_ms = started.elapsed().as_millis();
+    let outcome = match &captured {
+        Ok(_) => recall_state_label(result.result_state),
+        Err(_) => "versions_error",
+    };
+    tracing::info!(
+        outcome,
+        recall_ms,
+        versions_ms,
+        item_count = result.items.len(),
+        "[memory-context] prefetch completed"
+    );
+    match captured {
+        Ok(versions) => Some(versions),
+        Err(error) => {
+            tracing::warn!(code = ?error.code, "[memory-context] recalled versions changed before launch");
+            None
+        }
+    }
+}
+
+fn recall_state_label(state: UserMemoryRecallState) -> &'static str {
+    match state {
+        UserMemoryRecallState::Matched => "matched",
+        UserMemoryRecallState::NoEvidence => "no_evidence",
+        UserMemoryRecallState::Unavailable => "unavailable",
+    }
 }
 
 fn is_continuation_query(query: &str) -> bool {
@@ -212,11 +250,7 @@ fn render_result(result: UserMemoryRecallResult) -> String {
         reason_codes = ?result.reason_codes,
         "[memory-context] initial recall completed"
     );
-    let state = match result.result_state {
-        UserMemoryRecallState::Matched => "matched",
-        UserMemoryRecallState::NoEvidence => "no_evidence",
-        UserMemoryRecallState::Unavailable => "unavailable",
-    };
+    let state = recall_state_label(result.result_state);
     let items = if result.result_state == UserMemoryRecallState::Matched {
         result
             .items

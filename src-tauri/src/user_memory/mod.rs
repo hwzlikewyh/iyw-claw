@@ -125,6 +125,7 @@ mod semantic_rerank;
 mod semantic_settings;
 mod service;
 mod settings_projection;
+mod source_digest_cache;
 mod store;
 mod structured_file;
 mod task_history_store;

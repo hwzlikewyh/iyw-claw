@@ -48,6 +48,7 @@ pub struct UserMemoryService {
     pub(super) foreground: tokio::sync::watch::Sender<usize>,
     pub(super) maintenance: Arc<super::maintenance::MaintenanceRuntime>,
     pub(super) authority: Arc<RwLock<Option<super::authority_types::AuthoritySnapshot>>>,
+    pub(super) source_digest_cache: super::source_digest_cache::SourceDigestCache,
 }
 
 pub(crate) struct UserMemoryBackupGuard {
@@ -94,6 +95,7 @@ impl UserMemoryService {
             foreground: tokio::sync::watch::channel(0).0,
             maintenance: Arc::new(super::maintenance::MaintenanceRuntime::default()),
             authority: Arc::new(RwLock::new(None)),
+            source_digest_cache: Default::default(),
         }
     }
 
