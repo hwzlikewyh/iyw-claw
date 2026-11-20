@@ -6,9 +6,12 @@ use crate::context::NodeReplReviewEvidence;
 use crate::context::NodeReplReviewEvidenceMode;
 use crate::context::node_repl_review_evidence_mode;
 use crate::function_tool::FunctionCallError;
+use crate::image_preparation::prompt_image_decoder;
+use crate::mcp_tool_call::CompletedMcpToolCall;
 use crate::mcp_tool_call::handle_mcp_tool_call;
 use crate::original_image_detail::can_request_original_image_detail;
 use crate::session::session::Session;
+use crate::tools::context::AbortedToolOutput;
 use crate::tools::context::McpToolOutput;
 use crate::tools::context::ToolCallSource;
 use crate::tools::context::ToolEnvironments;
@@ -26,6 +29,7 @@ use crate::tools::registry::PreToolUsePayload;
 use crate::tools::registry::ToolExecutor;
 use crate::tools::registry::ToolTelemetryTags;
 use codex_extension_api::McpToolContext;
+use codex_mcp::McpServerExposure;
 use codex_mcp::ToolInfo;
 use codex_protocol::mcp::is_node_repl_backed_connector;
 use codex_protocol::user_input::UserInput;
@@ -52,6 +56,7 @@ const MAX_MCP_NAMESPACE_DESCRIPTION_BYTES: usize = 512 * 1024;
 
 /// Immutable tool metadata and normalized schema, shared only within an MCP manager.
 pub(crate) struct McpHandlerDefinition {
+    exposure: McpServerExposure,
     tool_info: ToolInfo,
     agent_plugin: bool,
     schema_max_bytes: Option<usize>,
@@ -63,6 +68,7 @@ impl McpHandlerDefinition {
         tool_info: ToolInfo,
         agent_plugin: bool,
         schema_max_bytes: Option<usize>,
+        exposure: McpServerExposure,
     ) -> Result<Self, serde_json::Error> {
         let spec = Arc::new(create_tool_spec(
             &tool_info,
@@ -70,6 +76,7 @@ impl McpHandlerDefinition {
             schema_max_bytes,
         )?);
         Ok(Self {
+            exposure,
             tool_info,
             agent_plugin,
             schema_max_bytes,
@@ -82,15 +89,17 @@ impl McpHandlerDefinition {
         tool_info: &ToolInfo,
         agent_plugin: bool,
         schema_max_bytes: Option<usize>,
+        exposure: McpServerExposure,
     ) -> bool {
         self.tool_info == *tool_info
+            && self.exposure == exposure
             && self.agent_plugin == agent_plugin
             && self.schema_max_bytes == schema_max_bytes
     }
 }
 
 pub struct McpHandler {
-    definition: Arc<McpHandlerDefinition>,
+    pub(crate) definition: Arc<McpHandlerDefinition>,
     code_mode_tool_definitions: OnceLock<(Option<usize>, Vec<codex_code_mode::ToolDefinition>)>,
 }
 
@@ -171,7 +180,17 @@ impl ToolExecutor<ToolInvocation> for McpHandler {
             .as_deref()
             .map(str::trim)
             .filter(|connector_name| !connector_name.is_empty())
-            .unwrap_or_else(|| self.definition.tool_info.server_name.trim());
+            .unwrap_or_else(|| self.definition.tool_info.server_name().trim());
+        let source_name = if self
+            .definition
+            .exposure
+            .environment_id(self.definition.tool_info.server_key())
+            .is_some()
+        {
+            self.definition.tool_info.callable_namespace.as_str()
+        } else {
+            source_name
+        };
         let source_info = (!source_name.is_empty()).then(|| ToolSearchSourceInfo {
             name: source_name.to_string(),
             description: effective_namespace_description(
@@ -271,18 +290,25 @@ impl McpHandler {
         ))
         .await;
 
+        let (result, tool_input) = match result {
+            Ok(CompletedMcpToolCall { result, tool_input }) => (result, tool_input),
+            Err(FunctionCallError::RespondToModel(message)) => {
+                return Ok(boxed_tool_output(AbortedToolOutput { message }));
+            }
+            Err(error) => return Err(error),
+        };
         let mut model_result = if matches!(&source, ToolCallSource::CodeMode { .. }) {
             None
         } else {
             super::super::mcp_output_preview::prepare(
-                &result.result,
+                &result,
                 &step_context,
                 truncation_policy,
             )
             .await
         };
         let mut native_image_items = Vec::new();
-        if result.result.success()
+        if result.success()
             && matches!(
                 &source,
                 ToolCallSource::Direct | ToolCallSource::DirectPlaintextMessage
@@ -290,22 +316,22 @@ impl McpHandler {
         {
             for (environment, _) in step_context.environments() {
                 let capture =
-                    managed_output_images::capture_mcp_result(&result.result, environment).await;
+                    managed_output_images::capture_mcp_result(&result, environment).await;
                 if capture.is_empty() {
                     continue;
                 }
-                let mut presented = model_result.take().unwrap_or_else(|| result.result.clone());
-                capture.append_context_to_mcp_result(&mut presented, &result.result);
+                let mut presented = model_result.take().unwrap_or_else(|| result.clone());
+                capture.append_context_to_mcp_result(&mut presented, &result);
                 native_image_items = capture.into_function_output_items();
                 model_result = Some(presented);
                 break;
             }
         }
         Ok(boxed_tool_output(McpToolOutput {
-            result: result.result,
+            result,
             model_result,
             native_image_items,
-            tool_input: result.tool_input,
+            tool_input,
             result_metadata_capture_allowed,
             wall_time: started.elapsed(),
             original_image_detail_supported: can_request_original_image_detail(
@@ -321,13 +347,13 @@ impl CoreToolRuntime for McpHandler {
         &self,
         invocation: &ToolInvocation,
     ) -> Result<ToolEnvironments, FunctionCallError> {
-        let server = &self.tool_info().server_name;
+        let server = self.tool_info().server_name();
         Ok(ToolEnvironments::Mcp {
-            server: Some(server.clone()),
+            server: Some(server.to_owned()),
             owner: invocation
                 .step_context
                 .mcp
-                .server_environment_id(server)
+                .server_environment_id(self.tool_info().server_key())
                 .map(str::to_owned),
         })
     }
@@ -357,7 +383,7 @@ impl CoreToolRuntime for McpHandler {
     fn wait_until_ready<'a>(&'a self, session: &'a Arc<Session>) -> Option<BoxFuture<'a, ()>> {
         Some(Box::pin(async move {
             session
-                .wait_for_mcp_server(&self.definition.tool_info.server_name)
+                .wait_for_mcp_server(self.definition.tool_info.server_key())
                 .await;
         }))
     }
@@ -387,7 +413,7 @@ impl CoreToolRuntime for McpHandler {
             .get::<NodeReplReviewEvidence>()
             .is_some_and(|evidence| evidence.image_capture_enabled());
         if !is_node_repl_backed_connector(
-            &self.definition.tool_info.server_name,
+            self.definition.tool_info.server_name(),
             self.definition.tool_info.connector_id.as_deref(),
         ) || !result.success_for_logging()
             || evidence_mode == NodeReplReviewEvidenceMode::Disabled && !image_capture_enabled
@@ -405,6 +431,7 @@ impl CoreToolRuntime for McpHandler {
                 .and_then(Value::as_bool)
                 == Some(true)
         };
+        let decoder = prompt_image_decoder(&invocation.turn.config.features);
         let mut captured_image_bytes = 0_usize;
         let mut items = content
             .iter()
@@ -448,8 +475,12 @@ impl CoreToolRuntime for McpHandler {
                             .and_then(|detail| serde_json::from_value(detail.clone()).ok());
                         let image_url =
                             format!("data:{};base64,{payload}", mime_type.to_ascii_lowercase());
-                        load_data_url_for_prompt_uncached(&image_url, PromptImageMode::Original)
-                            .ok()?;
+                        load_data_url_for_prompt_uncached(
+                            &image_url,
+                            PromptImageMode::Original,
+                            decoder,
+                        )
+                        .ok()?;
                         captured_image_bytes = next_image_bytes;
                         Some(UserInput::Image {
                             image: codex_protocol::models::ImageReference::Inline { image_url },
@@ -484,7 +515,8 @@ impl CoreToolRuntime for McpHandler {
             .record(
                 &format!(
                     "{}.{}",
-                    self.definition.tool_info.server_name, self.definition.tool_info.tool.name
+                    self.definition.tool_info.server_name(),
+                    self.definition.tool_info.tool.name
                 ),
                 cell_id,
                 &invocation.call_id,
@@ -493,7 +525,10 @@ impl CoreToolRuntime for McpHandler {
     }
 
     fn telemetry_tags(&self, _invocation: &ToolInvocation) -> ToolTelemetryTags {
-        let mut tags = vec![("mcp_server", self.definition.tool_info.server_name.clone())];
+        let mut tags = vec![(
+            "mcp_server",
+            self.definition.tool_info.server_name().to_owned(),
+        )];
         if let Some(origin) = &self.definition.tool_info.server_origin {
             tags.push(("mcp_server_origin", origin.clone()));
         }
@@ -621,7 +656,7 @@ fn build_mcp_search_text(info: &ToolInfo, agent_plugin: bool) -> String {
         flat_tool_name(&tool_name).into_owned(),
         info.callable_name.clone(),
         info.tool.name.to_string(),
-        info.server_name.clone(),
+        info.server_name().to_owned(),
     ];
     if let Some(title) = info.tool.title.as_deref().map(str::trim)
         && !title.is_empty()

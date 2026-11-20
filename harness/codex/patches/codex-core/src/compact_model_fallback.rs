@@ -50,7 +50,7 @@ fn may_use_current_model(error: &CodexErr, previous: &TurnContext, current: &Tur
     {
         return false;
     }
-    if matches!(
+    if crate::responses_retry::is_terminal_sampling_outcome(error) || matches!(
         error.details(),
         CodexErrorDetails::TurnAborted
             | CodexErrorDetails::Interrupted

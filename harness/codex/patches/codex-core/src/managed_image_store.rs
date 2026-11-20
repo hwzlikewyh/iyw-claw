@@ -181,12 +181,15 @@ impl ManagedImageStore {
         &self,
         request: UploadRequest,
     ) -> Result<UploadResult, AttachmentStoreError> {
-        let Some(mime_type) = image_mime(&request.data) else {
+        let codex_attachment_store::UploadContent::Image { data, .. } = &request.content else {
             return self.fallback.upload(request).await;
         };
-        let digest = format!("{:x}", Sha256::digest(&request.data));
+        let Some(mime_type) = image_mime(data) else {
+            return self.fallback.upload(request).await;
+        };
+        let digest = format!("{:x}", Sha256::digest(data));
         let started = std::time::Instant::now();
-        let Some(response) = self.prepare_upload(&request, (&digest, mime_type)).await? else {
+        let Some(response) = self.prepare_upload(data, (&digest, mime_type)).await? else {
             return self.fallback.upload(request).await;
         };
         let id = response
@@ -195,14 +198,14 @@ impl ManagedImageStore {
         if !response.found
             || response.sha256.as_deref() != Some(&digest)
             || response.mime_type.as_deref() != Some(mime_type)
-            || response.size_bytes != Some(request.data.len() as u64)
+            || response.size_bytes != Some(data.len() as u64)
             || id.is_none()
         {
             return Err(backend_error(
                 "image resource identity did not match uploaded content",
             ));
         }
-        tracing::info!(thread_id = %request.thread_id, bytes = request.data.len(),
+        tracing::info!(thread_id = %request.thread_id, bytes = data.len(),
             elapsed_ms = started.elapsed().as_millis(),
             local_gateway = upload::is_local_image_gateway(&self.url),
             "managed image resource prepared for durable history");

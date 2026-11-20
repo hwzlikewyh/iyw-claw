@@ -1,3 +1,4 @@
+use crate::McpServerKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -11,12 +12,12 @@ use crate::tools::filter_tools;
 impl McpConnectionSet {
     pub(crate) async fn inspect_catalog(
         &self,
-        matching: &HashSet<String>,
+        matching: &HashSet<McpServerKey>,
     ) -> (
-        HashMap<String, McpServerInfo>,
+        HashMap<McpServerKey, McpServerInfo>,
         Vec<ToolInfo>,
-        HashMap<String, String>,
-        HashMap<String, Arc<serde_json::Value>>,
+        HashMap<McpServerKey, String>,
+        HashMap<McpServerKey, Arc<serde_json::Value>>,
     ) {
         let mut infos = HashMap::new();
         let mut tools = Vec::new();
@@ -47,7 +48,7 @@ impl McpConnectionSet {
         (infos, tools, errors, tool_list_meta)
     }
 
-    pub(crate) fn has_ready_client(&self, name: &str) -> bool {
+    pub(crate) fn has_ready_client(&self, name: &McpServerKey) -> bool {
         self.servers
             .get(name)
             .is_some_and(|view| view.connection.client.ready_client().is_some())

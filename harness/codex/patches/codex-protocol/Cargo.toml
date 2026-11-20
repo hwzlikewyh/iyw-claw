@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-protocol"
-version = "0.169.0"
+version = "0.171.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -21,43 +21,47 @@ features = [ "serde",]
 
 [dependencies.codex-async-utils]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-execpolicy]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-image]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
+
+[dependencies.codex-utils-model-facing-id]
+git = "https://github.com/openai/codex.git"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-redacted-string]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-string]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.derive_more]
 version = "2"

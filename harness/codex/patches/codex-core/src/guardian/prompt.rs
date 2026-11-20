@@ -3,15 +3,14 @@ use codex_guardian_context::CollectedContext;
 use codex_guardian_context::ContextProfile;
 
 use codex_guardian_context::GuardianRootMessage;
-use codex_guardian_context::PlannedAction;
 use codex_guardian_context::SectionError;
 use codex_guardian_context::SectionHistory;
 use codex_guardian_context::SectionInput;
+use codex_guardian_context::SelectedExecOutputPredicate;
 pub(crate) use codex_guardian_context::TranscriptMode as GuardianPromptMode;
 use codex_guardian_context::default_registry;
 use codex_protocol::models::ResponseItem;
 
-use crate::context::GuardianPermissionContext;
 use crate::context::NodeReplReviewEvidence;
 use crate::context::NodeReplReviewEvidenceMode;
 use crate::context::is_guardian_context_message;
@@ -45,7 +44,6 @@ pub(crate) enum GuardianTranscriptHistory<'a> {
 pub(super) struct CollectedGuardianPrompt {
     pub(super) sections: CollectedContext,
     pub(super) profile: ContextProfile,
-    pub(super) mode: GuardianPromptMode,
     pub(super) history_version: u64,
     pub(super) session_id: String,
     pub(super) node_repl_evidence_sequence: u64,
@@ -57,7 +55,7 @@ pub(super) async fn collect_guardian_prompt_items_with_parent_turn(
     parent_context: Option<&GuardianReviewContext>,
     reasons: ApprovalRequestReasons,
     request: GuardianApprovalRequest,
-    mode: GuardianPromptMode,
+    is_selected_exec_output: Option<&SelectedExecOutputPredicate<'_>>,
     reviewed_node_repl_evidence_sequence: u64,
 ) -> anyhow::Result<CollectedGuardianPrompt> {
     let (history, use_parent_checkpoint) = match transcript_history {
@@ -88,6 +86,7 @@ pub(super) async fn collect_guardian_prompt_items_with_parent_turn(
     let planned_action = codex_guardian_reviewer::build_guardian_planned_action(
         &request,
         reasons.retry.or(reasons.approval),
+        parent_context.and_then(|context| context.enclosing_invocation_id.as_deref()),
     )?;
     let permissions = super::permissions::for_request(&request, parent_context)?;
     let node_repl_snapshot = if node_repl_transcripts_enabled {
@@ -127,22 +126,28 @@ pub(super) async fn collect_guardian_prompt_items_with_parent_turn(
         Some(context) => context.turn().config.guardian_transcript_mode,
         None => config.guardian_transcript_mode,
     };
-    let sections = collect_guardian_context(
-        &GuardianReviewHistory {
+    let sections = collect_guardian_context(SectionInput {
+        target: profile.target,
+        history: &GuardianReviewHistory {
             history,
             use_parent_checkpoint,
         },
-        &profile,
-        root_authorization.as_ref(),
-        &trusted_user_inputs,
-        Some(&planned_action),
-        permissions.as_ref(),
-        node_repl_context.as_ref(),
-    )?;
+        transcript: &profile.transcript,
+        is_selected_exec_output,
+        root_conversation: &[],
+        root_conversation_candidates: root_authorization.as_ref(),
+        trusted_user_answers: &trusted_user_inputs,
+        planned_action: Some(&planned_action),
+        permissions: permissions.as_ref(),
+        previous_reviews: None,
+        trusted_tool: None,
+        trusted_skill_paths: &[],
+        images: None,
+        node_repl: node_repl_context.as_ref(),
+    })?;
     Ok(CollectedGuardianPrompt {
         sections,
         profile,
-        mode,
         history_version: if use_parent_checkpoint {
             history.history_version()
         } else {
@@ -164,28 +169,11 @@ pub(super) async fn collect_guardian_prompt_items_with_parent_turn(
 /// Per-entry truncation happens in sync preparation after cursor selection.
 /// The cursor counts every non-empty evidence entry.
 pub(super) fn collect_guardian_context(
-    history: &dyn SectionHistory,
-    profile: &ContextProfile,
-    root_conversation_candidates: Option<&codex_guardian_context::RootConversationInput>,
-    trusted_user_answers: &[codex_guardian_context::TrustedUserAnswer],
-    planned_action: Option<&PlannedAction>,
-    permissions: Option<&GuardianPermissionContext>,
-    node_repl: Option<&codex_guardian_context::NodeReplContext<'_>>,
+    input: SectionInput<'_>,
 ) -> Result<CollectedContext, SectionError> {
     default_registry().prepare(&SectionInput {
-        target: profile.target,
-        history: &FilteredGuardianHistory(history),
-        transcript: &profile.transcript,
-        root_conversation: &[],
-        root_conversation_candidates,
-        trusted_user_answers,
-        planned_action,
-        permissions,
-        previous_reviews: None,
-        trusted_tool: None,
-        trusted_skill_paths: &[],
-        images: None,
-        node_repl,
+        history: &FilteredGuardianHistory(input.history),
+        ..input
     })
 }
 

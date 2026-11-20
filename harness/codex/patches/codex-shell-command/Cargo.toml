@@ -1,6 +1,6 @@
 [package]
 name = "codex-shell-command"
-version = "0.169.0"
+version = "0.171.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -12,11 +12,11 @@ version = "0.22.1"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.libc]
 version = "0.2.182"

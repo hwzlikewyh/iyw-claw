@@ -236,18 +236,30 @@ pub(crate) async fn sync_remote_installed_plugin_bundles_once_with_snapshot(
         if let Some(release_version) = release_version
             && store.active_plugin_version(&plugin_id).as_deref() == Some(release_version)
         {
-            if let Err(err) = store.write_remote_plugin_id(&plugin_id, &plugin.id) {
-                warn!(
-                    remote_plugin_id = %plugin.id,
-                    plugin = %plugin.name,
-                    marketplace = %marketplace_name,
-                    error = %err,
-                    "failed to persist identity for cached remote installed plugin"
-                );
-                failed_remote_plugin_ids.insert(plugin.id);
+            match store.remote_plugin_id(&plugin_id) {
+                Ok(Some(id)) if id == plugin.id => {
+                    installed_plugins.push(cached_plugin);
+                    continue;
+                }
+                // Preserve migration of older caches that predate remote install receipts.
+                Ok(None) => {
+                    if let Err(err) = store.write_remote_plugin_id(&plugin_id, &plugin.id) {
+                        warn!(
+                            remote_plugin_id = %plugin.id,
+                            plugin = %plugin.name,
+                            marketplace = %marketplace_name,
+                            error = %err,
+                            "failed to persist identity for cached remote installed plugin"
+                        );
+                        failed_remote_plugin_ids.insert(plugin.id);
+                    }
+                    installed_plugins.push(cached_plugin);
+                    continue;
+                }
+                // A conflicting or unreadable receipt cannot establish ownership, even if
+                // the catalog advertises the same name and version. Install the package instead.
+                Ok(Some(_)) | Err(_) => {}
             }
-            installed_plugins.push(cached_plugin);
-            continue;
         }
 
         let bundle = match crate::remote_bundle::validate_remote_plugin_bundle(

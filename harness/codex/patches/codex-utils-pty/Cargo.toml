@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-utils-pty"
-version = "0.169.0"
+version = "0.171.0"
 
 [lib]
 doctest = false
@@ -35,3 +35,7 @@ features = [ "handleapi", "jobapi", "jobapi2", "libloaderapi", "minwinbase", "pr
 
 [target."cfg(unix)".dependencies.libc]
 version = "0.2.182"
+
+[target."cfg(unix)".dependencies.nix]
+version = "0.28"
+features = [ "fs", "user",]

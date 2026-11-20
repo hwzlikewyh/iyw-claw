@@ -1,7 +1,7 @@
 //! 进程网关已在upload内执行init查重，避免在前面重复访问Fusion。
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use codex_attachment_store::{AttachmentStoreError, UploadRequest};
+use codex_attachment_store::AttachmentStoreError;
 use serde_json::Value;
 use url::Url;
 
@@ -36,14 +36,14 @@ pub(super) fn is_local_image_gateway(raw: &str) -> bool {
 impl ManagedImageStore {
     pub(super) async fn prepare_upload(
         &self,
-        request: &UploadRequest,
+        data: &[u8],
         (digest, mime_type): (&str, &str),
     ) -> Result<Option<ImageResponse>, AttachmentStoreError> {
         let mut payload = serde_json::json!({"operation":"lookup", "model":self.model,
             "sha256":digest, "mime_type":mime_type});
         // 只在严格匹配的本地网关上发送字节；直连云端仍先查重以节省带宽。
         if is_local_image_gateway(&self.url) {
-            set_upload(&mut payload, &request.data);
+            set_upload(&mut payload, data);
             return self.request(&payload).await;
         }
         let Some(response) = self.request(&payload).await? else {
@@ -52,7 +52,7 @@ impl ManagedImageStore {
         if response.found {
             return Ok(Some(response));
         }
-        set_upload(&mut payload, &request.data);
+        set_upload(&mut payload, data);
         self.request(&payload).await
     }
 }

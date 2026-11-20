@@ -33,15 +33,18 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.169.0`. It recognizes the managed
+The current pin is `rust-v0.171.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
 does not grant experimental context-management availability.
 
-The official release was checked on 2026-11-17: the latest stable tag is
-`rust-v0.169.0`, published on 2026-11-13 UTC. Its tag object and source commit
-match `upstream.lock`; prereleases remain outside the synchronization policy.
+The 0.171.0 release was published on 2026-11-20 UTC. Its annotated tag and
+source commit are recorded in `upstream.lock`. The embedded runtime uses
+environment-scoped MCP identities and typed image and audio attachments.
+The image sanitizer uses its upstream-pinned decoder revision.
+
+https://github.com/openai/codex/releases/tag/rust-v0.171.0
 
 The 0.169.0 refresh keeps the in-process host, managed credentials, image
 references, MCP routing and Windows helpers while adopting the current app-server,
@@ -99,7 +102,7 @@ setup helper before application initialization. Official source:
 https://github.com/openai/codex/releases/tag/rust-v0.161.0
 
 Upgrade decisions and validation are recorded in
-[`docs/xinghe-upgrade-0.169.0.md`](../../docs/xinghe-upgrade-0.169.0.md).
+[`docs/xinghe-upgrade-0.171.0.md`](../../docs/xinghe-upgrade-0.171.0.md).
 
 Settings commands that change confirmed values wait for a matching
 `thread/settings/updated` notification;

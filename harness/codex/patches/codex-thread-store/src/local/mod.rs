@@ -174,8 +174,8 @@ struct LiveWriterLocks {
 
 #[derive(Default)]
 struct ThreadCoordination {
-    // Serialize writes and capture consistent fork snapshots.
-    writer: Arc<Mutex<()>>,
+    // Serializes writes and holds the next item ordinal observed in this writer’s rollout.
+    writer: Arc<Mutex<u64>>,
     // Forks hold a shared lease until their child reference is durable; deletion, archive, and
     // unarchive require exclusive access. Keeping this separate from `writer` lets the source
     // accept writes during child initialization, including MCP startup that can take 30 seconds.
@@ -193,7 +193,7 @@ impl LiveWriterLocks {
             .clone()
     }
 
-    async fn lock(&self, thread_id: ThreadId) -> OwnedMutexGuard<()> {
+    async fn lock(&self, thread_id: ThreadId) -> OwnedMutexGuard<u64> {
         self.coordination(thread_id)
             .await
             .writer
@@ -477,6 +477,14 @@ impl LocalThreadStore {
         thread_history::list_items(self, params).await
     }
 
+    /// Reads the independent realtime projection without starting a runtime.
+    pub async fn list_realtime(
+        &self,
+        params: crate::ListRealtimeParams,
+    ) -> ThreadStoreResult<crate::RealtimePage> {
+        thread_history::list_realtime(self, params).await
+    }
+
     /// Lists bounded ordinary and realtime items from the rollout projection.
     pub async fn list_timeline(
         &self,
@@ -495,6 +503,12 @@ impl LocalThreadStore {
 }
 
 impl ThreadStore for LocalThreadStore {
+    fn model_ids(&self) -> Option<Arc<dyn codex_state::SessionModelIdStore>> {
+        self.state_db
+            .clone()
+            .map(|db| db as Arc<dyn codex_state::SessionModelIdStore>)
+    }
+
     fn default_history_mode(&self) -> ThreadHistoryMode {
         ThreadHistoryMode::Paginated
     }
@@ -771,6 +785,10 @@ impl ThreadStore for LocalThreadStore {
         Box::pin(async move { projects::delete_project(self, project_id).await })
     }
 
+    fn realtime_frames_enabled(&self, _thread_id: ThreadId) -> ThreadStoreFuture<'_, bool> {
+        Box::pin(async { Ok(self.state_db.is_some()) })
+    }
+
     fn supports_paginated_history_lists(&self) -> bool {
         self.state_db.is_some()
     }
@@ -787,11 +805,28 @@ impl ThreadStore for LocalThreadStore {
         Box::pin(LocalThreadStore::list_timeline(self, params))
     }
 
+    fn list_realtime(
+        &self,
+        params: crate::ListRealtimeParams,
+    ) -> ThreadStoreFuture<'_, crate::RealtimePage> {
+        Box::pin(LocalThreadStore::list_realtime(self, params))
+    }
+
     fn search_threads(
         &self,
         params: SearchThreadsParams,
     ) -> ThreadStoreFuture<'_, ThreadSearchPage> {
         Box::pin(async move { search_threads::search_threads(self, params).await })
+    }
+
+    fn search_threads_observed(
+        &self,
+        params: SearchThreadsParams,
+        observer: crate::ThreadSearchObserver,
+    ) -> ThreadStoreFuture<'_, ThreadSearchPage> {
+        Box::pin(search_threads::search_threads_observed(
+            self, params, observer,
+        ))
     }
 
     fn search_thread_occurrences(

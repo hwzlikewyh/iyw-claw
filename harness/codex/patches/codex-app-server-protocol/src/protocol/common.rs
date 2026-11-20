@@ -863,6 +863,29 @@ client_request_definitions! {
         serialization: None,
         response: v2::ThreadSearchResponse,
     },
+    #[experimental("thread/search/stream")]
+    /// Search with best-effort incremental `thread/search/partial` notifications. The final
+    /// response is authoritative for results, ordering, and cursors.
+    ThreadSearchStream => "thread/search/stream" {
+        params: v2::ThreadSearchParams,
+        serialization: None,
+        manual_payload_conversion: manual,
+        response: v2::ThreadSearchResponse,
+    },
+    #[experimental("thread/search/cancel")]
+    ThreadSearchCancel => "thread/search/cancel" {
+        params: v2::ThreadSearchCancelParams,
+        serialization: None,
+        response: v2::ThreadSearchCancelResponse,
+    },
+    #[experimental("thread/search/stream/cancel")]
+    /// Cancel a `thread/search/stream` request on this connection.
+    ThreadSearchStreamCancel => "thread/search/stream/cancel" {
+        params: v2::ThreadSearchCancelParams,
+        serialization: None,
+        manual_payload_conversion: manual,
+        response: v2::ThreadSearchCancelResponse,
+    },
     #[experimental("thread/searchOccurrences")]
     ThreadSearchOccurrences => "thread/searchOccurrences" {
         params: v2::ThreadSearchOccurrencesParams,
@@ -1148,6 +1171,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadTimelineListResponse,
     },
+    #[experimental("thread/realtime/list")]
+    ThreadRealtimeList => "thread/realtime/list" {
+        params: v2::ThreadRealtimeListParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadRealtimeListResponse,
+    },
     #[experimental("thread/realtime/listVoices")]
     ThreadRealtimeListVoices => "thread/realtime/listVoices" {
         params: v2::ThreadRealtimeListVoicesParams,
@@ -1189,6 +1218,12 @@ client_request_definitions! {
         params: v2::ModelProviderConfigWriteParams,
         serialization: global("config"),
         response: v2::ModelProviderConfigWriteResponse,
+    },
+    ModelProviderDefaultSet => "modelProvider/default/set" {
+        params: v2::ModelProviderDefaultSetParams,
+        serialization: global("config"),
+        manual_payload_conversion: manual,
+        response: v2::ConfigWriteResponse,
     },
     ModelProviderCapabilitiesRead => "modelProvider/capabilities/read" {
         params: v2::ModelProviderCapabilitiesReadParams,
@@ -1921,13 +1956,6 @@ server_request_definitions! {
         response: v2::AttestationGenerateResponse,
     },
 
-    #[experimental("currentTime/read")]
-    /// Read the current time from an external clock owned by the client.
-    CurrentTimeRead => "currentTime/read" {
-        params: v2::CurrentTimeReadParams,
-        response: v2::CurrentTimeReadResponse,
-    },
-
     /// DEPRECATED APIs below
     /// Request to approve a patch.
     /// This request is used for Turns started via the legacy APIs (i.e. SendUserTurn, SendUserMessage).
@@ -2082,6 +2110,8 @@ server_notification_definitions! {
     /// Stream base64-encoded stdout/stderr chunks for a running `process/spawn` session.
     #[experimental("process/outputDelta")]
     ProcessOutputDelta => "process/outputDelta" (v2::ProcessOutputDeltaNotification),
+    #[experimental("thread/search/partial")]
+    ThreadSearchPartial => "thread/search/partial" (v2::ThreadSearchPartialNotification),
     /// Final exit notification for a `process/spawn` session.
     #[experimental("process/exited")]
     ProcessExited => "process/exited" (v2::ProcessExitedNotification),

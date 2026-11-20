@@ -1,0 +1,43 @@
+[package]
+name = "codex-utils-image"
+version = "0.171.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+doctest = false
+
+[dependencies.base64]
+version = "0.22.1"
+
+[dependencies.image]
+version = "=0.25.9"
+default-features = false
+features = [ "jpeg", "png", "gif", "webp",]
+git = "https://github.com/image-rs/image.git"
+rev = "5ceb6af6c2b6671931a02fda955ce1676321711d"
+
+[dependencies.moxcms]
+version = "=0.7.11"
+features = [ "options",]
+
+[dependencies.png]
+version = "=0.18.1"
+features = [ "zlib-rs",]
+
+[dependencies.codex-utils-cache]
+git = "https://github.com/openai/codex.git"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
+
+[dependencies.mime_guess]
+version = "2.0.5"
+
+[dependencies.thiserror]
+version = "2.0.17"
+
+[dependencies.tokio]
+version = "1"
+features = [ "fs", "rt", "rt-multi-thread", "macros",]
+
+[package.metadata.cargo-shear]
+ignored = [ "png",]

@@ -1,6 +1,6 @@
 [package]
 name = "codex-git-utils"
-version = "0.169.0"
+version = "0.171.0"
 edition = "2024"
 license = "Apache-2.0"
 readme = "README.md"
@@ -10,7 +10,7 @@ doctest = false
 
 [dependencies.codex-utils-process]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.anyhow]
 version = "1"
@@ -20,23 +20,23 @@ version = "0.4.43"
 
 [dependencies.codex-file-system]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "d32063f96c2dff1dc96af839b3952abb6acfeda4"
+rev = "ccf9be8cc458bd6b8336fe84d68d8893f2691a5e"
 
 [dependencies.futures]
 version = "0.3"
@@ -72,7 +72,7 @@ version = "2.0.17"
 
 [dependencies.tokio]
 version = "1"
-features = [ "macros", "process", "rt", "time",]
+features = [ "macros", "process", "rt", "sync", "time",]
 
 [dependencies.ts-rs]
 version = "11"

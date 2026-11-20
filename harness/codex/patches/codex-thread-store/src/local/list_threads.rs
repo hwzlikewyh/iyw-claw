@@ -2,12 +2,16 @@ use std::collections::HashMap;
 
 use chrono::DateTime;
 use chrono::Utc;
+use codex_protocol::ThreadId;
+use codex_protocol::protocol::ThreadHistoryMode;
 use codex_rollout::RolloutConfig;
 use codex_rollout::RolloutRecorder;
 use codex_rollout::parse_cursor;
 use codex_state::ThreadFilterOptions;
 
 use super::LocalThreadStore;
+use super::helpers::indexed_thread_names;
+use super::helpers::listed_thread_name;
 use super::helpers::resolve_thread_names;
 use super::helpers::resolve_thread_section_metadata;
 use super::helpers::set_thread_name;
@@ -20,6 +24,24 @@ use crate::ThreadRelationFilter;
 use crate::ThreadSortKey;
 use crate::ThreadStoreError;
 use crate::ThreadStoreResult;
+
+/// A local thread listing that preserves full rows from the direct SQLite path.
+pub(super) enum LocalThreadsPage {
+    /// Rows from a direct SQLite listing, with titles and section metadata intact.
+    State(codex_state::ThreadsPage),
+    /// Summaries from the rollout recorder, built from rollout files or SQLite rows.
+    /// The thread store resolves titles and section ordering metadata separately.
+    Rollouts(codex_rollout::ThreadsPage),
+}
+
+impl From<LocalThreadsPage> for codex_rollout::ThreadsPage {
+    fn from(page: LocalThreadsPage) -> Self {
+        match page {
+            LocalThreadsPage::State(page) => page.into(),
+            LocalThreadsPage::Rollouts(page) => page,
+        }
+    }
+}
 
 pub(super) async fn list_threads(
     store: &LocalThreadStore,
@@ -66,11 +88,26 @@ pub(super) async fn list_threads(
     )
     .await?;
 
-    let next_cursor = page
-        .next_cursor
-        .as_ref()
-        .and_then(|cursor| serde_json::to_value(cursor).ok())
-        .and_then(|value| value.as_str().map(str::to_owned));
+    let page = match page {
+        LocalThreadsPage::State(page) => {
+            let legacy_thread_ids = page
+                .items
+                .iter()
+                .filter(|row| row.history_mode == ThreadHistoryMode::Legacy)
+                .map(|row| row.id)
+                .collect();
+            let indexed_names =
+                indexed_thread_names(store, &legacy_thread_ids, params.use_state_db_only).await?;
+            return Ok(thread_page_from_state(
+                page,
+                &indexed_names,
+                params.archived,
+                &store.config.default_model_provider_id,
+            ));
+        }
+        LocalThreadsPage::Rollouts(page) => page,
+    };
+    let next_cursor = encode_cursor(page.next_cursor.as_ref());
     let mut items = page
         .items
         .into_iter()
@@ -87,8 +124,7 @@ pub(super) async fn list_threads(
         .iter()
         .map(|thread| (thread.thread_id, thread.history_mode))
         .collect::<HashMap<_, _>>();
-    let names =
-        resolve_thread_names(store, &thread_history_modes, params.use_state_db_only).await?;
+    let names = resolve_thread_names(store, &thread_history_modes).await;
     for thread in &mut items {
         if let Some(name) = names.get(&thread.thread_id).cloned() {
             set_thread_name(thread, name);
@@ -112,11 +148,49 @@ pub(super) async fn list_threads(
         }
     }
 
-    if let Some(project_id) = params.project_id.as_ref() {
-        items.retain(|thread| &thread.project_id == project_id);
-    }
-
     Ok(ThreadPage { items, next_cursor })
+}
+
+/// Projects the collected SQLite rows in order, including repeats across a refill.
+fn thread_page_from_state(
+    page: codex_state::ThreadsPage,
+    indexed_names: &HashMap<ThreadId, String>,
+    archived: bool,
+    default_model_provider_id: &str,
+) -> ThreadPage {
+    let items = page
+        .items
+        .into_iter()
+        .filter_map(|row| {
+            let name =
+                listed_thread_name(row.history_mode, &row, indexed_names.get(&row.id).cloned());
+            let position = row.section_position;
+            let entered_at = row.section_entered_at;
+            let parent = page.parent_thread_ids.get(&row.id).copied();
+            let item = codex_rollout::thread_item_from_state_metadata(row, parent);
+            let mut thread =
+                stored_thread_from_rollout_item(item, archived, default_model_provider_id)?;
+            if let Some(name) = name {
+                set_thread_name(&mut thread, name);
+            }
+            if thread.section.is_some() {
+                thread.section_position = position;
+                thread.section_entered_at = entered_at;
+            }
+            Some(thread)
+        })
+        .collect();
+    let cursor = page.next_anchor.map(codex_rollout::Cursor::from);
+    ThreadPage {
+        items,
+        next_cursor: encode_cursor(cursor.as_ref()),
+    }
+}
+
+fn encode_cursor(cursor: Option<&codex_rollout::Cursor>) -> Option<String> {
+    cursor
+        .and_then(|cursor| serde_json::to_value(cursor).ok())
+        .and_then(|value| value.as_str().map(str::to_owned))
 }
 
 async fn list_section_threads(
@@ -181,6 +255,7 @@ async fn list_section_threads(
             .collect::<Vec<_>>()
     });
     let filters = ThreadFilterOptions {
+        included_thread_ids: params.included_thread_ids.as_deref(),
         archived_only: params.archived,
         allowed_sources: allowed_sources.as_slice(),
         model_providers: params.model_providers.as_deref(),
@@ -240,8 +315,9 @@ pub(super) async fn list_rollout_threads(
     cursor: Option<&codex_rollout::Cursor>,
     sort_key: codex_rollout::ThreadSortKey,
     sort_direction: codex_rollout::SortDirection,
-) -> ThreadStoreResult<codex_rollout::ThreadsPage> {
+) -> ThreadStoreResult<LocalThreadsPage> {
     if params.use_state_db_only
+        || params.included_thread_ids.is_some()
         || params
             .relation_filter
             .is_some_and(ThreadRelationFilter::is_parent_scoped)
@@ -258,6 +334,7 @@ pub(super) async fn list_rollout_threads(
             params.allowed_sources.as_slice(),
             params.model_providers.as_deref(),
             params.cwd_filters.as_deref(),
+            params.included_thread_ids.as_deref(),
             params.relation_filter.map(state_relation_filter),
             params.archived,
             params.section.as_ref().map(Option::as_deref),
@@ -268,7 +345,7 @@ pub(super) async fn list_rollout_threads(
         .ok_or_else(|| ThreadStoreError::Internal {
             message: "state DB unavailable for filtered thread listing".to_string(),
         })?;
-        return Ok(page.into());
+        return Ok(LocalThreadsPage::State(page));
     }
 
     let include_attached_threads =
@@ -306,9 +383,10 @@ pub(super) async fn list_rollout_threads(
         )
         .await
     };
-    page.map_err(|err| ThreadStoreError::Internal {
-        message: format!("failed to list threads: {err}"),
-    })
+    page.map(LocalThreadsPage::Rollouts)
+        .map_err(|err| ThreadStoreError::Internal {
+            message: format!("failed to list threads: {err}"),
+        })
 }
 
 fn state_relation_filter(filter: ThreadRelationFilter) -> codex_state::ThreadRelationFilter {

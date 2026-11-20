@@ -1,21 +1,10 @@
 use std::collections::HashMap;
 
 use codex_exec_server_protocol::JSONRPCErrorError;
-use codex_protocol::models::PermissionProfile;
-use codex_protocol::permissions::FileSystemAccessMode;
-use codex_protocol::permissions::FileSystemPath;
-use codex_protocol::permissions::FileSystemSandboxEntry;
-use codex_protocol::permissions::FileSystemSandboxPolicy;
-use codex_protocol::permissions::FileSystemSpecialPath;
-use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_sandboxing::SandboxCommand;
-use codex_sandboxing::SandboxDirectSpawnTransformRequest;
 use codex_sandboxing::SandboxExecRequest;
 use codex_sandboxing::SandboxManager;
 use codex_sandboxing::SandboxTransformRequest;
-use codex_utils_absolute_path::AbsolutePathBuf;
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-use codex_utils_absolute_path::canonicalize_preserving_symlinks;
 use codex_utils_path_uri::PathUri;
 use codex_utils_pty::Child;
 use codex_utils_pty::ChildStdin;
@@ -38,8 +27,6 @@ use crate::rpc::invalid_request;
 #[path = "fs_sandbox_windows.rs"]
 mod windows;
 #[cfg(windows)]
-use windows::bind_windows_cwd_relative_deny_read_globs;
-#[cfg(windows)]
 pub(crate) use windows::{drain_helper_stderr, read_helper_response, reap_helper_after_response};
 
 const FS_HELPER_ENV_ALLOWLIST: &[&str] = &["PATH", "TMPDIR", "TMP", "TEMP"];
@@ -52,12 +39,6 @@ const FS_HELPER_BAZEL_BWRAP_ENV_ALLOWLIST: &[&str] = &[
     "TEST_SRCDIR",
     "TEST_WORKSPACE",
 ];
-
-#[derive(Debug, PartialEq, Eq)]
-struct SandboxCwd {
-    uri: PathUri,
-    native: AbsolutePathBuf,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct FileSystemSandboxRunner {
@@ -79,10 +60,18 @@ impl FileSystemSandboxRunner {
         sandbox: &FileSystemSandboxContext,
         request: FsHelperRequest,
     ) -> Result<FsHelperPayload, JSONRPCErrorError> {
-        let command = self.sandbox_command(sandbox)?;
-        crate::run_integrity_checks(&command).await;
+        let command = self.prepare_command(sandbox).await?;
         let request_json = serde_json::to_vec(&request).map_err(json_error)?;
         run_command(command, request_json).await
+    }
+
+    pub(crate) async fn prepare_command(
+        &self,
+        sandbox: &FileSystemSandboxContext,
+    ) -> Result<SandboxExecRequest, JSONRPCErrorError> {
+        let command = self.sandbox_command(sandbox)?;
+        crate::run_integrity_checks((&command).into()).await;
+        Ok(command)
     }
 
     #[tracing::instrument(
@@ -90,59 +79,21 @@ impl FileSystemSandboxRunner {
         skip_all,
         fields(permission_entries = tracing::field::Empty)
     )]
-    pub(crate) fn sandbox_command(
+    fn sandbox_command(
         &self,
         sandbox: &FileSystemSandboxContext,
     ) -> Result<SandboxExecRequest, JSONRPCErrorError> {
-        let cwd = sandbox_cwd(sandbox)?;
-        let native_workspace_roots = sandbox
-            .workspace_roots
-            .iter()
-            .map(native_workspace_root)
-            .collect::<Result<Vec<_>, _>>()?;
-        let workspace_roots = native_workspace_roots.as_slice();
-        sandbox
-            .validate_file_system_paths_for_current_host()
-            .map_err(|err| invalid_request(err.to_string()))?;
-        let native_permissions = sandbox
-            .permissions
-            .clone()
-            .materialize_project_roots_with_workspace_roots(workspace_roots);
-        let mut file_system_policy = native_permissions.file_system_sandbox_policy();
-        tracing::Span::current().record("permission_entries", file_system_policy.entries.len());
-        let helper_read_roots = if sandbox.use_legacy_landlock {
-            Vec::new()
-        } else {
-            helper_read_roots(&self.runtime_paths)
-        };
-        add_helper_runtime_permissions(
-            &mut file_system_policy,
-            &helper_read_roots,
-            cwd.native.as_path(),
-        );
-        // Linux resolves aliases in the sandbox helper. Doing it here also probes
-        // unrelated permission roots synchronously on the executor's runtime thread.
-        #[cfg(not(target_os = "linux"))]
-        normalize_file_system_policy_root_aliases(&mut file_system_policy)?;
-        #[cfg(windows)]
-        bind_windows_cwd_relative_deny_read_globs(&mut file_system_policy, &cwd.uri)?;
-        let network_policy = NetworkSandboxPolicy::Restricted;
-        let permission_profile = PermissionProfile::from_runtime_permissions_with_enforcement(
-            native_permissions.enforcement(),
-            &file_system_policy,
-            network_policy,
-        );
-        self.sandbox_exec_request(&permission_profile, &cwd, workspace_roots, sandbox)
-    }
-
-    fn sandbox_exec_request(
-        &self,
-        permission_profile: &PermissionProfile,
-        cwd: &SandboxCwd,
-        workspace_roots: &[AbsolutePathBuf],
-        sandbox_context: &FileSystemSandboxContext,
-    ) -> Result<SandboxExecRequest, JSONRPCErrorError> {
         let helper = &self.runtime_paths.codex_self_exe;
+        let mut helper_readable_paths = Vec::new();
+        if !sandbox.use_legacy_landlock {
+            helper_readable_paths.push(helper.clone());
+            if let Some(linux_helper) = &self.runtime_paths.codex_linux_sandbox_exe
+                && linux_helper != helper
+            {
+                helper_readable_paths.push(linux_helper.clone());
+            }
+        }
+
         let sandbox_manager = SandboxManager::for_file_system_helpers()
             .with_linux_sandbox_pid_namespace(self.runtime_paths.linux_sandbox_pid_namespace);
         #[cfg(target_os = "macos")]
@@ -150,16 +101,18 @@ impl FileSystemSandboxRunner {
             self.runtime_paths.allowed_symlinked_codex_home.clone(),
         );
         let (selection, windows_sandbox_level) =
-            crate::sandbox_selection::sandbox_selection(sandbox_context);
-        // Requests use absolute paths; the helper can start at the filesystem root even if
-        // the policy cwd was removed. Keep its drive or share for Windows `:root` rules.
-        let helper_cwd = cwd
-            .native
+            crate::sandbox_selection::sandbox_selection(sandbox);
+        // Requests use absolute paths. Start at the filesystem root even if the policy cwd was
+        // removed, retaining its drive or share on Windows and handling opaque native paths.
+        let helper_cwd = sandbox
+            .cwd
+            .to_abs_path()
+            .map_err(|err| invalid_request(err.to_string()))?
             .ancestors()
             .last()
             .ok_or_else(|| invalid_request("filesystem sandbox cwd has no root".to_string()))?;
         let command = SandboxCommand {
-            program: helper.as_path().as_os_str().to_owned(),
+            program: helper.as_os_str().to_owned(),
             args: vec![CODEX_FS_HELPER_ARG1.to_string()],
             cwd: PathUri::from_abs_path(&helper_cwd),
             env: self.helper_env.clone(),
@@ -167,151 +120,36 @@ impl FileSystemSandboxRunner {
             additional_permissions: None,
         };
         let mut request = sandbox_manager
-            .transform_for_direct_spawn(SandboxDirectSpawnTransformRequest {
-                workspace_roots,
-                windows_sandbox_proxy_settings_mode:
-                    codex_sandboxing::WindowsSandboxProxySettingsMode::Preserve,
-                transform: SandboxTransformRequest {
-                    command,
-                    permissions: permission_profile,
-                    workspace_roots: None,
-                    runtime_readable_paths: &[],
-                    selection,
-                    enforce_managed_network: false,
-                    environment_id: None,
-                    network: None,
-                    sandbox_policy_cwd: &cwd.uri,
-                    sandbox_exe: if cfg!(windows) {
-                        Some(self.runtime_paths.codex_self_exe.as_path())
-                    } else {
-                        self.runtime_paths.codex_linux_sandbox_exe.as_deref()
-                    },
-                    use_legacy_landlock: sandbox_context.use_legacy_landlock,
-                    windows_sandbox_level,
+            .transform(SandboxTransformRequest {
+                command,
+                permissions: &sandbox.permissions,
+                workspace_roots: Some(&sandbox.workspace_roots),
+                runtime_readable_paths: Some(&helper_readable_paths),
+                selection,
+                network: Default::default(),
+                sandbox_policy_cwd: &sandbox.cwd,
+                sandbox_exe: if cfg!(windows) {
+                    Some(helper.as_path())
+                } else {
+                    self.runtime_paths.codex_linux_sandbox_exe.as_deref()
                 },
+                use_legacy_landlock: sandbox.use_legacy_landlock,
+                windows_sandbox_level,
             })
             .map_err(|err| match err {
                 codex_sandboxing::SandboxTransformError::SandboxUnavailable => invalid_request(
                     "filesystem sandbox cannot be enforced on this executor".to_string(),
                 ),
+                codex_sandboxing::SandboxTransformError::InvalidPolicy(err) => {
+                    invalid_request(err.to_string())
+                }
                 err => invalid_request(format!("failed to prepare fs sandbox: {err}")),
-            })?;
-        request.sandbox_override = sandbox_context.sandbox_override;
+            })?
+            .into_command_request()
+            .map_err(io_error)?;
+        request.sandbox_override = sandbox.sandbox_override;
         Ok(request)
     }
-}
-
-fn sandbox_cwd(sandbox: &FileSystemSandboxContext) -> Result<SandboxCwd, JSONRPCErrorError> {
-    Ok(SandboxCwd {
-        native: native_sandbox_cwd(&sandbox.cwd)?,
-        uri: sandbox.cwd.clone(),
-    })
-}
-
-fn native_sandbox_cwd(cwd: &PathUri) -> Result<AbsolutePathBuf, JSONRPCErrorError> {
-    cwd.to_abs_path()
-        .map_err(|err| invalid_request(err.to_string()))
-}
-
-fn native_workspace_root(root: &PathUri) -> Result<AbsolutePathBuf, JSONRPCErrorError> {
-    root.to_abs_path().map_err(|err| {
-        invalid_request(format!(
-            "file system sandbox workspace root is not native to this exec-server host: {err}"
-        ))
-    })
-}
-
-fn helper_read_roots(runtime_paths: &ExecServerRuntimeOptions) -> Vec<AbsolutePathBuf> {
-    let mut roots = vec![runtime_paths.codex_self_exe.clone()];
-    if let Some(path) = &runtime_paths.codex_linux_sandbox_exe
-        && !roots.contains(path)
-    {
-        roots.push(path.clone());
-    }
-    roots
-}
-
-fn add_helper_runtime_permissions(
-    file_system_policy: &mut FileSystemSandboxPolicy,
-    helper_read_roots: &[AbsolutePathBuf],
-    cwd: &std::path::Path,
-) {
-    if !file_system_policy.has_full_disk_read_access() {
-        let minimal_read_entry = FileSystemSandboxEntry::new(
-            FileSystemPath::Special {
-                value: FileSystemSpecialPath::Minimal,
-            },
-            FileSystemAccessMode::Read,
-        );
-        if !file_system_policy.entries.contains(&minimal_read_entry) {
-            file_system_policy.entries.push(minimal_read_entry);
-        }
-    }
-
-    for helper_read_root in helper_read_roots {
-        if file_system_policy.can_read_local_path_with_cwd(helper_read_root.as_path(), cwd) {
-            continue;
-        }
-
-        file_system_policy.entries.push(FileSystemSandboxEntry::new(
-            helper_read_root.clone().into(),
-            FileSystemAccessMode::Read,
-        ));
-    }
-}
-
-
-#[cfg(not(target_os = "linux"))]
-fn normalize_file_system_policy_root_aliases(
-    file_system_policy: &mut FileSystemSandboxPolicy,
-) -> Result<(), JSONRPCErrorError> {
-    for entry in &mut file_system_policy.entries {
-        // Alias normalization uses this executor's filesystem; leave foreign
-        // or opaque PathUris unchanged.
-        if let FileSystemPath::Path { path } = &mut entry.path
-            && let Ok(native_path) = path.to_abs_path()
-        {
-            #[cfg(target_os = "macos")]
-            {
-                *path = native_path
-                    .normalize_system_aliases()
-                    .map_err(|error| {
-                        invalid_request(format!("failed to normalize {path}: {error}"))
-                    })?
-                    .into();
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                *path = normalize_top_level_alias(native_path).into();
-            }
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn normalize_top_level_alias(path: AbsolutePathBuf) -> AbsolutePathBuf {
-    let raw_path = path.to_path_buf();
-    for ancestor in raw_path.ancestors() {
-        if std::fs::symlink_metadata(ancestor).is_err() {
-            continue;
-        }
-        let Ok(normalized_ancestor) = canonicalize_preserving_symlinks(ancestor) else {
-            continue;
-        };
-        if normalized_ancestor == ancestor {
-            continue;
-        }
-        let Ok(suffix) = raw_path.strip_prefix(ancestor) else {
-            continue;
-        };
-        if let Ok(normalized_path) =
-            AbsolutePathBuf::from_absolute_path(normalized_ancestor.join(suffix))
-        {
-            return normalized_path;
-        }
-    }
-    path
 }
 
 fn helper_env() -> HashMap<String, String> {
@@ -417,29 +255,22 @@ pub(crate) async fn wait_for_helper_output(
 }
 
 pub(crate) fn spawn_command(
-    SandboxExecRequest {
-        command: argv,
-        cwd,
-        mut env,
-        arg0,
-        ..
-    }: SandboxExecRequest,
+    request: SandboxExecRequest,
     stdin: ChildStdin,
 ) -> Result<Child, JSONRPCErrorError> {
-    let Some((program, args)) = argv.split_first() else {
+    let Some((program, args)) = request.program_and_args() else {
         return Err(invalid_request("fs sandbox command was empty".to_string()));
     };
     let mut command = Command::new(program);
+    command.args(args);
     #[cfg(unix)]
-    if let Some(arg0) = arg0 {
+    if let Some(arg0) = request.arg0 {
         command.arg0(arg0);
     }
-    #[cfg(not(unix))]
-    let _ = arg0;
-    command.args(args);
     // TODO(anp): Keep PathUri through the filesystem helper launch boundary.
-    let cwd = cwd.to_abs_path().map_err(io_error)?;
+    let cwd = request.cwd.to_abs_path().map_err(io_error)?;
     command.current_dir(cwd.as_path());
+    let mut env = request.env;
     env.retain(|name, _| !codex_protocol::shell_environment::is_non_inheritable_env_var(name));
     command.envs(env);
     command.stdin(stdin);

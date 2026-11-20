@@ -73,9 +73,11 @@ async fn upload_legacy_images(
             .upload(UploadRequest {
                 thread_id: thread_id.to_owned(),
                 ephemeral,
-                file_name: None,
-                tags: HashMap::new(),
-                data,
+                content: codex_attachment_store::UploadContent::Image {
+                    file_name: None,
+                    tags: HashMap::new(),
+                    data,
+                },
             })
             .await
         {

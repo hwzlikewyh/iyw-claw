@@ -3,41 +3,13 @@
 use std::time::Duration;
 
 use codex_exec_server_protocol::JSONRPCErrorError;
-use codex_protocol::permissions::{FileSystemAccessMode, FileSystemPath, FileSystemSandboxPolicy};
-use codex_utils_path_uri::{LegacyAppPathString, PathConvention, PathUri};
 use codex_utils_pty::Child;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 
-use super::{internal_error, invalid_request, io_error};
+use super::{internal_error, io_error};
 
 const FS_HELPER_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_FS_HELPER_STDERR_BYTES: u64 = 4096;
-
-pub(super) fn bind_windows_cwd_relative_deny_read_globs(
-    file_system_policy: &mut FileSystemSandboxPolicy,
-    cwd: &PathUri,
-) -> Result<(), JSONRPCErrorError> {
-    // 助手切换到文件系统根目录前，固定相对原工作目录的拒绝规则。
-    for entry in &mut file_system_policy.entries {
-        if let FileSystemPath::GlobPattern { pattern } = &mut entry.path
-            && entry.access == FileSystemAccessMode::Deny
-            && PathConvention::Windows
-                .home_relative_suffix(pattern)
-                .is_none()
-            && LegacyAppPathString::from_string(pattern.as_str())
-                .to_path_uri(PathConvention::Windows)
-                .is_err()
-        {
-            cwd.validate_glob_directory(PathConvention::Windows)
-                .map_err(|err| invalid_request(err.to_string()))?;
-            *pattern = cwd
-                .join(pattern.as_str())
-                .map_err(|err| invalid_request(err.to_string()))?
-                .inferred_native_path_string();
-        }
-    }
-    Ok(())
-}
 
 pub(crate) async fn read_helper_response(
     stdout: impl tokio::io::AsyncRead + Unpin,

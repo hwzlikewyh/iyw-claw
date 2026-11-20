@@ -254,7 +254,7 @@ sacp-tokio = { path = "vendor/sacp-tokio" }
 # with that diagnostic feature disabled.
 qdrant-edge = { path = "../harness/codex/patches/qdrant-edge" }
 aws-config = { path = "../harness/codex/patches/aws-config" }
-crossterm = { git = "https://github.com/openai-oss-forks/crossterm", rev = "ed1cdab335221515706178d68495bba2aed1924f", version = "0.29.0" }
+crossterm = { git = "https://github.com/openai-oss-forks/crossterm", rev = "37ca4a27a9424ec5dbe6451f48c339d7b45f8d63", version = "0.29.0" }
 tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "7447c427513cfe685f236e1ac0513c4ea3dd9c0b" }
 tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "bc589d684755a8c02da0fc7e58d0861cbfc306f1" }
 
@@ -271,6 +271,7 @@ codex-app-server-client = { path = "../harness/codex/patches/codex-app-server-cl
 codex-app-server = { path = "../harness/codex/patches/codex-app-server" }
 codex-thread-store = { path = "../harness/codex/patches/codex-thread-store" }
 codex-utils-pty = { path = "../harness/codex/patches/codex-utils-pty" }
+codex-utils-image = { path = "../harness/codex/patches/codex-utils-image" }
 codex-shell-command = { path = "../harness/codex/patches/codex-shell-command" }
 codex-windows-sandbox = { path = "../harness/codex/patches/codex-windows-sandbox" }
 codex-git-utils = { path = "../harness/codex/patches/codex-git-utils" }

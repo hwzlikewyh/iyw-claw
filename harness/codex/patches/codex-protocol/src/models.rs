@@ -5,7 +5,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use codex_utils_image::PromptImageMode;
-use codex_utils_image::data_url_from_bytes;
 use codex_utils_image::load_for_prompt_bytes;
 use serde::Deserialize;
 use serde::Deserializer;
@@ -14,23 +13,24 @@ use serde::ser::Serializer;
 use serde_with::serde_as;
 use ts_rs::TS;
 
-use crate::local_media::audio_mime_for_path;
 use crate::permissions::FileSystemAccessMode;
 use crate::permissions::FileSystemPath;
 use crate::permissions::FileSystemSandboxEntry;
 use crate::permissions::FileSystemSandboxKind;
 use crate::permissions::FileSystemSandboxPolicy;
 use crate::permissions::FileSystemSpecialPath;
+use crate::permissions::LegacySandboxPolicyProjection;
 use crate::permissions::NetworkSandboxPolicy;
 use crate::permissions::RawFileSystemSandboxEntry;
+use crate::permissions::has_workspace_root_rules;
 use crate::protocol::SandboxPolicy;
-use crate::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_image::ImageProcessingError;
 use schemars::JsonSchema;
 
 use crate::ResponseItemId;
 use crate::mcp::CallToolResult;
+use crate::response_item_id::OptionalWireItemId;
 use codex_utils_path_uri::PathUri;
 
 mod configuration_update;
@@ -41,8 +41,6 @@ mod mcp_content;
 
 use mcp_content::convert_mcp_content_to_items;
 
-pub use crate::local_media::MAX_PROMPT_AUDIO_INPUT_BYTES;
-pub use crate::local_media::snapshot_local_user_input;
 pub use crate::permission_profile_snapshot::PermissionProfileSnapshot;
 pub use crate::permission_profile_snapshot::ProfileWorkspaceRoot;
 pub use configuration_update::ConfigurationReasoning;
@@ -653,12 +651,30 @@ impl PermissionProfile {
         }
     }
 
-    pub fn from_legacy_sandbox_policy(sandbox_policy: &SandboxPolicy) -> Self {
-        Self::from_runtime_permissions_with_enforcement(
-            SandboxEnforcement::from_legacy_sandbox_policy(sandbox_policy),
-            &FileSystemSandboxPolicy::from(sandbox_policy),
-            NetworkSandboxPolicy::from(sandbox_policy),
-        )
+    /// Decodes a portable legacy template without probing workspace metadata.
+    pub fn from_legacy_sandbox_policy_template(sandbox_policy: &SandboxPolicy) -> Self {
+        if let SandboxPolicy::WorkspaceWrite {
+            writable_roots,
+            exclude_tmpdir_env_var,
+            exclude_slash_tmp,
+            ..
+        } = sandbox_policy
+        {
+            Self::from_runtime_permissions(
+                &FileSystemSandboxPolicy::workspace_write_template(
+                    writable_roots,
+                    *exclude_tmpdir_env_var,
+                    *exclude_slash_tmp,
+                ),
+                NetworkSandboxPolicy::from(sandbox_policy),
+            )
+        } else {
+            Self::from_runtime_permissions_with_enforcement(
+                SandboxEnforcement::from_legacy_sandbox_policy(sandbox_policy),
+                &FileSystemSandboxPolicy::from(sandbox_policy),
+                NetworkSandboxPolicy::from(sandbox_policy),
+            )
+        }
     }
 
     pub fn from_legacy_sandbox_policy_for_cwd(sandbox_policy: &SandboxPolicy, cwd: &Path) -> Self {
@@ -683,6 +699,17 @@ impl PermissionProfile {
             Self::Disabled => FileSystemSandboxPolicy::unrestricted(),
             Self::External { .. } => FileSystemSandboxPolicy::external_sandbox(),
         }
+    }
+
+    /// Whether this profile has filesystem rules relative to the execution host's workspace roots.
+    pub fn has_workspace_root_rules(&self) -> bool {
+        matches!(
+            self,
+            Self::Managed {
+                file_system: ManagedFileSystemPermissions::Restricted { entries, .. },
+                ..
+            } if has_workspace_root_rules(entries)
+        )
     }
 
     pub fn network_sandbox_policy(&self) -> NetworkSandboxPolicy {
@@ -733,6 +760,23 @@ impl PermissionProfile {
                 },
             }),
         }
+    }
+
+    /// Encodes an unresolved template without collapsing fixed roots into cwd access.
+    pub fn to_legacy_sandbox_policy_template(&self) -> io::Result<SandboxPolicy> {
+        let policy = self
+            .file_system_sandbox_policy()
+            .to_legacy_sandbox_policy_with_projection(
+                self.network_sandbox_policy(),
+                LegacySandboxPolicyProjection::Template,
+            )?;
+        if Self::from_legacy_sandbox_policy_template(&policy) != *self {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "permission profile cannot be represented by a legacy sandbox template",
+            ));
+        }
+        Ok(policy)
     }
 
     pub fn to_runtime_permissions(&self) -> (FileSystemSandboxPolicy, NetworkSandboxPolicy) {
@@ -1096,7 +1140,8 @@ impl InternalChatMessageMetadataPassthrough {
 pub enum ResponseItem {
     AdditionalTools {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         role: String,
         #[ts(type = "unknown[]")]
@@ -1111,7 +1156,8 @@ pub enum ResponseItem {
         #[ts(optional)]
         status: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         role: String,
         content: Vec<ContentItem>,
@@ -1127,7 +1173,8 @@ pub enum ResponseItem {
     },
     AgentMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         author: String,
         recipient: String,
@@ -1138,7 +1185,8 @@ pub enum ResponseItem {
     },
     Reasoning {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         summary: Vec<ReasoningItemReasoningSummary>,
         #[serde(default, skip_serializing_if = "should_serialize_reasoning_content")]
@@ -1155,7 +1203,8 @@ pub enum ResponseItem {
         encrypted_content: Option<String>,
         /// Legacy id field retained for compatibility with older payloads.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         /// Set when using the Responses API.
         call_id: Option<String>,
@@ -1173,7 +1222,8 @@ pub enum ResponseItem {
         #[ts(optional)]
         status: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1196,7 +1246,8 @@ pub enum ResponseItem {
         #[ts(optional)]
         encrypted_content: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         call_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1216,7 +1267,8 @@ pub enum ResponseItem {
     // We keep this behavior centralized in `FunctionCallOutputPayload`.
     FunctionCallOutput {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
@@ -1239,7 +1291,8 @@ pub enum ResponseItem {
         #[ts(optional)]
         encrypted_content: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
@@ -1260,7 +1313,8 @@ pub enum ResponseItem {
     // text or structured content items.
     CustomToolCallOutput {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         call_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1275,7 +1329,8 @@ pub enum ResponseItem {
     },
     ToolSearchOutput {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         call_id: Option<String>,
         status: String,
@@ -1299,7 +1354,8 @@ pub enum ResponseItem {
         #[ts(optional)]
         encrypted_content: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
@@ -1325,7 +1381,8 @@ pub enum ResponseItem {
         #[ts(optional)]
         encrypted_content: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         status: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1339,7 +1396,8 @@ pub enum ResponseItem {
     #[serde(alias = "compaction_summary")]
     Compaction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         encrypted_content: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1354,7 +1412,8 @@ pub enum ResponseItem {
     CompactionTrigger {},
     ContextCompaction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[serde(with = "OptionalWireItemId")]
+        #[ts(optional, as = "Option<ResponseItemId>")]
         id: Option<ResponseItemId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
@@ -1848,32 +1907,20 @@ fn should_serialize_reasoning_content(content: &Option<Vec<ReasoningItemContent>
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LocalMediaKind {
-    Audio,
-    Image,
-}
-
-impl LocalMediaKind {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Audio => "audio",
-            Self::Image => "image",
-        }
-    }
-}
-
-fn local_media_error_placeholder(
+fn local_image_error_placeholder(
     path: &std::path::Path,
     error: impl std::fmt::Display,
-    media_kind: LocalMediaKind,
 ) -> ContentItem {
-    let media_name = media_kind.name();
     let path = path.display();
     ContentItem::InputText {
-        text: format!("Codex could not read the local {media_name} at `{path}`: {error}"),
+        text: format!("Codex could not read the local image at `{path}`: {error}"),
     }
 }
+
+/// Maximum accepted decoded byte length for prompt audio inputs.
+///
+/// This matches the Responses API audio input limit.
+pub const MAX_PROMPT_AUDIO_INPUT_BYTES: usize = 50 * 1024 * 1024;
 
 pub const VIEW_IMAGE_TOOL_NAME: &str = "view_image";
 
@@ -1886,7 +1933,6 @@ const AUDIO_OPEN_TAG: &str = "<audio>";
 const AUDIO_CLOSE_TAG: &str = "</audio>";
 const LOCAL_AUDIO_OPEN_TAG_PREFIX: &str = "<audio name=";
 const LOCAL_AUDIO_OPEN_TAG_SUFFIX: &str = ">";
-const LOCAL_AUDIO_CLOSE_TAG: &str = AUDIO_CLOSE_TAG;
 
 pub fn image_open_tag_text() -> String {
     IMAGE_OPEN_TAG.to_string()
@@ -2020,22 +2066,15 @@ pub fn local_image_content_items_with_label_number(
             ImageProcessingError::Read { .. }
             | ImageProcessingError::Encode { .. }
             | ImageProcessingError::InvalidDataUrl { .. }
-            | ImageProcessingError::ImageTooLarge { .. } => {
-                vec![local_media_error_placeholder(
-                    path,
-                    &err,
-                    LocalMediaKind::Image,
-                )]
+            | ImageProcessingError::ImageTooLarge { .. }
+            | ImageProcessingError::ImageTooManyPixels { .. } => {
+                vec![local_image_error_placeholder(path, &err)]
             }
             ImageProcessingError::Decode { .. } if err.is_invalid_image() => {
                 vec![invalid_image_error_placeholder(path, &err)]
             }
             ImageProcessingError::Decode { .. } => {
-                vec![local_media_error_placeholder(
-                    path,
-                    &err,
-                    LocalMediaKind::Image,
-                )]
+                vec![local_image_error_placeholder(path, &err)]
             }
             ImageProcessingError::UnsupportedImageFormat { mime } => {
                 vec![unsupported_image_error_placeholder(path, mime)]
@@ -2044,46 +2083,7 @@ pub fn local_image_content_items_with_label_number(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LocalImagePreparation {
-    Process,
-    Defer,
-}
-
-fn unsupported_audio_error_placeholder(path: &std::path::Path) -> ContentItem {
-    ContentItem::InputText {
-        text: format!(
-            "Codex cannot attach audio at `{}`: unsupported audio format; use wav, mp3, m4a, webm, or ogg.",
-            path.display()
-        ),
-    }
-}
-
-fn local_audio_content_items(
-    path: &std::path::Path,
-    file_bytes: &[u8],
-    label_number: usize,
-) -> Vec<ContentItem> {
-    let Some(mime) = audio_mime_for_path(path) else {
-        return vec![unsupported_audio_error_placeholder(path)];
-    };
-
-    vec![
-        ContentItem::InputText {
-            text: local_audio_open_tag_text_with_path(label_number, path),
-        },
-        ContentItem::InputAudio {
-            audio: AudioReference::Inline {
-                audio_url: data_url_from_bytes(mime, file_bytes),
-            },
-        },
-        ContentItem::InputText {
-            text: LOCAL_AUDIO_CLOSE_TAG.to_string(),
-        },
-    ]
-}
-
-fn local_image_content_items(
+pub fn local_image_content_items(
     path: &std::path::Path,
     image_url: String,
     label_number: Option<usize>,
@@ -2236,97 +2236,6 @@ pub enum ReasoningItemContent {
     Text { text: String },
 }
 
-impl From<Vec<UserInput>> for ResponseInputItem {
-    fn from(items: Vec<UserInput>) -> Self {
-        Self::from_user_input(items, LocalImagePreparation::Process, &mut HashMap::new())
-    }
-}
-
-impl ResponseInputItem {
-    /// Records original user-input indices to image slots in the generated message content.
-    /// Inputs that do not produce an image, including failed local reads, have no entry.
-    pub fn from_user_input(
-        items: Vec<UserInput>,
-        local_image_preparation: LocalImagePreparation,
-        user_image_content_indices: &mut HashMap<usize, usize>,
-    ) -> Self {
-        user_image_content_indices.clear();
-        let mut image_index = 0;
-        let mut audio_index = 0;
-        let mut content = Vec::new();
-        for (input_index, input) in items.into_iter().enumerate() {
-            let generated = match input {
-                UserInput::Text { text, .. } => vec![ContentItem::InputText { text }],
-                UserInput::Image { image, detail, .. } => {
-                    image_index += 1;
-                    let detail = detail.unwrap_or(DEFAULT_IMAGE_DETAIL);
-                    vec![ContentItem::InputImage {
-                        image,
-                        detail: Some(detail),
-                    }]
-                }
-                UserInput::LocalImage { path, detail, .. } => {
-                    image_index += 1;
-                    let detail = detail.unwrap_or(DEFAULT_IMAGE_DETAIL);
-                    match std::fs::read(&path) {
-                        Ok(file_bytes) => match local_image_preparation {
-                            LocalImagePreparation::Process => {
-                                local_image_content_items_with_label_number(
-                                    &path,
-                                    file_bytes,
-                                    Some(image_index),
-                                    detail,
-                                )
-                            }
-                            LocalImagePreparation::Defer => local_image_content_items(
-                                &path,
-                                data_url_from_bytes("application/octet-stream", &file_bytes),
-                                Some(image_index),
-                                detail,
-                            ),
-                        },
-                        Err(err) => vec![local_media_error_placeholder(
-                            &path,
-                            err,
-                            LocalMediaKind::Image,
-                        )],
-                    }
-                }
-                UserInput::Audio { audio } => {
-                    audio_index += 1;
-                    vec![ContentItem::InputAudio { audio }]
-                }
-                UserInput::LocalAudio { path } => {
-                    audio_index += 1;
-                    match std::fs::read(&path) {
-                        Ok(file_bytes) => {
-                            local_audio_content_items(&path, &file_bytes, audio_index)
-                        }
-                        Err(err) => vec![local_media_error_placeholder(
-                            &path,
-                            err,
-                            LocalMediaKind::Audio,
-                        )],
-                    }
-                }
-                UserInput::Skill { .. } | UserInput::Mention { .. } => Vec::new(), // Tool bodies are injected later in core
-            };
-            // Local images add framing text, while mentions and skills add no content.
-            // Capture the image's actual slot before preparation replaces its reference.
-            for (offset, item) in generated.iter().enumerate() {
-                if matches!(item, ContentItem::InputImage { .. }) {
-                    user_image_content_indices.insert(input_index, content.len() + offset);
-                }
-            }
-            content.extend(generated);
-        }
-        Self::Message {
-            role: "user".to_string(),
-            content,
-            phase: None,
-        }
-    }
-}
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 pub struct SearchToolCallParams {
     pub query: String,
@@ -2479,6 +2388,14 @@ impl Default for FunctionCallOutputBody {
 }
 
 impl FunctionCallOutputPayload {
+    pub fn contains_audio(&self) -> bool {
+        self.content_items().is_some_and(|parts| {
+            parts
+                .iter()
+                .any(|part| matches!(part, FunctionCallOutputContentItem::InputAudio { .. }))
+        })
+    }
+
     pub fn from_text(content: String) -> Self {
         Self {
             body: FunctionCallOutputBody::Text(content),
