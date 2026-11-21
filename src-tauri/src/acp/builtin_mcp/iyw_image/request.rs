@@ -64,6 +64,8 @@ pub(super) struct FallbackRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ImageBatchRequest {
+    #[serde(rename = "type")]
+    pub(super) _kind: Option<String>,
     pub(super) requests: Vec<ImageRequest>,
     #[serde(default)]
     pub(super) delivery: DeliveryOptions,

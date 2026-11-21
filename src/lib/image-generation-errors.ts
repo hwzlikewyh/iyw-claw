@@ -4,11 +4,15 @@ export type ImageErrorLabel =
   | "imageSpaceQuotaExceeded"
   | "imageServiceAccessFailed"
   | "imageSourceRequired"
+  | "imageRequestInvalid"
   | "imageGenerationFailed"
 
 function errorLabel(message: string): ImageErrorLabel {
   if (message.includes(SPACE_QUOTA_MESSAGE)) return "imageSpaceQuotaExceeded"
   if (message.includes("接口访问失败")) return "imageServiceAccessFailed"
+  if (/(-32602|ImageToolRequest|invalid.*parameter)/i.test(message)) {
+    return "imageRequestInvalid"
+  }
   if (message.includes("Image edits require at least one source image")) {
     return "imageSourceRequired"
   }

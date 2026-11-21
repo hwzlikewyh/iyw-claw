@@ -4626,6 +4626,7 @@
         "imageSpaceQuotaExceeded": "配额不足，请联系空间管理员",
         "imageServiceAccessFailed": "图片生成接口访问失败",
         "imageSourceRequired": "图片编辑服务未收到源图",
+        "imageRequestInvalid": "图片生成参数格式不正确，请重试",
         "imageRenderFailed": "图片展示失败",
         "model": "模型",
         "tokenStats": "Token 使用情况",

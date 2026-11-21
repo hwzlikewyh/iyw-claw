@@ -84,7 +84,7 @@ fn tool_input_schema() -> Value {
         .collect::<serde_json::Map<_, _>>();
     schema["properties"]["requests"] = json!({
         "type": "array", "minItems": 1, "maxItems": MAX_BATCH_ITEMS,
-        "description": format!("Use for up to {MAX_BATCH_ITEMS} independent image tasks, with at most {MAX_CONCURRENT_EXECUTIONS} concurrent executions. A four-image style comparison fits in one concurrent wave. Each item owns its prompt, images, type, parameters, count, wait and fallbacks; they may all differ. Sum count * (1 + fallback count) must not exceed {MAX_BATCH_EXECUTIONS} planned candidate executions; output 502 retries add up to 3 per candidate, at most {MAX_BATCH_ATTEMPTS} actual calls per batch. Do not split a comparison that fits the concurrency limit across sequential tool calls. Do not mix requests with root type, prompt, images, parameters, count, wait or fallbacks."),
+        "description": format!("Use for up to {MAX_BATCH_ITEMS} independent image tasks, with at most {MAX_CONCURRENT_EXECUTIONS} concurrent executions. A four-image style comparison fits in one concurrent wave. Each item owns its prompt, images, type, parameters, count, wait and fallbacks; they may all differ. Sum count * (1 + fallback count) must not exceed {MAX_BATCH_EXECUTIONS} planned candidate executions; output 502 retries add up to 3 per candidate, at most {MAX_BATCH_ATTEMPTS} actual calls per batch. Do not split a comparison that fits the concurrency limit across sequential tool calls. Do not mix requests with root prompt, images, parameters, count, wait or fallbacks. A repeated root type is accepted for compatibility and does not override item types."),
         "items": image_request_schema(true)
     });
     schema["oneOf"] = json!([
@@ -96,6 +96,7 @@ fn tool_input_schema() -> Value {
         {
             "required": ["requests"],
             "properties": {
+                "type": {"$ref": "#/properties/type"},
                 "requests": {"$ref": "#/properties/requests"},
                 "delivery": {"$ref": "#/properties/delivery"}
             },
