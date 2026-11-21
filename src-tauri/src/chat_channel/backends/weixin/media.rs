@@ -5,13 +5,14 @@ use md5::{Digest, Md5};
 use rand::RngCore;
 use serde_json::{json, Value};
 
-use super::{inbound::CDN_BASE, media_crypto, WeixinBackend, ILINK_CHANNEL_VERSION};
+use super::{inbound::CDN_BASE, media_crypto, protocol, SendRequest, WeixinBackend};
 use crate::chat_channel::attachments::{ChannelAttachment, MIB};
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::media_http::{self, failure, transport};
 use crate::chat_channel::types::{ChannelMessageTarget, SentMessageId};
 
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(90);
+const MAX_UPLOAD_ATTEMPTS: u8 = 3;
 
 struct Upload<'a> {
     to: &'a str,
@@ -82,12 +83,12 @@ impl WeixinBackend {
             "rawfilemd5": upload.raw_file_md5,
             "filesize": upload.ciphertext.len(), "no_need_thumb": true,
             "aeskey": media_crypto::hex(&upload.key),
-            "base_info": { "channel_version": ILINK_CHANNEL_VERSION },
+            "base_info": protocol::base_info(),
         });
         let response = self
             .client
             .post(format!("{}/ilink/bot/getuploadurl", self.base_url))
-            .headers(Self::build_headers(&self.bot_token, &self.wechat_uin))
+            .headers(protocol::post_headers(Some(&self.bot_token)))
             .json(&body)
             .send()
             .await
@@ -126,33 +127,18 @@ impl WeixinBackend {
         context: &str,
         item: Value,
     ) -> Result<SentMessageId, ChatChannelError> {
-        let body = json!({ "msg": { "from_user_id": "", "to_user_id": to,
-            "client_id": format!("iyw-claw-{}", uuid::Uuid::new_v4()),
-            "message_type": 2, "message_state": 2, "context_token": context, "item_list": [item] },
-            "base_info": { "channel_version": ILINK_CHANNEL_VERSION } });
-        let response = self
-            .client
-            .post(format!("{}/ilink/bot/sendmessage", self.base_url))
-            .headers(Self::build_headers(&self.bot_token, &self.wechat_uin))
-            .json(&body)
-            .send()
-            .await
-            .map_err(transport)?;
-        let bytes = media_http::read_limited(response, 1024 * 1024).await?;
-        let result: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| failure("Weixin media reply is not JSON"))?;
-        if super::delivery_error::context_expired(&result) {
-            let _ =
-                crate::db::service::sender_context_service::clear_weixin_context_token_if_matches(
-                    &self.database,
-                    self.channel_id,
-                    to,
-                    context,
-                )
-                .await;
-        }
-        super::delivery_error::check(&result)?;
-        Ok(SentMessageId(String::new()))
+        Self::do_send(SendRequest {
+            client: &self.client,
+            base_url: &self.base_url,
+            bot_token: &self.bot_token,
+            to_user_id: to,
+            context_token: context,
+            item,
+            database: &self.database,
+            channel_id: self.channel_id,
+            reply_context: &self.reply_context,
+        })
+        .await
     }
 }
 
@@ -163,15 +149,35 @@ async fn upload_ciphertext(
     let client = crate::remote_image::network::validated_client(url)
         .await
         .map_err(|error| failure(format!("Weixin upload destination rejected: {error}")))?;
-    let response = client
-        .post(url.clone())
-        .header("Content-Type", "application/octet-stream")
-        .timeout(UPLOAD_TIMEOUT)
-        .body(ciphertext.to_vec())
-        .send()
-        .await
-        .map_err(transport)?;
-    if !response.status().is_success() {
+    let mut attempt = 1;
+    loop {
+        let response = client
+            .post(url.clone())
+            .header("Content-Type", "application/octet-stream")
+            .timeout(UPLOAD_TIMEOUT)
+            .body(ciphertext.to_vec())
+            .send()
+            .await;
+        let result = match response {
+            Ok(reply) if reply.status().is_client_error() => {
+                return Err(failure(format!(
+                    "Weixin CDN upload HTTP {}",
+                    reply.status()
+                )));
+            }
+            Ok(reply) => upload_parameter(&reply),
+            Err(error) => Err(transport(error)),
+        };
+        if result.is_ok() || attempt == MAX_UPLOAD_ATTEMPTS {
+            return result;
+        }
+        tracing::warn!(attempt, "[Weixin] retrying CDN upload");
+        attempt += 1;
+    }
+}
+
+fn upload_parameter(response: &reqwest::Response) -> Result<String, ChatChannelError> {
+    if response.status() != reqwest::StatusCode::OK {
         return Err(failure(format!(
             "Weixin CDN upload HTTP {}",
             response.status()

@@ -59,9 +59,11 @@ pub async fn remove(db: &DatabaseConnection, id: i32) -> Result<(), DbError> {
 pub async fn record_failure(
     db: &DatabaseConnection,
     item: chat_channel_outbox::Model,
-    error: &str,
+    result: (&str, &str),
 ) -> Result<(), DbError> {
+    let (state, error) = result;
     let mut active = item.into_active_model();
+    active.state = Set(state.into());
     active.attempts = Set(active.attempts.unwrap().saturating_add(1));
     active.last_error = Set(Some(error.chars().take(256).collect()));
     active.updated_at = Set(Utc::now());
@@ -160,6 +162,17 @@ pub async fn has_earlier_delivery(
 }
 
 pub async fn claim_delivery(db: &DatabaseConnection, id: i32) -> Result<bool, DbError> {
+    claim_from(db, id, &["delivery_pending", "delivery_context"]).await
+}
+
+pub(crate) async fn claim_waiting_context(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<bool, DbError> {
+    claim_from(db, id, &["waiting_context"]).await
+}
+
+async fn claim_from(db: &DatabaseConnection, id: i32, states: &[&str]) -> Result<bool, DbError> {
     use sea_orm::sea_query::Expr;
     Ok(chat_channel_outbox::Entity::update_many()
         .col_expr(
@@ -171,7 +184,7 @@ pub async fn claim_delivery(db: &DatabaseConnection, id: i32) -> Result<bool, Db
             Expr::value(Utc::now()),
         )
         .filter(chat_channel_outbox::Column::Id.eq(id))
-        .filter(chat_channel_outbox::Column::State.is_in(["delivery_pending", "delivery_context"]))
+        .filter(chat_channel_outbox::Column::State.is_in(states.iter().copied()))
         .exec(db)
         .await?
         .rows_affected

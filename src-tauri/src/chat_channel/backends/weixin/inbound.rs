@@ -72,11 +72,20 @@ fn attachment(item: &Value) -> Option<IncomingAttachment> {
                 )
             })
         })?;
-    let aes_key = resource["aeskey"]
-        .as_str()
+    let aes_key = (key == "image_item")
+        .then(|| resource["aeskey"].as_str())
+        .flatten()
+        .filter(|value| !value.is_empty())
         .map(|key| STANDARD.encode(key))
-        .or_else(|| media["aes_key"].as_str().map(str::to_string))
-        .or_else(|| (key != "image_item").then(String::new));
+        .or_else(|| {
+            media["aes_key"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        });
+    if aes_key.is_none() && key != "image_item" {
+        return None;
+    }
     Some(IncomingAttachment {
         name: resource["file_name"].as_str().unwrap_or(name).into(),
         mime_type: mime.into(),

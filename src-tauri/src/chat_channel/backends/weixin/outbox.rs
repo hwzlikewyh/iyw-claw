@@ -7,7 +7,6 @@ pub(super) struct DrainRequest<'a> {
     pub client: &'a reqwest::Client,
     pub base_url: &'a str,
     pub bot_token: &'a str,
-    pub wechat_uin: &'a str,
     pub database: &'a DatabaseConnection,
     pub channel_id: i32,
     pub to_user_id: &'a str,
@@ -42,7 +41,22 @@ pub(super) async fn drain(request: DrainRequest<'_>) {
         }
     };
     for item in items {
-        let result = send_item(&request, &item.content).await;
+        match chat_channel_outbox_service::claim_waiting_context(request.database, item.id).await {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(error) => {
+                tracing::warn!(outbox_id = item.id, %error, "[Weixin] deferred message claim failed");
+                break;
+            }
+        }
+        // 旧版只保存 send 分类，无法区分拒绝和已经受理但丢失的回执。
+        let result = if item.attempts > 0 && item.last_error.as_deref() == Some("send") {
+            Err(ChatChannelError::SendFailed(
+                "DELIVERY_UNKNOWN:LEGACY_WEIXIN_RESPONSE".into(),
+            ))
+        } else {
+            send_item(&request, &item.content).await
+        };
         match result {
             Ok(()) => {
                 if let Err(error) =
@@ -53,21 +67,39 @@ pub(super) async fn drain(request: DrainRequest<'_>) {
                 }
             }
             Err(error) => {
-                let _ = chat_channel_outbox_service::record_failure(
-                    request.database,
-                    item,
-                    error.category(),
-                )
-                .await;
-                tracing::warn!(
-                    channel_id = request.channel_id,
-                    error_category = error.category(),
-                    "[Weixin] deferred delivery paused"
-                );
+                record_unsent(request.database, item, &error).await;
                 break;
             }
         }
     }
+}
+
+async fn record_unsent(
+    database: &DatabaseConnection,
+    item: crate::db::entities::chat_channel_outbox::Model,
+    error: &ChatChannelError,
+) {
+    let channel_id = item.channel_id;
+    let state = match error {
+        ChatChannelError::DeliveryDeferred(_)
+        | ChatChannelError::AuthenticationFailed(_)
+        | ChatChannelError::NotConnected => "waiting_context",
+        ChatChannelError::SendFailed(reason) if reason.starts_with("PROVIDER_REJECTED:") => {
+            "delivery_blocked"
+        }
+        _ => "delivery_unknown",
+    };
+    if let Err(store_error) =
+        chat_channel_outbox_service::record_failure(database, item, (state, error.category())).await
+    {
+        tracing::warn!(error = %store_error, "[Weixin] deferred message state update failed");
+    }
+    tracing::warn!(
+        channel_id,
+        error_category = error.category(),
+        state,
+        "[Weixin] deferred delivery paused"
+    );
 }
 
 async fn send_item(request: &DrainRequest<'_>, text: &str) -> Result<(), ChatChannelError> {
@@ -75,13 +107,13 @@ async fn send_item(request: &DrainRequest<'_>, text: &str) -> Result<(), ChatCha
         client: request.client,
         base_url: request.base_url,
         bot_token: request.bot_token,
-        wechat_uin: request.wechat_uin,
         to_user_id: request.to_user_id,
         context_token: request.context_token,
-        text,
+        item: super::protocol::text_item(text),
         database: request.database,
         channel_id: request.channel_id,
         reply_context: request.reply_context,
     })
     .await
+    .map(|_| ())
 }
