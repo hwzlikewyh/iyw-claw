@@ -7768,6 +7768,7 @@
       "phase": {
         "pending": "Pending",
         "downloading": "Downloading",
+        "installing": "Installing",
         "verifying": "Verifying",
         "extracting": "Extracting",
         "activating": "Activating",

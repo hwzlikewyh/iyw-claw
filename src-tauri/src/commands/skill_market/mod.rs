@@ -5,6 +5,7 @@ pub(crate) mod client;
 mod download_ticket;
 mod install;
 mod install_plan;
+pub(crate) mod install_progress;
 mod office_skills;
 pub(crate) mod plugin_client_version;
 mod plugin_components;

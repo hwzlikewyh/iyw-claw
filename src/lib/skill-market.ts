@@ -1,4 +1,8 @@
 import { getTransport } from "@/lib/transport"
+import {
+  installMarketPackage,
+  type MarketInstallProgress,
+} from "./skill-market-install"
 import type { AgentSkillItem, AgentType } from "@/lib/types"
 import { normalizedPluginPlatforms } from "@/lib/plugin-platforms"
 import { validatePluginMinimumVersion } from "@/lib/plugin-client-version"
@@ -432,8 +436,7 @@ export const skillMarketInstall = (
   id: string,
   version: string,
   agentTypes: AgentType[]
-) =>
-  getTransport().call<void>("skill_market_install", { id, version, agentTypes })
+) => installMarketPackage({ id, version, agentTypes })
 
 // ---------------------------------------------------------------------------
 // Skill Market v2 display model (Task 10)
@@ -640,6 +643,7 @@ export type SkillMarketInstallOverall =
 
 export interface SkillMarketInstallSession {
   status: SkillMarketInstallOverall
+  transferPhase?: MarketInstallProgress["phase"]
   plan: SkillMarketInstallPlanV2 | null
   items: SkillMarketInstallArtifactProgress[]
   overallBytes: number

@@ -31,7 +31,7 @@ pub async fn install_core(
             AppCommandError::invalid_input("Invalid Skill version").with_detail(error.to_string())
         })?
         .to_string();
-    let plan = request_install_plan(conn, requested_id, &requested_version).await?;
+    let mut plan = request_install_plan(conn, requested_id, &requested_version).await?;
     validate_install_plan(&plan, requested_id, &requested_version)?;
     for item in &plan.items {
         if let Some(plugin) = &item.plugin {
@@ -56,16 +56,15 @@ pub async fn install_core(
     }
     let agent_types = validated_agent_targets_for_plan(conn, &plan, agent_types).await?;
     let root_slug = plan.root_slug.clone();
-    let package_count = plan.items.len().saturating_sub(managed_office_slugs.len());
+    plan.items.retain(|item| !managed_office_slugs.contains(&item.slug));
+    let package_count = plan.items.len();
+    let mut progress = super::install_progress::PlanProgress::new(&plan.items);
     let mut installs = Vec::with_capacity(package_count);
     let mut plugins = Vec::new();
     for item in plan.items {
-        if managed_office_slugs.contains(&item.slug) {
-            continue;
-        }
         let skill_id = item.skill_id.clone();
         let item_version = item.version.clone();
-        let package_bytes = super::download_ticket::download_package(conn, &item).await.map_err(|error| {
+        let package_bytes = progress.download(conn, &item).await.map_err(|error| {
             tracing::error!(skill_id = %skill_id, slug = %item.slug, version = %item_version, error = %error, "[skill-market] package download failed");
             error
         })?;
@@ -109,6 +108,7 @@ pub async fn install_core(
             installs.push(MarketSkillInstall { marker, package });
         }
     }
+    progress.installing();
     super::plugin_install::install_market_plan(MarketInstallPlanExecution {
         conn,
         account_scope,
@@ -232,7 +232,7 @@ pub async fn revalidate_artifact_core(
     let plan = request_install_plan(conn, requested_id, &requested_version).await?;
     validate_install_plan(&plan, requested_id, &requested_version)?;
     let root = plan.items.last().expect("validated non-empty install plan");
-    let package_bytes = super::download_ticket::download_package(conn, root).await?;
+    let package_bytes = super::download_ticket::download_package(conn, root, |_, _| {}).await?;
     validate_downloaded_artifact_size(root, package_bytes.len())?;
     let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
     if !root.download.object_sha256.trim().is_empty()

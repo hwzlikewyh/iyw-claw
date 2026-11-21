@@ -11,6 +11,7 @@ use super::install_plan::MAX_PACKAGE_BYTES;
 use super::types::{parse_id, SkillInstallPlanItem, SkillPackageType};
 
 const DOWNLOAD_ATTEMPTS: usize = 3;
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(125);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +30,7 @@ struct TicketArtifact {
 pub(super) async fn download_package(
     conn: &DatabaseConnection,
     item: &SkillInstallPlanItem,
+    mut progress: impl FnMut(u64, u64) + Send,
 ) -> Result<Vec<u8>, AppCommandError> {
     let expected = &item.download;
     if expected.package_size == 0
@@ -43,7 +45,8 @@ pub(super) async fn download_package(
     for attempt in 1..=DOWNLOAD_ATTEMPTS {
         let ticket = request_ticket(conn, item).await?;
         let size = validate_ticket(item, &ticket)?;
-        match download_once(&ticket.url, size).await {
+        progress(0, size);
+        match download_once(&ticket.url, size, &mut progress).await {
             Ok(bytes) => return Ok(bytes),
             Err(error) if attempt < DOWNLOAD_ATTEMPTS => {
                 tracing::warn!(skill_id = %item.skill_id, version = %item.version, attempt,
@@ -97,7 +100,11 @@ fn validate_ticket(
     Ok(artifact.artifact_size)
 }
 
-async fn download_once(url: &str, expected_size: u64) -> Result<Vec<u8>, AppCommandError> {
+async fn download_once(
+    url: &str,
+    expected_size: u64,
+    progress: &mut (impl FnMut(u64, u64) + Send),
+) -> Result<Vec<u8>, AppCommandError> {
     let parsed = Url::parse(url)
         .map_err(|_| AppCommandError::configuration_invalid("Invalid artifact URL"))?;
     let local = matches!(parsed.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
@@ -118,7 +125,7 @@ async fn download_once(url: &str, expected_size: u64) -> Result<Vec<u8>, AppComm
         .await
         .map_err(|_| AppCommandError::network("Skill artifact download failed"))?;
     validate_response(&response, expected_size)?;
-    read_response(response, expected_size).await
+    read_response(response, expected_size, progress).await
 }
 
 fn validate_response(
@@ -154,6 +161,7 @@ fn validate_response(
 async fn read_response(
     response: reqwest::Response,
     expected_size: u64,
+    progress: &mut (impl FnMut(u64, u64) + Send),
 ) -> Result<Vec<u8>, AppCommandError> {
     let declared_size = response
         .headers()
@@ -162,6 +170,7 @@ async fn read_response(
         .and_then(|value| value.parse::<u64>().ok());
     let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
+    let mut last_report = std::time::Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk =
             chunk.map_err(|_| AppCommandError::network("Skill artifact download interrupted"))?;
@@ -177,6 +186,10 @@ async fn read_response(
             .try_reserve(chunk.len())
             .map_err(|_| AppCommandError::io_error("Insufficient memory for Skill artifact"))?;
         bytes.extend_from_slice(&chunk);
+        if last_report.elapsed() >= PROGRESS_INTERVAL && bytes.len() as u64 != expected_size {
+            progress(bytes.len() as u64, expected_size);
+            last_report = std::time::Instant::now();
+        }
     }
     if bytes.len() as u64 != expected_size
         || declared_size.is_some_and(|size| size != expected_size)
@@ -185,5 +198,6 @@ async fn read_response(
             "Skill artifact download is incomplete",
         ));
     }
+    progress(expected_size, expected_size);
     Ok(bytes)
 }

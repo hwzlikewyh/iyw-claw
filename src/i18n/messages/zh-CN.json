@@ -7768,6 +7768,7 @@
       "phase": {
         "pending": "等待",
         "downloading": "下载中",
+        "installing": "安装中",
         "verifying": "校验中",
         "extracting": "解压中",
         "activating": "激活中",

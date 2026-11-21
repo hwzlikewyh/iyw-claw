@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type Dispatch,
@@ -11,7 +12,6 @@ import {
 import { useTranslations } from "next-intl"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import {
-  skillMarketInstall,
   type SkillMarketInstallErrorCode,
   type SkillMarketInstallPlanV2,
   type SkillMarketInstallSession,
@@ -24,6 +24,7 @@ import {
 import { recordSkillMarketMetric } from "@/hooks/use-skill-market"
 import type { AgentType } from "@/lib/types"
 import { notifySkillMarketInstallationsChanged } from "@/lib/skill-market-installation-events"
+import { installMarketPackage } from "@/lib/skill-market-install"
 
 const INITIAL_SESSION: SkillMarketInstallSession = {
   status: "idle",
@@ -119,11 +120,15 @@ function useInstallStart({
   setSession: Dispatch<SetStateAction<SkillMarketInstallSession>>
   displayError: (error: unknown) => string
 }) {
+  const active = useRef<AbortController | null>(null)
+  useEffect(() => () => active.current?.abort(), [])
   return useCallback(
     async (agentTypes: AgentType[]) => {
       const plan = planRef.current
       // 纯面板插件不需要 Agent 安装目标，后端会按清单返回空目标列表。
-      if (!plan) return
+      if (!plan || active.current) return
+      const request = new AbortController()
+      active.current = request
       setSession((current) => ({
         ...current,
         status: "running",
@@ -132,24 +137,40 @@ function useInstallStart({
         startedAt: Date.now(),
       }))
       try {
-        await skillMarketInstall(
-          plan.targetSkillId,
-          plan.targetVersion,
-          agentTypes
+        await installMarketPackage(
+          { id: plan.targetSkillId, version: plan.targetVersion, agentTypes },
+          {
+            signal: request.signal,
+            onProgress: ({ phase, receivedBytes, totalBytes }) =>
+              setSession((current) =>
+                current.status === "running" && current.plan === plan
+                  ? {
+                      ...current,
+                      transferPhase: phase,
+                      receivedBytes,
+                      overallBytes: totalBytes ?? 0,
+                    }
+                  : current
+              ),
+          }
         )
         notifySkillMarketInstallationsChanged()
+        if (request.signal.aborted || planRef.current !== plan) return
         setSession((current) => ({
           ...current,
           status: "done",
           receivedBytes: current.overallBytes,
         }))
       } catch (error) {
+        if (request.signal.aborted || planRef.current !== plan) return
         setSession((current) => ({
           ...current,
           status: "failed",
           errorCode: installErrorCode(error),
           errorMessage: displayError(error),
         }))
+      } finally {
+        active.current = null
       }
     },
     [displayError, planRef, setSession]

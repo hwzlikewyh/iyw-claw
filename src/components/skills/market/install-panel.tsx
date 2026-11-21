@@ -182,9 +182,8 @@ function InstallPanelBody(props: InstallPanelBodyProps) {
         item.plugin?.components.some((component) => component.type === "skill")
     )
   )
-  if (session.status === "resolving") return <BusyPanel message="resolving" />
-  if (session.status === "running")
-    return <BusyPanel message="installingReal" />
+  if (session.status === "resolving" || session.status === "running")
+    return <BusyPanel session={session} />
   if (session.status === "confirming" && session.plan) {
     return (
       <InstallConfirmation

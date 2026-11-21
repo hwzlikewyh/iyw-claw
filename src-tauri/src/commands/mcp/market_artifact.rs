@@ -216,6 +216,7 @@ async fn stream_artifact(
     output.flush().await.map_err(storage_error)?;
     output.sync_all().await.map_err(storage_error)?;
     drop(output);
+    progress::stage("verifying")?;
     if received != expected || format!("{:x}", hasher.finalize()) != digest {
         return Err(AppCommandError::configuration_invalid(
             "连接器文件长度或摘要校验失败",

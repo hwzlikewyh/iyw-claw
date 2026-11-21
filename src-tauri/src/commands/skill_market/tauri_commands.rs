@@ -90,10 +90,13 @@ pub async fn skill_market_install(
     id: String,
     version: String,
     agent_types: Vec<AgentType>,
+    task_id: Option<String>,
     db: State<'_, AppDatabase>,
     app: tauri::AppHandle,
 ) -> Result<(), AppCommandError> {
-    let result = install::install_core(&db.conn, id, version, agent_types).await;
+    let install = install::install_core(&db.conn, id, version, agent_types);
+    let emitter = crate::web::event_bridge::EventEmitter::Tauri(app.clone());
+    let result = install_progress::with_events(task_id, emitter, install).await;
     crate::commands::mcp::refresh_tauri(&app, &db).await;
     result
 }

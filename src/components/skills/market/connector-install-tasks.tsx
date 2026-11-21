@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import { DownloadProgress } from "./download-progress"
 import {
   connectorTaskActive,
   type ConnectorInstallTask,
@@ -50,10 +51,18 @@ function TaskRow({
   const t = useTranslations("ConnectorMarket")
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
-      <div className="min-w-0">
-        <p className="break-words">
-          {item.name} · {t(`task_${task.phase}`)}
-        </p>
+      <div className="min-w-0 flex-1 break-words">
+        {task.phase === "downloading" ? (
+          <DownloadProgress
+            label={`${item.name} · ${t("task_downloading")}`}
+            receivedBytes={task.receivedBytes}
+            totalBytes={task.totalBytes}
+          />
+        ) : (
+          <p>
+            {item.name} · {t(`task_${task.phase}`)}
+          </p>
+        )}
         {task.error ? (
           <p className="mt-1 break-words text-xs text-destructive">
             {task.error}

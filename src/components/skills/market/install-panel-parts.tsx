@@ -3,9 +3,11 @@
 import { AlertTriangle, Check, Loader2, PlugZap, RotateCcw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import { DownloadProgress } from "./download-progress"
 import { requestAppUpdateDialog } from "@/components/layout/sidebar-update-event"
 import {
   formatSkillBytes,
+  type SkillMarketInstallSession,
   type SkillMarketTranslator,
 } from "@/lib/skill-market"
 
@@ -60,15 +62,25 @@ export function ResultState({
   )
 }
 
-export function BusyPanel({
-  message,
-}: {
-  message: "resolving" | "installingReal"
-}) {
+export function BusyPanel({ session }: { session: SkillMarketInstallSession }) {
   const t = useTranslations("SkillMarketV2")
+  const phase = session.transferPhase
+  const downloading = phase === "downloading"
   return (
     <div className="p-4">
-      <InstallBusy label={t(`install.${message}`)} />
+      {session.status === "running" ? (
+        <div className="flex min-h-28 flex-col justify-center">
+          <DownloadProgress
+            label={
+              phase ? t(`install.phase.${phase}`) : t("install.installingReal")
+            }
+            receivedBytes={downloading ? session.receivedBytes : undefined}
+            totalBytes={downloading ? session.overallBytes : undefined}
+          />
+        </div>
+      ) : (
+        <InstallBusy label={t("install.resolving")} />
+      )}
     </div>
   )
 }

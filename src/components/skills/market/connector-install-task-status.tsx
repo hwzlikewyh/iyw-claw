@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import { DownloadProgress } from "./download-progress"
 import {
   connectorTaskActive,
   type ConnectorInstallTask,
@@ -17,26 +18,22 @@ export function ConnectorInstallTaskStatus({
   const t = useTranslations("ConnectorMarket")
   const active = connectorTaskActive(task)
   return (
-    <section className="space-y-2 rounded-md border p-3" aria-live="polite">
-      <p className="text-sm font-medium">{t(`task_${task.phase}`)}</p>
+    <section className="space-y-2 rounded-md border p-3">
       {task.phase === "downloading" ? (
-        <>
-          <progress
-            className="h-2 w-full accent-primary"
-            value={task.totalBytes ? task.receivedBytes : undefined}
-            max={task.totalBytes || undefined}
-            aria-label={t("task_downloading")}
-          />
-          <p className="text-xs text-muted-foreground">
-            {(task.receivedBytes / 1024 / 1024).toFixed(1)} MiB
-            {task.totalBytes
-              ? ` / ${(task.totalBytes / 1024 / 1024).toFixed(1)} MiB`
-              : ""}
-          </p>
-        </>
-      ) : null}
+        <DownloadProgress
+          label={t("task_downloading")}
+          receivedBytes={task.receivedBytes}
+          totalBytes={task.totalBytes}
+        />
+      ) : (
+        <p className="text-sm font-medium" role="status">
+          {t(`task_${task.phase}`)}
+        </p>
+      )}
       {task.error ? (
-        <p className="break-words text-xs text-destructive">{task.error}</p>
+        <p className="break-words text-xs text-destructive" role="alert">
+          {task.error}
+        </p>
       ) : null}
       {active ? (
         <p className="text-xs text-muted-foreground">{t("taskBackground")}</p>

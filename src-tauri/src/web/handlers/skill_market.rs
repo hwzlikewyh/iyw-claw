@@ -69,6 +69,7 @@ pub struct InstallParams {
     id: String,
     version: String,
     agent_types: Vec<AgentType>,
+    task_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -159,13 +160,17 @@ pub async fn install(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<InstallParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    let result = skill_market::install_core(
+    let install = skill_market::install_core(
         &state.db.conn,
         params.id,
         params.version,
         params.agent_types,
-    )
-    .await;
+    );
+    let result = skill_market::install_progress::with_events(
+        params.task_id,
+        state.emitter.clone(),
+        install,
+    ).await;
     refresh_running_sessions(&state).await;
     result.map(Json)
 }
