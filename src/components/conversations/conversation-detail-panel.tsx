@@ -825,17 +825,9 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [effectiveSessionStats, isActive, setSessionStats])
 
   // Two-source resolution for the session id passed to acp_connect:
-  //   1. detail.summary.external_id — DB value, available for tabs opened
-  //      from the sidebar (effectiveConversationId equals the real cid).
-  //   2. runtimeExternalId — populated by the connSessionId effect
-  //      below when SessionStarted fires. This is the ONLY source for tabs
-  //      that started as a new conversation: their effectiveConversationId
-  //      is locked to a virtual negative id (line 186 useState initializer
-  //      runs once), useConversationDetail skips fetching for virtual ids,
-  //      and detail stays null forever. Without this fallback, every
-  //      reconnect on a new-conversation tab passes sessionId=undefined →
-  //      backend takes session/new → DB.external_id is overwritten on the
-  //      next prompt → original sid orphaned, agent loses prior context.
+  //   1. detail.summary.external_id — available after loading persisted history.
+  //   2. runtimeExternalId — populated when SessionStarted fires, so a new tab
+  //      can reconnect before its persisted identity is available.
   const externalId =
     detail?.summary.external_id ?? runtimeExternalId ?? undefined
   // For persisted conversations opened from the sidebar, wait until the

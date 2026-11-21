@@ -1261,7 +1261,7 @@ export function MessageListView({
           error={detailError}
           onReload={() =>
             refetchDetail(conversationId, {
-              preserveLive: connStatus === "prompting",
+              preserveLive: !session?.detail || connStatus === "prompting",
             })
           }
           onLoadEarlier={() => loadEarlierHistory(conversationId)}

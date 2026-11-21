@@ -2276,33 +2276,28 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
   const fetchDetail = (conversationId: number): void => {
     const session = get().byConversationId.get(conversationId)
     if (session?.detail || session?.detailLoading) return
-
-    // Skip fetch if session has active data (ongoing conversation)
-    if (
-      session &&
-      (session.optimisticTurns.length > 0 ||
-        session.liveMessage !== null ||
-        session.localTurns.length > 0)
-    ) {
-      return
-    }
+    const fetchId = session?.dbConversationId ?? conversationId
+    if (!Number.isFinite(fetchId) || fetchId <= 0) return
 
     const generation = bumpFetchGeneration(conversationId)
     dispatch({ type: "FETCH_DETAIL_START", conversationId })
-    getFolderConversation(conversationId)
+    // 首次读取用于确定历史范围。请求期间到达的实时消息仍由当前会话持有。
+    const acceptDetail = (detail: DbConversationDetail) => {
+      if (!isLatestGeneration(conversationId, generation)) return
+      dispatch({
+        type: "FETCH_DETAIL_SUCCESS",
+        conversationId,
+        detail,
+        preserveLive: true,
+      })
+    }
+    getFolderConversation(fetchId, undefined, fetchId !== conversationId)
       .then((detail) => {
         if (!isLatestGeneration(conversationId, generation)) return
-        dispatch({ type: "FETCH_DETAIL_SUCCESS", conversationId, detail })
+        acceptDetail(detail)
         if (!detail.history_stale) return
-        getFolderConversation(conversationId, undefined, true)
-          .then((fresh) => {
-            if (!isLatestGeneration(conversationId, generation)) return
-            dispatch({
-              type: "FETCH_DETAIL_SUCCESS",
-              conversationId,
-              detail: fresh,
-            })
-          })
+        getFolderConversation(fetchId, undefined, true)
+          .then(acceptDetail)
           .catch(() => {})
       })
       .catch((error: unknown) => {

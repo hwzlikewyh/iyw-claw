@@ -36,8 +36,8 @@ function useScrollToLoadedHistory({
     })
     return () => cancelAnimationFrame(frame)
   }, [historyStart, error, scrollApiRef])
-  return () => {
-    requestedBefore.current = historyStart ?? Infinity
+  return (before: number) => {
+    requestedBefore.current = before
   }
 }
 
@@ -46,23 +46,24 @@ export function ConversationHistoryControls(props: HistoryControlsProps) {
   const t = useTranslations("Folder.chat.messageList")
   const requestScroll = useScrollToLoadedHistory(props)
   const hasEarlier = historyStart !== undefined && historyStart > 0
-  const canReload = props.canReload && (historyStart === undefined || !!error)
-  if (!hasEarlier && !canReload && !error) return null
-  const retry = !!error && !hasEarlier
+  if (!hasEarlier && !error) return null
+  const retry = !hasEarlier && props.canReload && !!error
   const Icon = props.loading ? Loader2 : retry ? RefreshCw : ChevronUp
   return (
     <div className="flex shrink-0 flex-col items-center gap-1">
-      {(hasEarlier || canReload) && (
+      {(hasEarlier || retry) && (
         <Button
           size="sm"
           variant="ghost"
           disabled={props.loading}
           aria-busy={props.loading}
           onClick={() => {
-            // 仅有实时正文时，先从磁盘读首个历史页，再使用它返回的游标。
-            requestScroll()
-            if (hasEarlier) props.onLoadEarlier()
-            else props.onReload()
+            if (hasEarlier) {
+              requestScroll(historyStart)
+              props.onLoadEarlier()
+            } else {
+              props.onReload()
+            }
           }}
         >
           <Icon aria-hidden className={props.loading ? "animate-spin" : ""} />

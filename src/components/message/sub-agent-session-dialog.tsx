@@ -99,9 +99,8 @@ function useChildConnectionState(
  *  still prompting (so it remains promotable for the completeTurn edge).
  *  If the user closes the dialog during that window and the child later
  *  finishes, no bridge is running to dispatch `completeTurn`, leaving stale
- *  `liveMessage` in runtime state. On reopen, `fetchDetail`'s active-data
- *  guard would skip the refetch and the user would see a stale partial
- *  transcript. We solve this by calling `removeConversation` on the dialog
+ *  `liveMessage` in runtime state. A history read preserves that stale partial
+ *  reply on reopen. We solve this by calling `removeConversation` on the dialog
  *  body's full unmount — the runtime session is owned by this dialog alone,
  *  so dropping it forces the next open to fetch the persisted detail from
  *  scratch.

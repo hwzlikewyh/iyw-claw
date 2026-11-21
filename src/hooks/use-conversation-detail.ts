@@ -18,7 +18,6 @@ interface DetailSnapshot {
   detailError: string | null
   acpLoadError: string | null
   dbConversationId: number | null
-  hasRuntimeContent: boolean
 }
 
 interface UseConversationDetailOptions {
@@ -43,32 +42,9 @@ function useDetailSnapshot(conversationId: number): DetailSnapshot {
         detailError: session?.detailError ?? null,
         acpLoadError: session?.acpLoadError ?? null,
         dbConversationId: session?.dbConversationId ?? null,
-        hasRuntimeContent:
-          (session?.localTurns.length ?? 0) > 0 ||
-          (session?.optimisticTurns.length ?? 0) > 0 ||
-          (session?.backgroundTurns.length ?? 0) > 0 ||
-          session?.liveMessage != null,
       }
     })
   )
-}
-
-function useDetailLoader(args: {
-  enabled: boolean
-  conversationId: number
-  canLoadVirtual: boolean
-  canLoadDetail: boolean
-  detail: DbConversationDetail | null
-  detailLoading: boolean
-  detailError: string | null
-}): void {
-  const { fetchDetail, refetchDetail } = useConversationRuntimeActions()
-  useEffect(() => {
-    if (!args.enabled || !args.canLoadDetail) return
-    if (args.detail || args.detailLoading || args.detailError) return
-    if (args.canLoadVirtual) refetchDetail(args.conversationId)
-    else fetchDetail(args.conversationId)
-  }, [args, fetchDetail, refetchDetail])
 }
 
 export function useConversationDetail(
@@ -82,25 +58,26 @@ export function useConversationDetail(
   // would re-render every consumer — notably the keep-alive conversation panel,
   // which calls this hook — on each streaming token. None of these fields change
   // mid-stream, so `useShallow` keeps the slice reference-stable across batches
-  // and consumers re-render only on a real detail transition. The lightweight
-  // runtime flags also let a cold virtual session reload from its persisted id.
+  // and consumers re-render only on a detail transition or database id binding.
   const snapshot = useDetailSnapshot(conversationId)
   const { detail, detailLoading, detailError, acpLoadError } = snapshot
-  const isVirtual = isVirtualConversationId(conversationId)
-  const canLoadVirtual =
-    isVirtual &&
-    snapshot.dbConversationId != null &&
-    !snapshot.hasRuntimeContent
-  const canLoadDetail = !isVirtual || canLoadVirtual
-  useDetailLoader({
+  const canLoadDetail = !isVirtualConversationId(
+    snapshot.dbConversationId ?? conversationId
+  )
+  const { fetchDetail } = useConversationRuntimeActions()
+  useEffect(() => {
+    if (enabled && canLoadDetail && !detail && !detailLoading && !detailError) {
+      fetchDetail(conversationId)
+    }
+  }, [
     enabled,
-    conversationId,
-    canLoadVirtual,
     canLoadDetail,
     detail,
     detailLoading,
     detailError,
-  })
+    conversationId,
+    fetchDetail,
+  ])
 
   return {
     detail,
