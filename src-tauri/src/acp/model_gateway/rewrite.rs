@@ -20,15 +20,25 @@ struct Replacement {
     copy_fields: Vec<std::ops::Range<u64>>,
 }
 
+impl Replacement {
+    fn literal(bytes: impl Into<Vec<u8>>) -> Self {
+        Self {
+            bytes: bytes.into(),
+            copy_fields: Vec::new(),
+        }
+    }
+}
+
 pub(super) async fn prepare(
     runtime: &Arc<Runtime>,
     body: Spool,
     (path, token): (&str, &str),
 ) -> Result<Output, GatewayError> {
-    let path = path.to_owned();
-    let scan_path = path.clone();
+    let editing = path.ends_with("/images/edits");
+    let scan_required = editing || path.ends_with("/images/input/prepare");
+    let scan_path = path.to_owned();
     let (body, scan) = super::work::blocking(runtime, move || {
-        let scan = if scan_path.ends_with("/images/input/prepare") || body.may_contain_images()? {
+        let scan = if scan_required || body.may_contain_images()? {
             json_scan::scan(body.reader()?, &scan_path)?
         } else {
             Default::default()
@@ -36,22 +46,17 @@ pub(super) async fn prepare(
         Ok::<_, GatewayError>((body, scan))
     })
     .await?;
-    if scan.images.is_empty() && path.ends_with("/images/edits") {
-        return Err(GatewayError::input(
-            "Image edits require at least one source image",
-        ));
-    }
-    if scan.images.is_empty() {
+    if scan.images.is_empty() && scan.edit_fields.is_empty() {
         return Ok(Output::Request(body));
     }
     let ids = missing_references(runtime, token, &scan);
-    let urls = if path.ends_with("/images/edits") {
+    let urls = if editing {
         runtime.edit_url_transport(token, &scan.model, &ids).await?;
         true
     } else {
         scan.operation != "upload"
             && runtime
-                .local_url_transport(token, (&scan.model, &path), &ids)
+                .local_url_transport(token, (&scan.model, path), &ids)
                 .await
     };
     let inline = scan.images.iter().any(|image| image.managed_id.is_none());
@@ -74,34 +79,46 @@ pub(super) async fn prepare(
 
 async fn prepare_images(
     runtime: &Arc<Runtime>,
-    body: Spool,
+    mut body: Spool,
     (scan, token, urls): (json_scan::Scan, &str, bool),
 ) -> Result<Output, GatewayError> {
-    let mut replacements = Vec::new();
-    let mut body = body;
+    let mut replacements = scan
+        .edit_fields
+        .into_iter()
+        .map(|(range, bytes)| (range, Replacement::literal(bytes)))
+        .collect::<Vec<_>>();
     let (original_bytes, image_count) = (body.len(), scan.images.len());
     let mut prepared_images = 0;
     for slot in scan.images {
         if let Some(id) = &slot.managed_id {
-            if urls {
-                if let Some(asset) = runtime.cache.get_reference(token, id) {
-                    push_replacement(&mut replacements, &slot, (&asset, true))?;
-                    prepared_images += 1;
-                } else if matches!(slot.format, ImageFormat::Edit) {
-                    return Err(GatewayError::unavailable(
-                        "Edit image URL could not be resolved",
-                    ));
-                }
+            if !urls {
+                continue;
+            }
+            if let Some(asset) = runtime.cache.get_reference(token, id) {
+                push_replacement(&mut replacements, &slot, (&asset, true))?;
+                prepared_images += 1;
+            } else if matches!(slot.format, ImageFormat::Edit) {
+                return Err(GatewayError::unavailable(
+                    "Edit image URL could not be resolved",
+                ));
             }
             continue;
         }
-        let (returned, slot, asset) =
-            prepare_inline(runtime, body, (slot, token, &scan.model)).await?;
-        body = returned;
-        if scan.operation == "upload" {
-            return Ok(Output::Prepared(asset));
+        if matches!(slot.format, ImageFormat::Edit) && scan.model.trim().is_empty() {
+            let range = slot.replace.clone();
+            let (original, bytes) =
+                super::edit::upload_inline(runtime, body, (slot, token)).await?;
+            body = original;
+            replacements.push((range, Replacement::literal(bytes)));
+        } else {
+            let (returned, slot, asset) =
+                prepare_inline(runtime, body, (slot, token, &scan.model)).await?;
+            body = returned;
+            if scan.operation == "upload" && !matches!(slot.format, ImageFormat::Edit) {
+                return Ok(Output::Prepared(asset));
+            }
+            push_replacement(&mut replacements, &slot, (&asset, urls))?;
         }
-        push_replacement(&mut replacements, &slot, (&asset, urls))?;
         prepared_images += 1;
     }
     if replacements.is_empty() {
@@ -203,10 +220,7 @@ fn push_replacement(
     if let Some(range) = &slot.rename {
         replacements.push((
             range.clone(),
-            Replacement {
-                bytes: b"\"image_url\"".to_vec(),
-                copy_fields: Vec::new(),
-            },
+            Replacement::literal(br#""image_url""#.as_slice()),
         ));
     }
     Ok(())
@@ -216,7 +230,7 @@ fn apply(
     body: Spool,
     mut replacements: Vec<(std::ops::Range<u64>, Replacement)>,
 ) -> Result<Spool, GatewayError> {
-    replacements.sort_by_key(|(range, _)| range.start);
+    replacements.sort_by_key(|(range, _)| (range.start, range.end));
     let mut reader = body.reader()?;
     let mut file = super::spool_budget::SpoolWriter::new()?;
     let mut offset = 0;

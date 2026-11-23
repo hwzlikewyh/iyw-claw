@@ -64,8 +64,8 @@ fn image_extension(mime_type: &str) -> Result<&'static str, AppCommandError> {
     }
 }
 
-fn object_key(image: &EncodedChatImage) -> Result<String, AppCommandError> {
-    let extension = image_extension(image.mime_type)?;
+fn object_key(mime: &str) -> Result<String, AppCommandError> {
+    let extension = image_extension(mime)?;
     Ok(format!(
         "AI/img/{}/{}.{}",
         Local::now().format("%y%m%d"),
@@ -154,25 +154,17 @@ fn public_url(mut signed: Url) -> Result<String, AppCommandError> {
     Ok(signed.to_string())
 }
 
-async fn put_image(
+pub(crate) async fn image_upload_urls(
     client: &Client,
-    signed: Url,
-    image: &EncodedChatImage,
-) -> Result<(), AppCommandError> {
-    let response = client
-        .put(signed)
-        .header(reqwest::header::CONTENT_TYPE, image.mime_type)
-        .body(image.bytes.clone())
-        .send()
-        .await
-        .map_err(|error| {
-            AppCommandError::network("Image upload failed").with_detail(error.to_string())
-        })?;
-    if !response.status().is_success() {
-        return Err(AppCommandError::network("Image upload was rejected")
-            .with_detail(response.status().to_string()));
-    }
-    Ok(())
+    token: &str,
+    mime: &str,
+) -> Result<(Url, String), AppCommandError> {
+    let key = object_key(mime)?;
+    let presigned = post_gateway(client, token, "PreSignedUrl", json!({ "objectKey": key })).await?;
+    let accepted = accepted_gateway(presigned, "IYW image upload is unavailable")?;
+    let signed = signed_url(&accepted)?;
+    let url = public_url(signed.clone())?;
+    Ok((signed, url))
 }
 
 async fn check_image(client: &Client, token: &str, url: &str) -> Result<(), UploadFailure> {
@@ -216,22 +208,18 @@ async fn upload_once(
                     .with_detail(error.to_string()),
             )
         })?;
-    let key = object_key(image).map_err(UploadFailure::Terminal)?;
-    let presigned = post_gateway(
+    image_extension(image.mime_type).map_err(UploadFailure::Terminal)?;
+    let url = crate::acp::model_gateway::upload_edit_body(
         &client,
         token.expose(),
-        "PreSignedUrl",
-        json!({ "objectKey": key }),
+        (
+            image.mime_type,
+            image.bytes.len() as u64,
+            image.bytes.clone().into(),
+        ),
     )
     .await
     .map_err(UploadFailure::Unavailable)?;
-    let presigned = accepted_gateway(presigned, "IYW image upload is unavailable")
-        .map_err(UploadFailure::Unavailable)?;
-    let signed = signed_url(&presigned).map_err(UploadFailure::Unavailable)?;
-    let url = public_url(signed.clone()).map_err(UploadFailure::Unavailable)?;
-    put_image(&client, signed, image)
-        .await
-        .map_err(UploadFailure::Unavailable)?;
     check_image(&client, token.expose(), &url).await?;
     Ok(url)
 }

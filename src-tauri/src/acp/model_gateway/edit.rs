@@ -71,8 +71,7 @@ async fn upload_images(
     let model = payload
         .get("model")
         .and_then(Value::as_str)
-        .filter(|model| !model.trim().is_empty())
-        .ok_or_else(|| GatewayError::input("Image edit model is required"))?
+        .unwrap_or_default()
         .to_owned();
     if payload.get("stream") == Some(&Value::Bool(true)) {
         return Err(GatewayError::input("Streaming image edits are unsupported"));
@@ -224,9 +223,71 @@ async fn upload(
         Ok(prepared)
     })
     .await?;
+    if model.trim().is_empty() {
+        return upload_prepared(runtime, token, prepared).await;
+    }
     let key = AssetCache::key(token, &prepared.encoded_digest);
     let _same_asset = runtime.asset_locks[usize::from(key[0]) % runtime.asset_locks.len()]
         .lock()
         .await;
     Ok(runtime.upload((token, model), prepared).await?.image_url)
+}
+
+async fn upload_prepared(
+    runtime: &Runtime,
+    token: &str,
+    image: media::Prepared,
+) -> Result<String, GatewayError> {
+    super::auth::check(token)?;
+    let file = tokio::fs::File::from_std(image.file);
+    let body = reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(file));
+    upload_edit_body(&runtime.client, token, (image.mime, image.size, body))
+        .await
+        .map_err(|error| {
+            tracing::warn!(target: "model_gateway", reason=%error.message, "edit input upload failed before model execution");
+            GatewayError::unavailable("Edit image upload failed before model execution")
+        })
+}
+
+pub(crate) async fn upload_edit_body(
+    client: &reqwest::Client,
+    token: &str,
+    (mime, size, body): (&str, u64, reqwest::Body),
+) -> Result<String, crate::app_error::AppCommandError> {
+    use crate::app_error::AppCommandError;
+    let (signed, url) = crate::commands::image_upload_urls(client, token, mime).await?;
+    let response = client
+        .put(signed)
+        .header(reqwest::header::CONTENT_TYPE, mime)
+        .header(reqwest::header::CONTENT_LENGTH, size)
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| {
+            AppCommandError::network("Image upload failed")
+                .with_detail(error.without_url().to_string())
+        })?;
+    if !response.status().is_success() {
+        return Err(AppCommandError::network("Image upload was rejected")
+            .with_detail(response.status().to_string()));
+    }
+    tracing::debug!(target: "model_gateway", size, mime, "image storage accepted input");
+    Ok(url)
+}
+
+pub(super) async fn upload_inline(
+    runtime: &Runtime,
+    body: Spool,
+    (slot, token): (super::json_scan::ImageSlot, &str),
+) -> Result<(Spool, Vec<u8>), GatewayError> {
+    let (body, image) = super::work::blocking(runtime, move || {
+        let hash = media::encoded_digest(&body, &slot)?;
+        let image = media::decode(&body, &slot, hash)?;
+        Ok((body, image))
+    })
+    .await?;
+    let url = upload_prepared(runtime, token, image).await?;
+    let bytes = serde_json::to_vec(&url)
+        .map_err(|_| GatewayError::unavailable("Edit image URL encoding failed"))?;
+    Ok((body, bytes))
 }

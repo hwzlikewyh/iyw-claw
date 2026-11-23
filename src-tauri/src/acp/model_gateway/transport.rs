@@ -65,6 +65,26 @@ impl Runtime {
             .acquire()
             .await
             .map_err(|_| super::error::GatewayError::unavailable("Image queue closed"))?;
+        if model.trim().is_empty() {
+            for id in ids {
+                let value = self
+                    .image_api_once(
+                        token,
+                        &serde_json::json!({"operation":"resolve", "image_id":id}),
+                    )
+                    .await?;
+                let asset: Asset = serde_json::from_value(value)
+                    .ok()
+                    .filter(|asset: &Asset| asset.image_id == *id && valid_asset(asset))
+                    .ok_or_else(|| {
+                        super::error::GatewayError::unavailable(
+                            "Edit image URL could not be resolved",
+                        )
+                    })?;
+                self.cache.insert_reference(token, asset);
+            }
+            return Ok(());
+        }
         if self
             .image_resources(token, (model, "images_edits"), ids)
             .await

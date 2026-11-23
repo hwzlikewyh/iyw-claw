@@ -34,6 +34,7 @@ mod websocket;
 mod work;
 
 pub(crate) use auth::update_credentials;
+pub(crate) use edit::upload_edit_body;
 pub(crate) use token_count::catalog_refreshed;
 
 static ACTIVE_BASE: OnceLock<RwLock<Option<String>>> = OnceLock::new();

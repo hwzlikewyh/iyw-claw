@@ -3,6 +3,10 @@
 ## 2026-11-12 图片 edits 全链路 URL 传输
 
 经过本地模型网关的 edits 均发送 `images[].image_url` 与 `mask.image_url`。
+调用方继续向同一接口提交 JSON 或 multipart 的 `image`、`image[]` 和 `mask` 文件。
+网关复用已有 HTTPS 引用，含签名参数的链接原样转发；仅有蒙版时在本地拒绝提交。
+未指定模型时，网关用既有图片上传接口取得文件链接，受管图片 ID 由资源接口按账号解析，
+最终编辑请求仍由 Fusion 选择默认编辑模型。
 历史 JSON inline 内容仍由本机直传对象存储；multipart 由本地网关受限落盘、校验、
 复用同一存储票据后改成 JSON URL。Fusion 将兼容直连旧客户端的 multipart 转成
 同一 JSON URL 契约。上游拒绝 URL 格式时返回原错误，不回退为图片文件流。

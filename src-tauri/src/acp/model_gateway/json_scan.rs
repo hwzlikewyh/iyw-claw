@@ -31,6 +31,8 @@ pub(super) struct ImageSlot {
 pub(super) struct Scan {
     pub model: String,
     pub operation: String,
+    pub has_edit_sources: bool,
+    pub edit_fields: Vec<(Range<u64>, &'static [u8])>,
     pub images: Vec<ImageSlot>,
 }
 
@@ -40,21 +42,9 @@ pub(super) struct Value {
     pub text: Option<String>,
     pub fields: Vec<(String, Value)>,
     pub inline: bool,
+    pub https: bool,
     pub source_extra: Vec<Range<u64>>,
     pub key_span: Option<Range<u64>>,
-}
-
-impl Value {
-    pub fn get(&self, key: &str) -> Option<&Self> {
-        self.fields
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value)
-    }
-
-    pub fn text(&self, key: &str) -> Option<&str> {
-        self.get(key)?.text.as_deref()
-    }
 }
 
 pub(super) struct Parser {
@@ -77,6 +67,11 @@ pub(super) fn scan(reader: Box<dyn Read + Send>, path: &str) -> Result<Scan, Gat
     parser.whitespace()?;
     if parser.peek()?.is_some() {
         return Err(GatewayError::input("Invalid JSON request"));
+    }
+    if parser.editing && !parser.result.has_edit_sources {
+        return Err(GatewayError::input(
+            "Image edits require at least one source image",
+        ));
     }
     Ok(parser.result)
 }
@@ -136,7 +131,10 @@ impl Parser {
             return Ok(Value::default());
         }
         loop {
-            self.value(depth + 1, key, active)?;
+            let item = self.value(depth + 1, key, active)?;
+            if self.editing && depth == 1 && key == "images" {
+                self.result.record_edit_input(&item, false)?;
+            }
             self.whitespace()?;
             match self.byte()? {
                 b']' => break,
@@ -189,7 +187,8 @@ impl Parser {
         }
         object.span = start..self.offset;
         self.record_object(&object, (depth, parent, active), first_image)?;
-        if !matches!(parent, "source" | "image_url") {
+        let edit_item = self.editing && matches!((depth, parent), (2, "images") | (1, "mask"));
+        if !edit_item && !matches!(parent, "source" | "image_url") {
             object.fields.clear();
         }
         Ok(object)
@@ -229,7 +228,7 @@ impl Parser {
             .iter()
             .filter(|image| image.managed_id.is_some() == managed)
             .count();
-        if count >= MAX_IMAGES && managed {
+        if count >= MAX_IMAGES && managed && !self.editing {
             return Ok(()); // 可选的历史 ID 优化超限时保留原文，不新增请求拒绝。
         }
         if count >= MAX_IMAGES {
@@ -261,6 +260,9 @@ impl Parser {
         let child_active = active && super::json_image::container(&key)
             || depth == 0 && self.editing && matches!(key.as_str(), "images" | "mask");
         let mut value = self.value(depth + 1, &key, child_active)?;
+        if self.editing && depth == 0 && key == "mask" {
+            self.result.record_edit_input(&value, true)?;
+        }
         value.key_span = Some(field_start..key_end);
         if source
             && !matches!(

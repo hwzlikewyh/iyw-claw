@@ -56,6 +56,10 @@ async fn load(
     let (dimensions, byte_size) = (dimensions(&loaded.bytes), Some(loaded.bytes.len()));
     let url = if remote {
         credential_free_https(source)?
+    } else if editing {
+        service
+            .upload_edit_bytes(loaded.bytes, loaded.mime_type)
+            .await?
     } else {
         service
             .upload_bytes(

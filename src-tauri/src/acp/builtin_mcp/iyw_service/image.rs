@@ -76,6 +76,30 @@ impl IywGatewayService {
         }
     }
 
+    pub(in crate::acp::builtin_mcp) async fn upload_edit_bytes(
+        &self,
+        bytes: Vec<u8>,
+        mime: &str,
+    ) -> Result<String, ErrorData> {
+        let key = format!("{mime}:{:x}", Sha256::digest(&bytes));
+        let upload = async {
+            let token = self.token().await?;
+            let input = (mime, bytes.len() as u64, bytes.into());
+            crate::acp::model_gateway::upload_edit_body(&self.upload_client, &token, input)
+                .await
+                .map_err(|error| {
+                    tracing::warn!(target: "builtin_mcp", stage="input_upload", reason=%error.message,
+                        "[iyw-image] edit input upload failed before submission");
+                    let details = serde_json::json!({"stage":"input_upload","execution_status":"not_started"});
+                    ErrorData::internal_error(error.message, Some(details))
+                })
+        };
+        match &self.image_context {
+            Some(context) => context.upload(key, upload).await,
+            None => upload.await,
+        }
+    }
+
     pub(in crate::acp::builtin_mcp) fn image_io<'a, T: 'a>(
         &'a self,
         stage: &'a str,

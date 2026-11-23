@@ -13,7 +13,9 @@ function errorLabel(message: string): ImageErrorLabel {
   if (/(-32602|ImageToolRequest|invalid.*parameter)/i.test(message)) {
     return "imageRequestInvalid"
   }
-  if (message.includes("Image edits require at least one source image")) {
+  if (
+    /\bimage edits? requires? (?:at least one|a) source image\b/i.test(message)
+  ) {
     return "imageSourceRequired"
   }
   return "imageGenerationFailed"
@@ -75,5 +77,10 @@ export function imageGenerationErrors(
   failed: boolean
 ): ImageErrorLabel[] {
   const labels = collectImageErrors(output, failed)
-  return labels.length || !failed ? labels : ["imageGenerationFailed"]
+  if (!labels.length && failed) return ["imageGenerationFailed"]
+  // 参数和源图诊断留在工具记录中，避免在重试和历史消息正文中反复提示。
+  return labels.filter(
+    (label) =>
+      label !== "imageRequestInvalid" && label !== "imageSourceRequired"
+  )
 }

@@ -29,8 +29,8 @@ impl Parser {
                 self.offset += count as u64;
             }
         }
-        let inline = small.starts_with(b"data:")
-            || decoded_prefix(&small).is_some_and(|prefix| prefix.starts_with("data:"));
+        let decoded = decoded_prefix(&small);
+        let prefix = decoded.as_deref().map(str::as_bytes).unwrap_or(&small);
         let text = if self.offset - start <= PREFIX_BYTES as u64 {
             Some(decode(&small)?)
         } else {
@@ -39,7 +39,8 @@ impl Parser {
         Ok(Value {
             span: start..self.offset,
             text,
-            inline,
+            inline: prefix.starts_with(b"data:"),
+            https: prefix.starts_with(b"https://"),
             fields: Vec::new(),
             source_extra: Vec::new(),
             key_span: None,

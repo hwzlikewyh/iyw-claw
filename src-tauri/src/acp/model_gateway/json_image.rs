@@ -1,4 +1,19 @@
-use super::json_scan::{ImageFormat, ImageSlot, Value};
+use super::error::GatewayError;
+use super::json_scan::{ImageFormat, ImageSlot, Scan, Value};
+use super::limits::MAX_IMAGES;
+
+impl Value {
+    pub fn get(&self, key: &str) -> Option<&Self> {
+        self.fields
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value)
+    }
+
+    pub fn text(&self, key: &str) -> Option<&str> {
+        self.get(key)?.text.as_deref()
+    }
+}
 
 pub(super) fn container(key: &str) -> bool {
     matches!(
@@ -16,10 +31,10 @@ pub(super) fn container(key: &str) -> bool {
 
 pub(super) fn slot(object: &Value, editing: bool, prepare: bool) -> Option<ImageSlot> {
     let format = match object.text("type") {
+        _ if editing => ImageFormat::Edit,
         Some("input_image") => ImageFormat::Responses,
         Some("image_url") => ImageFormat::Chat,
         Some("image") => ImageFormat::Messages,
-        _ if editing => ImageFormat::Edit,
         _ if prepare && object.text("operation") == Some("upload") => ImageFormat::Responses,
         _ => return None,
     };
@@ -27,9 +42,10 @@ pub(super) fn slot(object: &Value, editing: bool, prepare: bool) -> Option<Image
     if value.span.end < value.span.start + 2 {
         return None;
     }
-    let raw = object
-        .get("source")
-        .is_some_and(|source| source.text("type") == Some("base64"))
+    let raw = !editing
+        && object
+            .get("source")
+            .is_some_and(|source| source.text("type") == Some("base64"))
         || prepare;
     let managed_id = value
         .text
@@ -47,16 +63,19 @@ fn image_slot(
     value: &Value,
     (format, managed_id): (ImageFormat, Option<String>),
 ) -> ImageSlot {
+    let source = if matches!(format, ImageFormat::Edit) {
+        None
+    } else {
+        object.get("source")
+    };
     ImageSlot {
         encoded: value.span.clone(),
-        replace: object
-            .get("source")
+        replace: source
             .map(|source| source.span.clone())
             .unwrap_or_else(|| value.span.clone()),
         mime: declared_mime(object),
         format,
-        source_extra: object
-            .get("source")
+        source_extra: source
             .map(|source| source.source_extra.clone())
             .unwrap_or_default(),
         rename: if matches!(format, ImageFormat::Responses) {
@@ -99,6 +118,37 @@ fn image_value(object: &Value, format: ImageFormat, prepare: bool) -> Option<&Va
 
 pub(super) fn managed(value: &str) -> bool {
     value.starts_with("iyw-image:iyw-image-v1-") || value.starts_with("iyw-image-v1-")
+}
+
+impl Scan {
+    pub(super) fn record_edit_input(
+        &mut self,
+        item: &Value,
+        mask: bool,
+    ) -> Result<(), GatewayError> {
+        let value = image_value(item, ImageFormat::Edit, false).unwrap_or(item);
+        if !(value.https || value.inline || value.text.as_deref().is_some_and(managed)) {
+            return Ok(());
+        }
+        self.has_edit_sources |= !mask;
+        if item.get("image_url").is_some() {
+            return Ok(());
+        }
+        // 对旧格式只记录字段边界，保留签名 URL 原文以及对象中的其他参数。
+        const MAX_EDIT_CHANGES: usize = (MAX_IMAGES + 1) * 2;
+        if self.edit_fields.len() + 2 > MAX_EDIT_CHANGES {
+            return Err(GatewayError::input("Too many image edit fields"));
+        }
+        if let Some(key) = &value.key_span {
+            self.edit_fields.push((key.clone(), br#""image_url""#));
+        } else {
+            let span = &value.span;
+            self.edit_fields
+                .push((span.start..span.start, br#"{"image_url":"#));
+            self.edit_fields.push((span.end..span.end, b"}"));
+        }
+        Ok(())
+    }
 }
 
 pub(super) fn string_slot(value: &Value, key: &str, editing: bool) -> Option<ImageSlot> {
