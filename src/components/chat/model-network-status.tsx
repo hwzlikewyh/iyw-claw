@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertTriangle, Loader2, WifiOff } from "lucide-react"
+import { AlertTriangle, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
@@ -29,7 +29,9 @@ function isModelNetworkError(
   if (/max_output_tokens|max_tokens|context_length_exceeded/i.test(error)) {
     return false
   }
-  const kind = classifyAgentRuntimeError(`API Error: ${error}`)
+  const kind =
+    classifyAgentRuntimeError(error) ??
+    classifyAgentRuntimeError(`API Error: ${error}`)
   if (kind && kind !== "requestFailed") return NETWORK_ERROR_KINDS.has(kind)
   return (
     messages.some((message) => error.startsWith(message)) ||
@@ -45,7 +47,7 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
   const activity = useSessionActivity(contextKey)
   const retry = activity?.snapshot
   const retrying = status === "prompting" && Boolean(retry?.retrying_since)
-  const attempt = retry?.retry_attempt ?? 1
+  const attempt = retry?.retry_attempt
   const networkError =
     !loadError &&
     isModelNetworkError(
@@ -55,10 +57,10 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
 
   if (!retrying && !networkError) return null
 
-  const severe = attempt >= SEVERE_RETRY_ATTEMPTS
+  const severe = (attempt ?? 0) >= SEVERE_RETRY_ATTEMPTS
   const message = networkError
     ? t("modelNetwork.disconnected")
-    : t(severe ? "modelNetwork.retryingSevere" : "modelNetwork.retrying")
+    : t("modelNetwork.retrying")
 
   return (
     <ModelNetworkBanner
@@ -66,7 +68,7 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
       networkError={networkError}
       severe={severe}
       attempts={
-        retrying && !networkError
+        retrying && !networkError && attempt != null && attempt > 0
           ? t("modelNetwork.attempts", { count: attempt })
           : null
       }
@@ -85,7 +87,7 @@ function ModelNetworkBanner({
   severe: boolean
   attempts: string | null
 }) {
-  const Icon = networkError ? WifiOff : severe ? AlertTriangle : Loader2
+  const Icon = networkError || severe ? AlertTriangle : Loader2
   return (
     <div
       role={networkError || severe ? "alert" : "status"}

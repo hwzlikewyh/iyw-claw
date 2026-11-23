@@ -178,6 +178,14 @@ export function classifyAgentRuntimeError(
   message: string
 ): AgentRuntimeErrorKind | null {
   const normalized = message.trim()
+  // 模型请求有时只返回传输错误，ACP 会再包装一层 Internal error。
+  if (
+    /^(?:Internal error:\s*["']?)?Connection failed: error sending request(?:["']?$|\s+error_info:.*"httpStatusCode\\?":\s*null\b)/i.test(
+      normalized
+    )
+  ) {
+    return "networkError"
+  }
   if (!normalized || !looksLikeRuntimeError(normalized)) return null
   if (normalized.includes(SPACE_QUOTA_MESSAGE)) return "quotaExceeded"
   if (

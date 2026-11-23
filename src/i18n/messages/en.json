@@ -3993,7 +3993,7 @@
           "quotaExceeded": "The available quota has been used. Adjust it and try again.",
           "modelUnavailable": "This model is unavailable. Activate it or choose another model.",
           "requestTimeout": "The request timed out. Try again later.",
-          "networkError": "Network connection failed. Check your connection and try again.",
+          "networkError": "No complete response was received from the service. Try again later.",
           "serviceUnavailable": "The service is temporarily unavailable. Try again later.",
           "requestFailed": "The request failed. Try again later.",
           "modelStreamInterrupted": "The model service disconnected mid-response, so this turn didn't finish. The connection is still usable, so you can retry or continue. If it keeps happening, try another model or try again later.",
@@ -4037,10 +4037,9 @@
           "continuePrompt": "Continue completing the current task."
         },
         "modelNetwork": {
-          "retrying": "The model connection is unstable. Retrying…",
-          "retryingSevere": "The model connection is experiencing severe instability. Retrying…",
-          "attempts": "Consecutive retries: {count}",
-          "disconnected": "The model connection was interrupted by network instability. This reply did not finish. Continue later or try another model."
+          "retrying": "Your message was received. Retrying the model request automatically.",
+          "attempts": "Retry {count}",
+          "disconnected": "The model didn’t finish this reply. You can try again in this conversation."
         },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",
@@ -4716,7 +4715,7 @@
           "streamDisconnected": "Model service disconnected mid-response",
           "rateLimited": "Model service is busy (rate limited)",
           "serverError": "Model service temporarily unavailable",
-          "networkError": "Network connection failed"
+          "networkError": "Model request interrupted"
         },
         "waitingProcess": "Command running",
         "waitingOutput": "Working",

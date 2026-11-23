@@ -3993,7 +3993,7 @@
           "quotaExceeded": "可用额度已用完，请调整额度后重试。",
           "modelUnavailable": "当前模型不可用，请开通或更换模型后重试。",
           "requestTimeout": "请求超时，请稍后重试。",
-          "networkError": "网络连接失败，请检查网络后重试。",
+          "networkError": "未能收到服务的完整响应。请稍后重试。",
           "serviceUnavailable": "服务暂时不可用，请稍后重试。",
           "requestFailed": "请求失败，请稍后重试。",
           "modelStreamInterrupted": "模型服务中途断开，这一轮没有完成。连接仍可使用，可以重试或继续；如果反复出现，请换个模型或稍后再试。",
@@ -4037,10 +4037,9 @@
           "continuePrompt": "继续完成当前任务。"
         },
         "modelNetwork": {
-          "retrying": "模型连接出现波动，正在重试…",
-          "retryingSevere": "模型网络波动较为严重，正在重试…",
-          "attempts": "已连续重试 {count} 次",
-          "disconnected": "模型网络波动，连接异常断开。本轮回复未完成，请稍后继续或更换模型。"
+          "retrying": "已收到你的消息，正在自动重试模型请求。",
+          "attempts": "第 {count} 次重试",
+          "disconnected": "本轮模型回复未完成。你可以在当前对话中重试。"
         },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",
@@ -4716,7 +4715,7 @@
           "streamDisconnected": "模型服务中途断开",
           "rateLimited": "模型服务繁忙（限流）",
           "serverError": "模型服务暂时不可用",
-          "networkError": "网络连接失败"
+          "networkError": "模型请求中断"
         },
         "waitingProcess": "命令执行中",
         "waitingOutput": "工作中",
