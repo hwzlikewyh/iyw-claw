@@ -4,15 +4,15 @@ import { useEffect, useMemo, useState } from "react"
 import { useLocale, useTranslations } from "next-intl"
 import { FileWarning, Loader2 } from "lucide-react"
 
+import { acquireOfficePreview } from "./office-preview-session"
 import { usePreviewVisibility } from "./use-preview-resource"
 import { PreviewToolbar } from "./preview-toolbar"
 import {
   isDesktop,
   isRemoteDesktopMode,
   getServerBaseUrl,
-  getTransport,
 } from "@/lib/transport"
-import { extractAppCommandError } from "@/lib/app-error"
+import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 
 const FILE_NOT_READY = "FILE_NOT_READY"
 
@@ -38,7 +38,12 @@ export function OfficePreview(props: {
       />
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="h-full w-full" style={{ zoom }}>
-          {visible && <ActiveOfficePreview {...props} />}
+          {visible && (
+            <ActiveOfficePreview
+              key={JSON.stringify([props.rootPath, props.relPath])}
+              {...props}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -77,48 +82,27 @@ function ActiveOfficePreview({
   useEffect(() => {
     const root = rootPath ?? ""
     if (!root || !path || remoteDesktop) return
-    const transport = getTransport()
-    const id = crypto.randomUUID()
-    let disposed = false
-    const release = () =>
-      void transport.call("close_office_preview", { id }).catch(() => {
-        console.warn(
-          "[office-preview] release failed; session lease will expire"
-        )
-      })
-    const timer = setInterval(() => {
-      void transport.call("renew_office_preview", { id }).catch(() => {
-        if (!disposed) setErrorCode("SESSION_EXPIRED")
-      })
-    }, 30_000)
-    void transport
-      .call<{ port: number; cap: string }>("open_office_preview", {
-        id,
-        rootPath: root,
-        path,
-      })
-      .then((res) => {
-        if (disposed) {
-          release()
-          return
-        }
-        setPort(res.port)
-        setCap(res.cap)
-        setErrorCode(null)
-        setErrorMessage(null)
-      })
-      .catch((err) => {
-        if (disposed) return
-        clearInterval(timer)
-        release()
-        setErrorCode(watchCodeOf(err) ?? "START_FAILED")
-        setErrorMessage(extractAppCommandError(err)?.message ?? String(err))
-      })
-    return () => {
-      disposed = true
-      clearInterval(timer)
-      release()
-    }
+    return acquireOfficePreview(
+      { rootPath: root, path },
+      {
+        onReady: (connection) => {
+          setPort(connection.port)
+          setCap(connection.cap)
+          setErrorCode(null)
+          setErrorMessage(null)
+        },
+        onRecovering: () => {
+          setPort(null)
+          setCap("")
+        },
+        onError: (error, phase) => {
+          const fallback =
+            phase === "renew" ? "SESSION_EXPIRED" : "START_FAILED"
+          setErrorCode(watchCodeOf(error) ?? fallback)
+          setErrorMessage(toErrorMessage(error))
+        },
+      }
+    )
   }, [path, rootPath, retryKey, remoteDesktop])
 
   const watchUrl = useMemo(() => {
@@ -179,7 +163,11 @@ function ActiveOfficePreview({
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <FileWarning className="h-8 w-8 text-muted-foreground" />
         <div className="text-sm font-medium text-foreground">
-          {t("officeWatchFailed")}
+          {t(
+            errorCode === "SESSION_EXPIRED"
+              ? "officePreviewTitle"
+              : "officeWatchFailed"
+          )}
         </div>
         {errorMessage && (
           <div className="max-w-sm break-words text-xs text-muted-foreground">

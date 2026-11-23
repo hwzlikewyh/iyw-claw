@@ -38,7 +38,12 @@ fn render_sync(path: PathBuf) -> Result<String, WatchError> {
         Ok(result)
     })
     .map_err(error)?;
-    String::from_utf8(output).map_err(|error| WatchError::Io(error.to_string()))
+    let mut html = String::from_utf8(output).map_err(|error| WatchError::Io(error.to_string()))?;
+    // 字体等资源也可能出现在样式表中，不能只替换正文分片。
+    for (hash, data) in assets {
+        html = html.replace(&format!("asset://sha256/{hash}"), &data);
+    }
+    Ok(html)
 }
 
 fn read_assets(bundle: &hcd_core::Bundle) -> Result<HashMap<String, String>, hcd_core::HcdError> {
@@ -67,7 +72,12 @@ fn read_assets(bundle: &hcd_core::Bundle) -> Result<HashMap<String, String>, hcd
             Some("jpg" | "jpeg") => "image/jpeg",
             Some("gif") => "image/gif",
             Some("webp") => "image/webp",
-            _ => "image/png",
+            Some("png") => "image/png",
+            Some("woff") => "font/woff",
+            Some("woff2") => "font/woff2",
+            Some("ttf") => "font/ttf",
+            Some("otf") => "font/otf",
+            _ => "application/octet-stream",
         };
         result.insert(asset.hash, format!("data:{mime};base64,{data}"));
     }

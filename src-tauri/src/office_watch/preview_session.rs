@@ -23,6 +23,7 @@ struct Session {
     acquired: AtomicBool,
     touched: Mutex<Instant>,
     target: Mutex<Option<(String, String, WatchOrigin)>>,
+    connection: Mutex<Option<(u16, String)>>,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +55,7 @@ fn session(id: &str) -> Result<Arc<Session>, AppCommandError> {
         acquired: AtomicBool::new(false),
         touched: Mutex::new(Instant::now()),
         target: Mutex::new(None),
+        connection: Mutex::new(None),
     });
     sessions.insert(id.to_string(), entry.clone());
     expire(id.to_string(), entry.clone());
@@ -81,6 +83,10 @@ pub async fn open(
         _ = entry.cancelled.cancelled() => return Err(AppCommandError::invalid_input("Preview closed")),
         result = start(params, origin) => result?,
     };
+    *entry
+        .connection
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some((started.port, started.cap.clone()));
     entry.acquired.store(true, Ordering::SeqCst);
     if entry.cancelled.is_cancelled() {
         release(&entry).await;
@@ -98,9 +104,11 @@ async fn start(
         .acquire()
         .await
         .map_err(|_| AppCommandError::invalid_input("Preview startup unavailable"))?;
-    super::start_office_watch_core(params.root_path, params.path, origin)
-        .await
-        .map_err(Into::into)
+    let result = super::start_office_watch_core(params.root_path, params.path, origin).await;
+    if let Err(error) = &result {
+        tracing::warn!(code = error.code(), %error, "[office-preview] session startup failed");
+    }
+    result.map_err(Into::into)
 }
 
 pub async fn close(id: &str) -> Result<(), AppCommandError> {
@@ -119,10 +127,13 @@ async fn release(entry: &Session) {
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .clone();
-    if let Some((root, path, origin)) = target {
-        if let Err(error) = super::stop_office_watch_core(root, path, origin).await {
-            tracing::warn!(%error, "[office-preview] session release failed");
-        }
+    let connection = entry
+        .connection
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .take();
+    if let (Some((_, _, origin)), Some((port, cap))) = (target, connection) {
+        super::release_preview_watch(port, &cap, origin);
     }
 }
 
@@ -132,10 +143,25 @@ pub fn renew(id: &str) -> Result<(), AppCommandError> {
         .get(id)
         .filter(|entry| !entry.cancelled.is_cancelled())
         .ok_or_else(|| AppCommandError::not_found("Preview session expired"))?;
-    *entry
+    let connection = entry
+        .connection
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some((port, cap)) = connection.as_ref() {
+        if !super::validate_watch_cap(*port, cap) {
+            return Err(AppCommandError::not_found(
+                "Preview service stopped; reopen the document",
+            ));
+        }
+    }
+    let mut touched = entry
         .touched
         .lock()
-        .unwrap_or_else(|error| error.into_inner()) = Instant::now();
+        .unwrap_or_else(|error| error.into_inner());
+    if entry.cancelled.is_cancelled() {
+        return Err(AppCommandError::not_found("Preview session expired"));
+    }
+    *touched = Instant::now();
     Ok(())
 }
 
@@ -143,13 +169,8 @@ fn expire(id: String, entry: Arc<Session>) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(SESSION_TIMEOUT).await;
-            let elapsed = entry
-                .touched
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .elapsed();
-            if entry.cancelled.is_cancelled() || elapsed >= SESSION_TIMEOUT {
-                entry.cancelled.cancel();
+            let expired = cancel_expired(&entry);
+            if expired {
                 release(&entry).await;
                 SESSIONS
                     .lock()
@@ -159,6 +180,18 @@ fn expire(id: String, entry: Arc<Session>) {
             }
         }
     });
+}
+
+fn cancel_expired(entry: &Session) -> bool {
+    let touched = entry
+        .touched
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let expired = entry.cancelled.is_cancelled() || touched.elapsed() >= SESSION_TIMEOUT;
+    if expired {
+        entry.cancelled.cancel();
+    }
+    expired
 }
 
 #[cfg(feature = "tauri-runtime")]

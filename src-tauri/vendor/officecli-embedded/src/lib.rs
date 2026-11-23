@@ -4,6 +4,7 @@
     clippy::let_and_return
 )]
 
+mod capabilities;
 mod commands;
 mod hdoc_remote;
 mod hdoc_server;
@@ -46,7 +47,7 @@ use clap::Parser;
 use handler_common::{DocumentHandler, HandlerError, OutputFormat};
 use std::path::PathBuf;
 
-/// 宿主直接同步内嵌技能，避免启动命令进程。
+/// 宿主直接读取内置技能。
 pub fn bundled_skill(name: &str) -> Result<String, HandlerError> {
     commands::handle_load_skill(commands::LoadSkillCommand { name: Some(name.to_owned()), path: None })
 }
@@ -176,6 +177,10 @@ pub fn run(args: Vec<std::ffi::OsString>) {
         commands::Command::Info(cmd) => commands::handle_info(cmd, format),
         commands::Command::Merge(cmd) => commands::handle_merge(cmd, format),
         commands::Command::Help(cmd) => commands::handle_help(cmd, cli.json),
+        commands::Command::Capabilities => Ok(commands::json_data_envelope(
+            crate::capabilities::runtime().clone(),
+            true,
+        )),
         commands::Command::Import(cmd) => commands::handle_import(cmd, format),
         commands::Command::Hdoc(cmd) => {
             commands::handle_hdoc(cmd, format).map(|(output, succeeded)| {
@@ -312,7 +317,7 @@ fn handle_unwatch(cmd: commands::UnwatchCommand) -> Result<String, HandlerError>
 fn handle_mcp(cmd: commands::McpCommand) -> Result<String, HandlerError> {
     match cmd.args.as_slice() {
         [] => mcp::run_server()
-            .map(|_| "MCP server stopped".to_string())
+            .map(|_| String::new())
             .map_err(|e| HandlerError::OperationFailed(e.to_string())),
         [action] if action.eq_ignore_ascii_case("list") => mcp_list(),
         [target] => mcp_install(target),
@@ -330,30 +335,11 @@ fn mcp_home() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
 }
 
-/// Resolve a command that remains usable after upgrades where possible.  This
-/// follows the C# installer's ordering: user install, PATH wrapper, then the
-/// currently running binary as a development-build fallback.
+/// MCP注册使用当前宿主，调用参数另行保留--embedded-office前缀。
 fn mcp_command_path() -> String {
-    let executable = if cfg!(windows) {
-        "officecli.exe"
-    } else {
-        "officecli"
-    };
-    let installed = mcp_home().join(".local/bin").join(executable);
-    if installed.is_file() {
-        return installed.to_string_lossy().into_owned();
-    }
-    if let Some(paths) = std::env::var_os("PATH") {
-        for directory in std::env::split_paths(&paths) {
-            let candidate = directory.join(executable);
-            if candidate.is_file() {
-                return candidate.to_string_lossy().into_owned();
-            }
-        }
-    }
     std::env::current_exe()
         .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| executable.to_string())
+        .unwrap_or_else(|_| "iyw-claw".to_string())
 }
 
 fn mcp_target(target: &str) -> Result<(&'static str, std::path::PathBuf), HandlerError> {
@@ -377,7 +363,7 @@ fn mcp_install(target: &str) -> Result<String, HandlerError> {
         std::fs::create_dir_all(&path).map_err(|e| HandlerError::OperationFailed(e.to_string()))?;
         std::fs::write(path.join("manifest.json"), "{\"type\":\"plugin\",\"runner\":\"mcpBridge\",\"owner\":\"mcp\",\"name\":\"officecli\"}\n").map_err(|e| HandlerError::OperationFailed(e.to_string()))?;
         let bridge =
-            serde_json::to_string(&serde_json::json!({"command": command, "args": ["mcp"]}))
+            serde_json::to_string(&serde_json::json!({"command": command, "args": ["--embedded-office", "mcp"]}))
                 .map_err(|e| HandlerError::OperationFailed(e.to_string()))?;
         std::fs::write(path.join("mcp-bridge-config.json"), format!("{bridge}\n"))
             .map_err(|e| HandlerError::OperationFailed(e.to_string()))?;
@@ -404,7 +390,7 @@ fn mcp_install(target: &str) -> Result<String, HandlerError> {
         .ok_or_else(|| HandlerError::OperationFailed("mcpServers is not an object".to_string()))?;
     servers.insert(
         "officecli".to_string(),
-        serde_json::json!({"command":command,"args":["mcp"]}),
+        serde_json::json!({"command":command,"args":["--embedded-office", "mcp"]}),
     );
     write_mcp_json(&path, &root)?;
     Ok(format!("Registered officecli MCP in {}.", target))
@@ -518,6 +504,9 @@ pub(crate) fn open_handler_direct(
     file: &str,
     editable: bool,
 ) -> Result<Box<dyn DocumentHandler>, HandlerError> {
+    if let Some(handler) = office_engine::try_open_document(file, editable)? {
+        return Ok(handler);
+    }
     let path = PathBuf::from(file);
     let ext = path
         .extension()
@@ -525,41 +514,12 @@ pub(crate) fn open_handler_direct(
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
 
-    match ext.as_str() {
-        // Macro-enabled OOXML packages share the same WordprocessingML model.
-        // OxmlPackage preserves unknown parts (including vbaProject.bin), so
-        // routing .docm here enables safe structured edits without stripping
-        // the macro payload.
-        "docx" | "docm" => {
-            let handler = docx_handler::WordHandler::open(file, editable)?;
-            Ok(Box::new(handler))
-        }
-        // .xlsm uses the same SpreadsheetML handler; macro parts are retained
-        // untouched by the package read/write cycle.
-        "xlsx" | "xlsm" => {
-            let handler = xlsx_handler::ExcelHandler::open(file, editable)?;
-            Ok(Box::new(handler))
-        }
-        // .pptm likewise shares PresentationML with .pptx.
-        "pptx" | "pptm" => {
-            let handler = pptx_handler::PptxHandler::open(file, editable)?;
-            Ok(Box::new(handler))
-        }
-        "pdf" => {
-            let handler = pdf_handler::PdfHandler::open(file, editable)?;
-            Ok(Box::new(handler))
-        }
-        other => {
-            // Last-resort: any installed format-handler plugin that owns
-            // this extension (e.g. .hwpx). See plugins/plugin-protocol.md §2.3.
-            if commands::resolve_format_handler(other).is_some() {
-                let proxy = commands::FormatHandlerProxy::open(file)?;
-                return Ok(Box::new(proxy));
-            }
-            Err(HandlerError::OpenError(format!(
-                "unsupported format: {}",
-                other
-            )))
-        }
+    // External format-handler plugins remain the host's fallback.
+    if commands::resolve_format_handler(&ext).is_some() {
+        let proxy = commands::FormatHandlerProxy::open(file)?;
+        return Ok(Box::new(proxy));
     }
+    Err(HandlerError::OpenError(format!(
+        "unsupported format: {ext}"
+    )))
 }

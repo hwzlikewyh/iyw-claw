@@ -1,4 +1,5 @@
-//! 主程序内嵌HCD预览，复用现有会话、能力令牌与回收。
+//! 内嵌 OfficeCLI-rust HCD 预览，复用现有会话、能力令牌与引用回收。
+//! 每个文档持有可取消任务和本地监听器，不启动 OfficeCLI 子进程。
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ use crate::commands::office_tools::is_office_path;
 
 // ─── Tunables ───────────────────────────────────────────────────────────
 
-/// Hard cap on concurrent preview tasks — a backstop against a pathological
+/// Hard cap on concurrent watch processes — a backstop against a pathological
 /// burst of tab-opens spawning unbounded officecli processes.
 const MAX_CONCURRENT_WATCHES: usize = 32;
 /// Grace after a web preview's last SSE connection drops before the sweep reaps
@@ -51,7 +52,7 @@ pub enum WatchError {
     OutsideRoot,
     #[error("office file is still being created or was moved")]
     FileNotReady,
-    #[error("failed to start officecli watch: {0}")]
+    #[error("failed to open embedded Office preview: {0}")]
     StartFailed(String),
     #[error("officecli watch did not become ready in time: {0}")]
     PortTimeout(String),
@@ -164,9 +165,7 @@ fn lock_watches() -> MutexGuard<'static, HashMap<String, WatchInstance>> {
     OFFICE_WATCHES.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// Reap a child without blocking the caller: kill + `wait()` on a detached task
-/// so no zombie lingers. Falls back to `start_kill` (relying on `kill_on_drop`
-/// + tokio's orphan reaper) when called outside a runtime, e.g. at shutdown.
+/// 释放预览任务：撤销能力令牌，取消解析并关闭监听器。
 fn reap(child: Child) {
     drop(child);
 }
@@ -285,19 +284,6 @@ fn loose_key(root_path: &str, rel_path: &str) -> Option<String> {
 
 // ─── Spawn / readiness ──────────────────────────────────────────────────
 
-/// Ask the OS for a free loopback port by binding to `:0` then releasing it.
-/// There's an inherent (microsecond) TOCTOU window before officecli binds it;
-/// the readiness probe catches the rare loss as `PortTimeout`/`StartFailed`.
-fn allocate_free_port() -> Result<u16, WatchError> {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|_| WatchError::NoPort)?;
-    let port = listener
-        .local_addr()
-        .map_err(|_| WatchError::NoPort)?
-        .port();
-    drop(listener);
-    Ok(port)
-}
-
 // ─── Public API: start / stop / introspection ───────────────────────────
 
 /// Ensure a watch server is running for `path` (relative to `root_path`) and
@@ -342,10 +328,9 @@ pub async fn start_office_watch_core(
     // immediate.
     let canonical_target =
         resolve_office_target_ready(&root_path, &path, file_ready_deadline).await?;
-    let port = allocate_free_port()?;
     let cap = uuid::Uuid::new_v4().simple().to_string();
-    let child = embedded::spawn(&canonical_target, port, &cap).await?;
-
+    let child = embedded::spawn(&canonical_target, &cap).await?;
+    let port = child.port;
     // Register. Re-check after the async gap: another task may have won the
     // race for this same file while we were waiting — if so, adopt theirs and
     // reap ours.
@@ -521,6 +506,30 @@ pub async fn stop_office_watch_core(
 /// a `values_mut()` loop where each item is already `&mut`.
 fn is_live(entry: &mut WatchInstance) -> bool {
     !matches!(entry.child.try_wait(), Ok(Some(_)))
+}
+
+/// 会话只释放自己取得的服务，避免旧会话误减同路径新服务的引用。
+pub(super) fn release_preview_watch(port: u16, cap: &str, origin: WatchOrigin) {
+    let mut watches = lock_watches();
+    let key = watches.iter().find_map(|(key, entry)| {
+        (entry.port == port && constant_time_eq(entry.cap.as_bytes(), cap.as_bytes()))
+            .then(|| key.clone())
+    });
+    let Some(key) = key else { return };
+    let entry = watches.get_mut(&key).expect("watch exists under lock");
+    let count = match origin {
+        WatchOrigin::Desktop => &mut entry.desktop_ref_count,
+        WatchOrigin::Web => &mut entry.web_ref_count,
+    };
+    *count = count.saturating_sub(1);
+    if entry.desktop_ref_count > 0 || entry.web_ref_count > 0 {
+        return;
+    }
+    let child = watches.remove(&key).map(|entry| entry.child);
+    drop(watches);
+    if let Some(child) = child {
+        reap(child);
+    }
 }
 
 // All port lookups below scan for a *live* entry, skipping any dead one that may

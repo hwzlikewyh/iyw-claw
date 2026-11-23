@@ -65,7 +65,7 @@ async fn index(
         (
             VIEWER,
             "",
-            "<iframe id=\"viewer\" title=\"Document\"></iframe>",
+            "<div id=\"viewer\" role=\"document\" tabindex=\"0\"></div>",
         )
     };
     let html = PAGE
@@ -187,6 +187,12 @@ fn mime(relative: &std::path::Path) -> &'static str {
         "html" => "text/plain; charset=utf-8",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
         "svg" => "image/svg+xml",
         _ => "application/octet-stream",
     }

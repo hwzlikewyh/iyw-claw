@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 static SHIM_LOCK: Mutex<()> = Mutex::new(());
-pub const VERSION: &str = "0.1.31";
+pub const VERSION: &str = "0.1.32";
 
 /// 在 GUI/服务端启动之前处理办公命令，避免初始化应用或连接业务服务。
 pub fn dispatch_early() -> bool {

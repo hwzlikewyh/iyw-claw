@@ -4,7 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tempfile::TempDir;
@@ -24,6 +24,7 @@ pub(crate) mod snapshot;
 
 static IMPORT_SLOTS: Semaphore = Semaphore::const_new(2);
 const POLL_DELAY: Duration = Duration::from_millis(350);
+const REFRESH_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Serialize)]
 pub(super) struct Snapshot {
@@ -40,6 +41,7 @@ pub(super) struct State {
 }
 
 pub(super) struct Worker {
+    pub(super) port: u16,
     cancel: CancellationToken,
     task: JoinHandle<()>,
 }
@@ -62,13 +64,14 @@ impl Drop for Worker {
     }
 }
 
-pub(super) async fn spawn(file: &Path, port: u16, cap: &str) -> Result<Worker, WatchError> {
+pub(super) async fn spawn(file: &Path, cap: &str) -> Result<Worker, WatchError> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
     let cancel = CancellationToken::new();
     let cancelled_start = cancel.clone().drop_guard();
     let root = Arc::new(tempfile::tempdir()?);
     let stamp = super::file_state(file);
     let generation = import::convert(file, root.clone(), cancel.clone()).await?;
-    let listener = TcpListener::bind(("127.0.0.1", port)).await?;
     let (versions, _) = watch::channel(Snapshot {
         generation,
         error: None,
@@ -89,7 +92,7 @@ pub(super) async fn spawn(file: &Path, port: u16, cap: &str) -> Result<Worker, W
     };
     let task = tokio::spawn(run(listener, state, document));
     cancelled_start.disarm();
-    Ok(Worker { cancel, task })
+    Ok(Worker { port, cancel, task })
 }
 
 async fn run(listener: TcpListener, state: Arc<State>, document: Document) {
@@ -122,6 +125,7 @@ async fn monitor(document: Document, state: Arc<State>) {
     } = document;
     let mut previous = applied;
     let mut failed = false;
+    let mut retry_at = Instant::now();
     let mut generations = vec![state.versions.borrow().generation.clone()];
     loop {
         tokio::select! {
@@ -132,9 +136,14 @@ async fn monitor(document: Document, state: Arc<State>) {
         if current != previous {
             previous = current;
             failed = false;
+            retry_at = Instant::now();
             continue;
         }
-        if current == applied || failed {
+        if current == applied {
+            clear_error(&state);
+            continue;
+        }
+        if failed || Instant::now() < retry_at {
             continue;
         }
         match import::convert(&file, state.root.clone(), cancel.clone()).await {
@@ -144,16 +153,35 @@ async fn monitor(document: Document, state: Arc<State>) {
             }
             Err(_) if cancel.is_cancelled() => break,
             Err(error) => {
-                failed = true;
-                tracing::warn!(%error, "[office-preview] document refresh failed");
-                let generation = state.versions.borrow().generation.clone();
-                state.versions.send_replace(Snapshot {
-                    generation,
-                    error: Some(error.to_string()),
-                });
+                failed = !matches!(error, WatchError::Io(_) | WatchError::FileNotReady);
+                retry_at = Instant::now() + REFRESH_RETRY_DELAY;
+                publish_error(&state, &error);
             }
         }
     }
+}
+
+fn clear_error(state: &State) {
+    let previous = state.versions.borrow().clone();
+    if previous.error.is_some() {
+        state.versions.send_replace(Snapshot {
+            error: None,
+            ..previous
+        });
+    }
+}
+
+fn publish_error(state: &State, error: &WatchError) {
+    let previous = state.versions.borrow().clone();
+    let message = error.to_string();
+    if previous.error.as_ref() == Some(&message) {
+        return;
+    }
+    tracing::warn!(%error, "[office-preview] document refresh failed");
+    state.versions.send_replace(Snapshot {
+        generation: previous.generation,
+        error: Some(message),
+    });
 }
 
 async fn publish(state: &State, generation: String, generations: &mut Vec<String>) {

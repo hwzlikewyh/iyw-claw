@@ -16,3 +16,5 @@ node scripts/office-preview/build.mjs
 输出为应用构建资源，需与源码一起审查和保留。`upstream.json` 记录来源、版本、摘要和修改说明；`LICENSE-OfficeCLI.txt` 保留 Apache-2.0，`grid.js.LEGAL.txt` 与 `licenses.json` 保留实际打包依赖的声明和许可。授权的预览会话可从同一预览前缀的 `licenses?cap=...` 读取许可。
 
 Word/PPT 通过上游 HCD 语义/固定几何视图显示，不承诺与 Microsoft Office 像素一致。人工编辑继续经 Agent 的 OfficeCLI-rust 工具修改原文件，文件稳定后应用重新解析并主动通知视图更新。
+
+当前固定Foldly v0.1.32，document-viewer.js在同一沙箱的Shadow DOM中渲染Word/PPT。构建替换点有精确计数校验；Excel适配器补充活动工作表与销毁状态约束，保留只读内容栏。入口仍使用grid.ts.in模板，升级时对替换后的源码单独执行严格类型检查。

@@ -4,12 +4,14 @@
 <style>
 html,body{height:100%;margin:0;overflow:hidden;background:#f4f5f7;font-family:sans-serif}
 #app,#viewer{display:block;width:100%;height:100%;border:0}
-#status{position:fixed;z-index:1000;top:8px;left:50%;transform:translateX(-50%);max-width:85%;padding:8px 14px;background:#fff9dd;border:1px solid #dbcfa6;border-radius:5px;font-size:13px;white-space:pre-wrap}
+#viewer{overflow:auto}
+#notice{position:fixed;z-index:1000;top:8px;left:50%;transform:translateX(-50%);max-width:85%;padding:8px 14px;background:#fff9dd;border:1px solid #dbcfa6;border-radius:5px;font-size:13px;white-space:pre-wrap}
+#retry{margin-left:8px;padding:3px 8px;border:1px solid #aaa;border-radius:3px;background:white;cursor:pointer}
 [hidden]{display:none!important}
 __GRID_CSS__
 </style></head><body>
 <input id="bundle" hidden><input id="revision" hidden><input id="cache" value="12" hidden><button id="load" hidden></button>
-<output id="status" role="status" aria-live="polite">Loading…</output>
+<div id="notice" role="status" aria-live="polite"><output id="status">Loading…</output><button id="retry" type="button" hidden>Retry</button></div>
 __VIEW__
 <script>__ENGINE__</script><script>__BOOT__</script>
 </body></html>

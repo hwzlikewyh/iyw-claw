@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
@@ -8,16 +8,38 @@ use tokio_util::sync::CancellationToken;
 use super::super::WatchError;
 
 const MAX_SOURCE_BYTES: u64 = 256 * 1024 * 1024;
+const SOURCE_RETRY_DELAY: Duration = Duration::from_millis(250);
+const SOURCE_ATTEMPTS: usize = 4;
 
 pub(super) async fn convert(
     file: &Path,
     root: Arc<TempDir>,
     cancel: CancellationToken,
 ) -> Result<String, WatchError> {
-    let permit = super::IMPORT_SLOTS
-        .acquire()
-        .await
-        .map_err(|error| WatchError::Io(error.to_string()))?;
+    for attempt in 1..=SOURCE_ATTEMPTS {
+        let result = convert_once(file, root.clone(), cancel.clone()).await;
+        if !matches!(&result, Err(WatchError::Io(_) | WatchError::FileNotReady))
+            || attempt == SOURCE_ATTEMPTS
+        {
+            return result;
+        }
+        tokio::select! {
+            _ = cancel.cancelled() => return Err(WatchError::StartFailed("Preview closed".into())),
+            _ = tokio::time::sleep(SOURCE_RETRY_DELAY) => {}
+        }
+    }
+    unreachable!("source retry count is nonzero")
+}
+
+async fn convert_once(
+    file: &Path,
+    root: Arc<TempDir>,
+    cancel: CancellationToken,
+) -> Result<String, WatchError> {
+    let permit = tokio::select! {
+        _ = cancel.cancelled() => return Err(WatchError::StartFailed("Preview closed".into())),
+        permit = super::IMPORT_SLOTS.acquire() => permit.map_err(|error| WatchError::Io(error.to_string()))?,
+    };
     let file = file.to_owned();
     let generation = uuid::Uuid::new_v4().simple().to_string();
     let next = generation.clone();
@@ -66,10 +88,10 @@ fn convert_sync(file: &Path, output: &Path, cancel: &CancellationToken) -> Resul
         Ok(())
     });
     let _ = std::fs::remove_file(source);
-    result.map_err(|error| WatchError::StartFailed(error.to_string()))?;
     if super::super::file_state(file) != Some(before) {
         return Err(WatchError::FileNotReady);
     }
+    result.map_err(|error| WatchError::StartFailed(error.to_string()))?;
     Ok(())
 }
 
@@ -83,6 +105,9 @@ fn copy_source(file: &Path, root: &Path) -> Result<PathBuf, WatchError> {
         uuid::Uuid::new_v4().simple(),
         extension
     ));
-    std::fs::copy(file, &copy)?;
+    if let Err(error) = std::fs::copy(file, &copy) {
+        let _ = std::fs::remove_file(&copy);
+        return Err(error.into());
+    }
     Ok(copy)
 }

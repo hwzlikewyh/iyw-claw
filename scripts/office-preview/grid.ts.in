@@ -13,6 +13,8 @@ declare global {
   interface Window {
     officeLoad: (base: string) => Promise<void>
     officeUrl: (value: string | URL) => URL
+    officeReportError: (error: unknown) => void
+    officeDispose: () => void
     officeGrid?: HcdUniverAdapter
   }
 }
@@ -20,17 +22,24 @@ declare global {
 let dispose: (() => void) | undefined
 let adapter: HcdUniverAdapter | undefined
 let loading = false
+let closed = false
 const chinese = (new URLSearchParams(location.search).get("locale") || "").startsWith("zh")
 const locale = chinese ? LocaleType.ZH_CN : LocaleType.EN_US
 
 window.officeLoad = async function (base: string) {
-  if (loading) return
+  if (loading || closed) return
   loading = true
   const previous = adapter?.workbook.getActiveSheet()
   const sheetId = previous?.getSheetId()
-  const position = previous?.getVisibleRange()
+  const position = previous?.getVisibleRange() ?? undefined
   try {
     await openGrid(base, sheetId, position)
+  } catch (error) {
+    adapter?.dispose()
+    dispose?.()
+    adapter = undefined
+    dispose = undefined
+    throw error
   } finally {
     loading = false
   }
@@ -43,6 +52,8 @@ async function openGrid(base: string, sheetId?: string, position?: { startRow: n
   const sheets = client.sheets()
   if (!sheets.length) throw new Error("No worksheets in this document")
   const data = sheetData(client)
+  if (closed) return
+  adapter?.dispose()
   dispose?.()
   adapter = undefined
   const instance = createGrid()
@@ -52,8 +63,10 @@ async function openGrid(base: string, sheetId?: string, position?: { startRow: n
     locale, styles, sheetOrder: sheets.map((s) => s.sheetId), sheets: data,
   })
   await steady(instance.univerAPI)
-  adapter = new HcdUniverAdapter(client, instance.univerAPI, workbook, "readonly", () => {}, styles)
+  if (closed) { dispose(); return }
+  adapter = new HcdUniverAdapter(client, instance.univerAPI, workbook, "readonly", () => {}, styles, window.officeReportError)
   await adapter.start()
+  if (closed) return
   if (sheetId && workbook.getSheetBySheetId(sheetId)) {
     const sheet = workbook.getSheetBySheetId(sheetId)!
     workbook.setActiveSheet(sheet)
@@ -86,7 +99,7 @@ function createGrid() {
   return createUniver({
     locale, locales: { [locale]: chinese ? chineseMessages : messages }, theme: defaultTheme,
     presets: [UniverSheetsCorePreset({
-      container: "app", header: false, toolbar: false, formulaBar: false,
+      container: "app", header: true, toolbar: false, formulaBar: true,
       contextMenu: false, footer: {
         sheetBar: true, statisticBar: false, menus: false, zoomSlider: true,
         addSheetButtonConfig: { show: false },
@@ -109,4 +122,8 @@ async function steady(api: ReturnType<typeof createUniver>["univerAPI"]) {
   })
 }
 
-window.addEventListener("pagehide", () => dispose?.(), { once: true })
+window.officeDispose = () => {
+  closed = true
+  adapter?.dispose()
+  dispose?.()
+}
