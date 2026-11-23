@@ -44,7 +44,8 @@ impl PluginStorageTransaction {
         version: &str,
     ) -> Result<Self, AppCommandError> {
         let paths = active_paths()?;
-        let plugin_root = paths.plugins_dir().join(slug);
+        let plugin_root =
+            crate::plugin_runtime::legacy_names::package_root(&paths.plugins_dir(), slug)?;
         super::plugin_storage_io::require_plugin_path(&plugin_root)?;
         if semver::Version::parse(version).is_err() {
             return Err(storage_error("Invalid plugin version directory"));
@@ -147,7 +148,11 @@ impl PluginStorageTransaction {
             .filter(|previous| {
                 previous.skill_id == marker.skill_id
                     && previous.source == "iyw_skill_market"
-                    && previous.slug == marker.slug
+                    && crate::plugin_runtime::legacy_names::same_plugin(
+                        marker.skill_id,
+                        &previous.slug,
+                        &marker.slug,
+                    )
             })
         {
             let mut references = previous.target_references;

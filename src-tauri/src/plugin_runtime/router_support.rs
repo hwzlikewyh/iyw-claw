@@ -52,7 +52,9 @@ pub(super) fn resolve_route(
                 "Capability config is missing",
             )
         })?;
-        if config["id"].as_str() == Some(capability_id) {
+        if config["id"].as_str().is_some_and(|current| {
+            crate::models::plugin_names::same_capability(plugin.market_skill_id, current, capability_id)
+        }) {
             return Ok(ResolvedRoute {
                 capability_key: component.key.clone(),
                 connector_key: config["connectorKey"]

@@ -19,9 +19,17 @@ pub(super) fn plugin_database() -> Result<sea_orm::DatabaseConnection, ErrorData
 pub(super) fn installed_plugin(
     slug: &str,
 ) -> Option<crate::plugin_runtime::registry::PluginDescriptor> {
-    crate::plugin_runtime::registry::global_snapshot()?
+    let snapshot = crate::plugin_runtime::registry::global_snapshot()?;
+    snapshot
         .plugins
         .get(slug)
+        .or_else(|| {
+            let (id, alias) = crate::plugin_runtime::legacy_names::alternate_name(slug)?;
+            snapshot
+                .plugins
+                .get(alias)
+                .filter(|plugin| plugin.market_skill_id == id)
+        })
         .filter(|plugin| plugin.available)
         .cloned()
 }
@@ -58,7 +66,11 @@ fn validate_install_request(
             None,
         ));
     }
-    if request.plugin_name != detail.skill.slug || request.version != version.version {
+    let name = plugin.map(|value| value.name.as_str()).unwrap_or_default();
+    let market_id = request.skill_id.parse::<i64>().unwrap_or_default();
+    if !crate::plugin_runtime::legacy_names::same_plugin(market_id, &request.plugin_name, name)
+        || request.version != version.version
+    {
         return Err(ErrorData::invalid_params(
             "requested plugin identity or version is unavailable",
             None,
@@ -69,7 +81,7 @@ fn validate_install_request(
         .cloned()
         .ok_or_else(|| ErrorData::invalid_params("plugin permissions are missing", None))?;
     Ok(InstallCandidate {
-        name: detail.skill.slug.clone(),
+        name: name.to_string(),
         version: version.version.clone(),
         permissions,
     })
@@ -87,8 +99,12 @@ pub(super) async fn approve_scope(
     let agent_type = authority.agent_type().as_wire();
     let snapshot = crate::plugin_runtime::registry::global_snapshot()
         .ok_or_else(|| ErrorData::internal_error("plugin registry is unavailable", None))?;
-    crate::plugin_runtime::dependency_scope::require(plugin, &snapshot.plugins, (&workspace_key, agent_type.as_ref()))
-        .map_err(|error| ErrorData::invalid_params(error.message, Some(json!({"code": error.code}))))?;
+    crate::plugin_runtime::dependency_scope::require(
+        plugin,
+        &snapshot.plugins,
+        (&workspace_key, agent_type.as_ref()),
+    )
+    .map_err(|error| ErrorData::invalid_params(error.message, Some(json!({"code": error.code}))))?;
     crate::db::service::plugin_runtime_approval_service::set_plugin_scope(
         database,
         crate::db::service::plugin_runtime_approval_service::PluginApprovalScope {

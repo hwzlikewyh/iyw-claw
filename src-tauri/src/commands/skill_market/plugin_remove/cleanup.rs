@@ -143,7 +143,7 @@ fn data_path(plan: &Plan) -> Result<std::path::PathBuf, AppCommandError> {
             }
         }
     }
-    Ok(scope.join(&plan.slug))
+    crate::plugin_runtime::legacy_names::data_directory(&scope, &plan.slug)
 }
 
 async fn merge_previous(

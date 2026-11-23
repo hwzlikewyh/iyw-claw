@@ -141,6 +141,7 @@ pub async fn replace(
     Ok(result)
 }
 
+mod rename;
 mod restore;
 pub use restore::mark_repair_required;
 pub(crate) use restore::{finish_installations, restore};
@@ -155,6 +156,7 @@ async fn replace_in_transaction(
         .filter(plugin_installation::Column::MarketSkillId.eq(input.market_skill_id))
         .one(transaction)
         .await?;
+    let previous_slug = rename::previous_slug(existing.as_ref(), &input)?;
     let installation = match existing {
         Some(model) => update_installation(transaction, model, &input, now).await?,
         None => insert_installation(transaction, &input, now).await?,
@@ -164,20 +166,10 @@ async fn replace_in_transaction(
         .exec(transaction)
         .await?;
     let components = insert_components(transaction, installation.id, input.components, now).await?;
-    let runtime_state = if preserve {
-        plugin_runtime_state_service::preserve_existing_in_transaction(
-            transaction,
-            &installation.slug,
-            input.runtime_state,
-        )
-        .await?
-    } else {
-        input.runtime_state
-    };
-    plugin_runtime_state_service::replace_in_transaction(
+    rename::replace_runtime_state(
         transaction,
-        &installation.slug,
-        runtime_state,
+        &installation,
+        (preserve, previous_slug.as_deref(), input.runtime_state),
     )
     .await?;
     let (activations, permission_grants) =
