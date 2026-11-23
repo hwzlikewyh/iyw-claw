@@ -49,11 +49,16 @@ fn managed_root(
     {
         return Err(invalid("插件安装身份无效"));
     }
-    let root = paths
-        .plugins_dir()
-        .join(&installation.slug)
-        .join("versions")
-        .join(&installation.version);
+    crate::plugin_runtime::legacy_names::require_owner(
+        installation.market_skill_id,
+        &installation.slug,
+    )?;
+    let root = crate::plugin_runtime::legacy_names::package_root(
+        &paths.plugins_dir(),
+        &installation.slug,
+    )?
+    .join("versions")
+    .join(&installation.version);
     if root != Path::new(&installation.install_root) {
         return Err(invalid("插件安装位置与受管目录不符"));
     }
@@ -80,7 +85,9 @@ fn verify_local(
     let manifest: crate::commands::skill_market::SkillPluginManifest =
         serde_json::from_str(&installation.manifest_json)
             .map_err(|_| invalid("插件本地清单记录损坏"))?;
-    crate::commands::skill_market::plugin_client_version::require_current(&manifest.min_client_version)?;
+    crate::commands::skill_market::plugin_client_version::require_current(
+        &manifest.min_client_version,
+    )?;
     crate::commands::skill_market::validate_installed_plugin_package(
         &package,
         &manifest,

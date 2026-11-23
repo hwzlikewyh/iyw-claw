@@ -12,15 +12,32 @@ pub(super) fn previous_source(source: &Path, marker: &MarketSkillMarker) -> Path
     let Ok(component) = validate_skill_id(component) else {
         return source.to_path_buf();
     };
-    let legacy = shared_skill_path(&component);
-    if is_real_skill_directory(&legacy)
-        && read_market_skill_marker(&legacy).is_some_and(|old| {
-            old.skill_id == marker.skill_id
-                && old.plugin_slug.as_ref() == Some(plugin)
-                && old.plugin_component_key == marker.plugin_component_key
-        })
+    let renamed = crate::plugin_runtime::legacy_names::alternate_name(plugin)
+        .filter(|(id, _)| *id == marker.skill_id)
+        .map(|(_, name)| {
+            shared_skill_path(&crate::acp::skill_package::plugin_skill_id(
+                name, &component,
+            ))
+        });
+    for legacy in renamed
+        .into_iter()
+        .chain(std::iter::once(shared_skill_path(&component)))
     {
-        return legacy;
+        if is_real_skill_directory(&legacy)
+            && read_market_skill_marker(&legacy).is_some_and(|old| {
+                old.skill_id == marker.skill_id
+                    && old.plugin_slug.as_ref().is_some_and(|name| {
+                        crate::plugin_runtime::legacy_names::same_plugin(
+                            marker.skill_id,
+                            name,
+                            plugin,
+                        )
+                    })
+                    && old.plugin_component_key == marker.plugin_component_key
+            })
+        {
+            return legacy;
+        }
     }
     source.to_path_buf()
 }

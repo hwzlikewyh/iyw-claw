@@ -143,7 +143,7 @@ async fn load_receipt(
         super::super::plugin_manifest::validate_plugin_package(
             &package,
             &receipt.manifest,
-            &slug,
+            &receipt.market.slug,
             &version,
         )?;
         Ok::<_, AppCommandError>(receipt)

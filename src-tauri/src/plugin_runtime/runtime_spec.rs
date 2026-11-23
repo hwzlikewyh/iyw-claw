@@ -53,11 +53,10 @@ fn plugin_data_dir(
             unavailable("Plugin account scope is missing; reinstall the installed version")
         })?;
     let key = format!("{:x}", Sha256::digest(scope.as_bytes()));
-    Ok(paths
-        .root()
-        .join("plugin-data")
-        .join(key)
-        .join(&plugin.slug))
+    super::legacy_names::require_owner(plugin.market_skill_id, &plugin.slug)
+        .map_err(|error| unavailable(error.to_string()))?;
+    super::legacy_names::data_directory(&paths.root().join("plugin-data").join(key), &plugin.slug)
+        .map_err(|error| unavailable(error.to_string()))
 }
 
 pub(super) fn component_config<'a>(

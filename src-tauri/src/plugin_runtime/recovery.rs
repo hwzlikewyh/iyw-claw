@@ -38,12 +38,10 @@ pub(crate) fn read_pointer(version_root: &Path) -> Option<CurrentPointer> {
 
 pub(super) fn valid_current_pointer(record: &PluginInstallationRecord) -> bool {
     let version_root = Path::new(&record.installation.install_root);
-    let expected_root = crate::acp::agent_storage::AgentStoragePaths::active().map(|paths| {
-        paths
-            .plugins_dir()
-            .join(&record.installation.slug)
-            .join("versions")
-            .join(&record.installation.version)
+    let expected_root = crate::acp::agent_storage::AgentStoragePaths::active().and_then(|paths| {
+        super::legacy_names::package_root(&paths.plugins_dir(), &record.installation.slug)
+            .ok()
+            .map(|root| root.join("versions").join(&record.installation.version))
     });
     if expected_root.as_deref() != Some(version_root) {
         return false;

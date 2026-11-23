@@ -155,7 +155,11 @@ fn remove_owned(
         let Some(marker) = read_market_skill_marker(&entry.source) else {
             continue;
         };
-        if marker.skill_id == identity.0 && marker.plugin_slug.as_deref() == Some(identity.1) {
+        if marker.skill_id == identity.0
+            && marker.plugin_slug.as_deref().is_some_and(|name| {
+                crate::plugin_runtime::legacy_names::same_plugin(identity.0, name, identity.1)
+            })
+        {
             remove_shared_skill_publications_locked(&marker.slug)?;
             remove_skill_entry(&entry.source).map_err(|error| {
                 AcpError::protocol(format!(

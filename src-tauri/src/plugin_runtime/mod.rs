@@ -6,6 +6,7 @@ pub mod app_host;
 pub mod app_launch_broker;
 pub mod global;
 mod lease;
+pub(crate) mod legacy_names;
 mod mcp_client;
 mod pending_startup;
 pub(crate) mod native_compat;

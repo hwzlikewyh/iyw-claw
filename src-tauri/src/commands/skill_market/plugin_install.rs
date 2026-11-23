@@ -56,6 +56,9 @@ pub(super) async fn install_market_plan_locked(
         return Err(AppCommandError::configuration_invalid(issues.join("；")));
     }
     for plugin in &input.plugins {
+        crate::plugin_runtime::legacy_names::require_owner(
+            plugin.market_skill_id, &plugin.slug,
+        )?;
         super::plugin_platforms::require_current(&plugin.plugin.manifest.platforms)?;
         super::plugin_client_version::require_current(&plugin.plugin.manifest.min_client_version)?;
         input.skill_installs.extend(plugin_skill_installs(plugin)?);

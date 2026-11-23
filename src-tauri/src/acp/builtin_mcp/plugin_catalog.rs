@@ -69,15 +69,27 @@ impl PluginCapabilityRegistry {
             .into_iter()
             .flat_map(|snapshot| snapshot.plugins.values())
             .filter(|plugin| plugin.manifest.schema_version >= 2)
-            .flat_map(|plugin| capabilities(plugin, snapshot, (cwd, agent_type)))
-            .find_map(|mut capability| {
-                (capability.get("capability_id").and_then(Value::as_str) == Some(capability_id))
-                    .then(|| {
-                        capability
-                            .as_object_mut()
-                            .and_then(|object| object.remove("_searchText"));
-                        capability
-                    })
+            .flat_map(|plugin| {
+                capabilities(plugin, snapshot, (cwd, agent_type))
+                    .into_iter()
+                    .map(move |capability| (plugin.market_skill_id, capability))
+            })
+            .find_map(|(market_id, mut capability)| {
+                let matches = capability
+                    .get("capability_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|current| {
+                        crate::plugin_runtime::legacy_names::same_capability(
+                            market_id, current, capability_id,
+                        )
+                    });
+                if !matches {
+                    return None;
+                }
+                capability
+                    .as_object_mut()
+                    .and_then(|object| object.remove("_searchText"));
+                Some(capability)
             })
     }
 }

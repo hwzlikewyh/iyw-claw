@@ -13,7 +13,8 @@ pub(crate) fn root(slug: &str) -> Result<PathBuf, AppCommandError> {
     {
         return Err(super::invalid("插件名称无效"));
     }
-    let root = active_paths()?.plugins_dir().join(slug);
+    let root =
+        crate::plugin_runtime::legacy_names::package_root(&active_paths()?.plugins_dir(), slug)?;
     require_plugin_path(&root)?;
     Ok(root)
 }
@@ -35,9 +36,13 @@ pub(super) fn receipt(slug: &str, version: &str) -> Result<PluginVersionReceipt,
         || value.market.source != "iyw_skill_market"
         || value.market.schema_version != 3
         || value.market.package_type != "plugin"
-        || value.market.slug != slug
+        || !crate::plugin_runtime::legacy_names::same_plugin(
+            value.market.skill_id,
+            &value.market.slug,
+            slug,
+        )
         || value.market.installed_version != version
-        || value.manifest.name != slug
+        || value.manifest.name != value.market.slug
         || value.manifest.version != version
         || value.account_scope.is_empty()
     {
@@ -108,6 +113,7 @@ pub(super) fn candidate(
     receipt: &PluginVersionReceipt,
 ) -> Result<PluginInstallationRecord, AppCommandError> {
     let mut record = current.clone();
+    record.installation.slug = receipt.market.slug.clone();
     record.installation.version = receipt.market.installed_version.clone();
     record.installation.content_sha256 = receipt.market.content_sha256.clone();
     record.installation.object_sha256 = receipt.market.object_sha256.clone();
