@@ -6,8 +6,6 @@ mod provider;
 mod publication;
 pub(super) mod recovery;
 mod store;
-#[cfg(test)]
-mod tests;
 
 use super::*;
 use provider::{Descriptor, Provider};

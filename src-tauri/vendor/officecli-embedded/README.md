@@ -8,4 +8,6 @@
 
 v0.1.32新增office-engine与canvas-core库，命令解释器仍由本目录适配；全部上游crate固定到同一提交，不混用0.1.31处理器。上游删除的commands/html_convert.rs已随本次同步移除，HTML转换使用其新的office-engine库。
 
+按宿主仓库规则，不随命令层复制上游新增的独立tests.rs及其cfg(test)模块声明；现有源码中的条件编译测试块保留。
+
 上游既有源码/函数长度按第三方代码维护，本地入口放在宿主office_embedded.rs。升级时需核对所有current_exe调用、命令协议、技能、schema与许可，禁止自动更新。
