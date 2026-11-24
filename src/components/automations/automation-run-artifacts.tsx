@@ -46,7 +46,12 @@ function RunArtifacts(props: { conversationId: number; status: string }) {
   return (
     <div className="mt-2 min-w-0 max-w-lg whitespace-normal text-xs">
       <ArtifactList query={query} onSelect={setSelected} />
-      <ResourcePreview artifact={selected} onClose={() => setSelected(null)} />
+      <ResourcePreview
+        artifact={selected}
+        items={query.items}
+        onSelect={setSelected}
+        onClose={() => setSelected(null)}
+      />
     </div>
   )
 }

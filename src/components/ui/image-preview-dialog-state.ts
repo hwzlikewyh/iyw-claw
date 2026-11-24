@@ -33,6 +33,7 @@ import {
 
 export interface ImagePreviewDialogProps {
   src: string
+  loading?: boolean
   alt: string
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -208,7 +209,7 @@ function useDialogEditorState(
   return {
     editor,
     image,
-    failed: loaded.failed || !props.src,
+    failed: loaded.failed || (!props.src && !props.loading),
     stage,
     displayScale,
     busy,
@@ -286,7 +287,7 @@ export function useImagePreviewDialog(
     mode: state.mode,
     ready: state.ready && !state.busy,
     zoom: state.editor.zoom,
-    navigation: props.navigation,
+    navigation: state.busy ? undefined : props.navigation,
     onZoomChange: state.editor.setZoom,
     onRotate: state.handleRotate,
     onDownload,

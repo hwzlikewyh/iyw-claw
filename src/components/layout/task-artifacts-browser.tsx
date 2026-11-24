@@ -45,6 +45,7 @@ export function TaskArtifactsBrowser({
       </div>
       <TaskArtifactPreview
         artifact={selection.selected}
+        items={groups.flatMap((group) => group.items)}
         className={cn(
           "h-full",
           selection.mobilePreviewOpen ? "grid" : "hidden md:grid"

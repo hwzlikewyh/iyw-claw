@@ -3,6 +3,10 @@
 import { useRef, useState } from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 import { Download } from "lucide-react"
+import {
+  useGalleryWheel,
+  type GalleryWheelGesture,
+} from "@/components/image-editor/use-gallery-wheel"
 import { useTranslations } from "next-intl"
 import {
   ContextMenu,
@@ -21,15 +25,24 @@ import {
   type ImagePreviewDialogProps,
 } from "./image-preview-dialog-state"
 
-function ImagePreviewDialogSession(props: ImagePreviewDialogProps) {
+function ImagePreviewDialogSession(
+  props: ImagePreviewDialogProps & {
+    wheelGesture: React.RefObject<GalleryWheelGesture>
+  }
+) {
   const t = useTranslations("Folder.chat.messageList")
   const canvasRef = useRef<ImageEditorCanvasHandle>(null)
   const [canvasReady, setCanvasReady] = useState(false)
   const controller = useImagePreviewDialog(props, canvasRef, canvasReady)
+  const wheelRef = useGalleryWheel(props.navigation, {
+    enabled: controller.state.mode === "view" && !controller.state.busy,
+    gesture: props.wheelGesture,
+  })
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <DialogPrimitive.Content
+          ref={wheelRef}
           className="fixed left-1/2 top-1/2 z-50 grid h-[min(88vh,820px)] w-[min(92vw,1200px)] -translate-x-1/2 -translate-y-1/2 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-white/10 bg-zinc-950/96 text-white shadow-2xl outline-none"
           aria-describedby={undefined}
         >
@@ -61,6 +74,11 @@ function ImagePreviewDialogSession(props: ImagePreviewDialogProps) {
 }
 
 function ImagePreviewDialog(props: ImagePreviewDialogProps) {
+  const wheelGesture = useRef<GalleryWheelGesture>({
+    delta: 0,
+    lastEvent: 0,
+    lastSwitch: -Infinity,
+  })
   return (
     <DialogPrimitive.Root open={props.open} onOpenChange={props.onOpenChange}>
       {props.open ? (
@@ -69,6 +87,7 @@ function ImagePreviewDialog(props: ImagePreviewDialogProps) {
           <ImagePreviewDialogSession
             key={props.navigation?.index ?? props.src}
             {...props}
+            wheelGesture={wheelGesture}
           />
         </DialogPrimitive.Portal>
       ) : null}

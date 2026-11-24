@@ -12,9 +12,13 @@ import type { TaskArtifactInfo } from "@/lib/api"
 
 export function ResourcePreview({
   artifact,
+  items,
+  onSelect,
   onClose,
 }: {
   artifact: TaskArtifactInfo | null
+  items?: TaskArtifactInfo[]
+  onSelect?: (item: TaskArtifactInfo) => void
   onClose: () => void
 }) {
   const { openConversations } = useWorkbenchRoute()
@@ -31,6 +35,8 @@ export function ResourcePreview({
         </DialogDescription>
         <TaskArtifactPreview
           artifact={artifact}
+          items={items}
+          onPreview={onSelect}
           className="h-full"
           onOpenWorkspace={() => {
             onClose()

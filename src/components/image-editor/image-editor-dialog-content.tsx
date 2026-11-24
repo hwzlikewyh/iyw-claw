@@ -145,10 +145,7 @@ function EditorWorkspace({
         </div>
       </div>
       {state.mode === "view" ? (
-        <ImageViewerNavigation
-          navigation={navigation}
-          disabled={!state.ready || state.busy}
-        />
+        <ImageViewerNavigation navigation={navigation} disabled={state.busy} />
       ) : null}
     </div>
   )

@@ -51,7 +51,6 @@ export function useImageViewerShortcuts(options: ImageViewerShortcutOptions) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (
         options.mode !== "view" ||
-        !options.ready ||
         event.ctrlKey ||
         event.metaKey ||
         event.altKey ||
@@ -61,6 +60,8 @@ export function useImageViewerShortcuts(options: ImageViewerShortcutOptions) {
       }
       const key = event.key
       let handled = handleNavigation(key, options.navigation)
+      if (handled) event.preventDefault()
+      if (!options.ready) return
       if (key === "+" || key === "=") {
         options.onZoomChange(clampImageZoom(options.zoom + IMAGE_ZOOM_STEP))
         handled = true

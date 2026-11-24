@@ -41,6 +41,10 @@ import {
   type SetStateAction,
 } from "react"
 import { isDesktop, openFileDialog } from "@/lib/platform"
+import {
+  attachmentPickerDirectory,
+  rememberAttachmentDirectory,
+} from "./attachment-picker-directory"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { IntelligentUiChatToggle } from "@/components/intelligent-ui/chat-toggle"
@@ -2807,13 +2811,15 @@ export function MessageInput({
       const selected = await open({
         multiple: true,
         directory: false,
-        defaultPath:
-          getActiveRemoteConnectionId() === null ? defaultPath : undefined,
+        defaultPath: attachmentPickerDirectory(
+          getActiveRemoteConnectionId() === null ? defaultPath : undefined
+        ),
       })
       if (!selected) return
       picked = (Array.isArray(selected) ? selected : [selected]).filter(
         (item): item is string => !!item
       )
+      if (picked[0]) rememberAttachmentDirectory(picked[0])
       await appendNativePickedPaths(picked)
     } catch (error) {
       console.error("[MessageInput] pick files failed:", error)
@@ -2833,7 +2839,9 @@ export function MessageInput({
         directory: true,
         multiple: false,
         title: localPicker ? t("referenceFolder") : t("folderReferencePrompt"),
-        defaultPath: localPicker ? defaultPath : undefined,
+        defaultPath: localPicker
+          ? attachmentPickerDirectory(defaultPath)
+          : undefined,
       })
       if (!selected || Array.isArray(selected)) return
       const path = selected.trim()
@@ -2841,6 +2849,7 @@ export function MessageInput({
         toast.error(t("folderReferenceInvalid"))
         return
       }
+      if (localPicker) rememberAttachmentDirectory(path, true)
       insertFileReferences(
         [
           {

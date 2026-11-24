@@ -30,9 +30,16 @@ import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { toast } from "sonner"
 import { PreviewFullscreen } from "@/components/files/preview-fullscreen"
 import { PreviewFullscreenContext } from "@/components/files/preview-toolbar"
+import type { ImagePreviewNavigation } from "@/components/image-editor/image-editor-model"
+import {
+  ArtifactImagePreview,
+  artifactImageNavigation,
+} from "./artifact-image-preview"
+import { artifactVisualKind } from "./task-artifact-type"
 
 interface TaskArtifactPreviewProps {
   artifact: TaskArtifactInfo | null
+  items?: TaskArtifactInfo[]
   className?: string
   onBack?: () => void
   onOpenWorkspace?: () => void
@@ -50,6 +57,7 @@ type ArtifactPreviewProps = Omit<TaskArtifactPreviewProps, "artifact"> & {
 
 export function TaskArtifactPreview({
   artifact,
+  items,
   className,
   onBack,
   onOpenWorkspace,
@@ -59,6 +67,7 @@ export function TaskArtifactPreview({
   return (
     <ArtifactPreviewWithFullscreen
       artifact={artifact}
+      items={items}
       className={className}
       onBack={onBack}
       onOpenWorkspace={onOpenWorkspace}
@@ -116,6 +125,7 @@ function ArtifactPreviewWithFullscreen(props: ArtifactPreviewProps) {
 
 function ArtifactPreview({
   artifact,
+  items,
   className,
   onBack,
   onOpenWorkspace,
@@ -154,6 +164,11 @@ function ArtifactPreview({
           <PreviewFullscreenContext value={Boolean(onToggleAppFullscreen)}>
             <ArtifactPreviewBody
               artifact={artifact}
+              navigation={artifactImageNavigation({
+                items,
+                selected: artifact,
+                onSelect: onPreview,
+              })}
               target={actions.target}
               onOpenWorkspace={onOpenWorkspace}
             />
@@ -166,10 +181,12 @@ function ArtifactPreview({
 
 function ArtifactPreviewBody({
   artifact,
+  navigation,
   target,
   onOpenWorkspace,
 }: {
   artifact: TaskArtifactInfo
+  navigation?: ImagePreviewNavigation
   target: TaskArtifactTarget | null
   onOpenWorkspace?: () => void
 }) {
@@ -184,6 +201,7 @@ function ArtifactPreviewBody({
   return (
     <TaskArtifactFilePreview
       artifact={artifact}
+      navigation={navigation}
       target={target}
       onOpenWorkspace={onOpenWorkspace}
     />
@@ -192,16 +210,27 @@ function ArtifactPreviewBody({
 
 function TaskArtifactFilePreview({
   artifact,
+  navigation,
   target,
   onOpenWorkspace,
 }: {
   artifact: TaskArtifactInfo
+  navigation?: ImagePreviewNavigation
   target: TaskArtifactTarget | null
   onOpenWorkspace?: () => void
 }) {
   const preview = useArtifactPreviewState(artifact, target)
   const folders = useAppWorkspaceStore((store) => store.folders)
   const htmlRootPath = findOwningFolder(artifact.path, folders)?.rootPath
+  if (artifactVisualKind(artifact) === "image") {
+    return (
+      <ArtifactImagePreview
+        state={preview}
+        title={artifact.displayName}
+        navigation={navigation}
+      />
+    )
+  }
   return (
     <WorkspaceFilePreview
       state={preview}
@@ -219,6 +248,18 @@ function useArtifactPreviewState(
 ): PreviewState {
   const t = useTranslations("Folder.taskArtifacts")
   const loaded = useLoadedArtifactPreview(artifact, target, t("previewFailed"))
+  if (
+    artifact.kind === "url" &&
+    artifact.status === "available" &&
+    artifactVisualKind(artifact) === "image"
+  ) {
+    return {
+      status: "media",
+      mediaType: "image",
+      path: artifact.path,
+      src: artifact.path,
+    }
+  }
   return resolveArtifactPreview(artifact, target, loaded, {
     unavailable: t("artifactUnavailable"),
     failed: t("previewFailed"),

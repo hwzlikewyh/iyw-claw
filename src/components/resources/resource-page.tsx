@@ -154,7 +154,12 @@ function ResourcePageContent({ model }: { model: ResourcePageModel }) {
         }
         onDelete={deleteArtifacts}
       />
-      <ResourcePreview artifact={selected} onClose={() => setSelected(null)} />
+      <ResourcePreview
+        artifact={selected}
+        items={filteredItems}
+        onSelect={setSelected}
+        onClose={() => setSelected(null)}
+      />
     </section>
   )
 }

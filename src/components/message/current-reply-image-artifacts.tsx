@@ -21,15 +21,11 @@ import { buildArtifactThumbnailUrl } from "@/lib/artifact-image-thumbnail"
 export function CompactReplyImageStrip({
   items,
   generatingImages = false,
-  remaining,
   onSelect,
-  onViewAll,
 }: {
   items: TaskArtifactInfo[]
   generatingImages?: boolean
-  remaining: number
   onSelect: (item: TaskArtifactInfo) => void
-  onViewAll: () => void
 }) {
   return (
     <div className="flex min-w-max gap-2 px-1">
@@ -41,15 +37,6 @@ export function CompactReplyImageStrip({
         />
       ))}
       {generatingImages && <PendingReplyImage />}
-      {remaining > 0 && (
-        <button
-          type="button"
-          className="flex size-20 shrink-0 items-center justify-center rounded-md border bg-muted/25 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-24"
-          onClick={onViewAll}
-        >
-          +{remaining}
-        </button>
-      )}
     </div>
   )
 }

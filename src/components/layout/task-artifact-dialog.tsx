@@ -11,12 +11,16 @@ import type { TaskArtifactInfo } from "@/lib/api"
 
 interface TaskArtifactDialogProps {
   artifact: TaskArtifactInfo | null
+  items?: TaskArtifactInfo[]
+  onSelect?: (item: TaskArtifactInfo) => void
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
 export function TaskArtifactDialog({
   artifact,
+  items,
+  onSelect,
   open,
   onOpenChange,
 }: TaskArtifactDialogProps) {
@@ -34,6 +38,8 @@ export function TaskArtifactDialog({
         </DialogDescription>
         <TaskArtifactPreview
           artifact={artifact}
+          items={items}
+          onPreview={onSelect}
           className="h-full"
           onOpenWorkspace={() => onOpenChange(false)}
         />

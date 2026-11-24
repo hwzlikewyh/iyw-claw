@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import type { TaskArtifactInfo } from "@/lib/api"
 
 import { CurrentReplyArtifactDialogs } from "./current-reply-artifact-dialogs"
+import { ArtifactCarousel } from "./artifact-carousel"
 import {
   CompactReplyImageStrip,
   isRemoteImageArtifact,
@@ -31,21 +32,14 @@ export function CurrentReplyArtifactsPanel({
       generatingImages={generatingImages}
       visibleImages={state.visibleImages}
       visibleArtifacts={state.visibleArtifacts}
-      imageRemaining={state.imageRemaining}
-      remaining={state.remaining}
       onSelect={state.select}
       onViewAll={state.viewAll}
-      onViewAllImages={state.viewAllImages}
     >
       <CurrentReplyArtifactDialogs
         items={items}
         selected={state.selected}
-        selectedImage={state.selectedImage}
-        imageItems={state.imageItems}
-        imageIndex={state.imageIndex}
         allOpen={state.allOpen}
         onSelectArtifact={state.setSelected}
-        onSelectImage={state.setSelectedImageId}
         onOpenAllChange={state.setAllOpen}
       />
     </ArtifactPanelSurface>
@@ -54,49 +48,24 @@ export function CurrentReplyArtifactsPanel({
 
 function useArtifactPanelState(items: TaskArtifactInfo[]) {
   const [selected, setSelected] = useState<TaskArtifactInfo | null>(null)
-  const [selectedImageId, setSelectedImageId] = useState<number | null>(null)
   const [allOpen, setAllOpen] = useState(false)
   const imageItems = useMemo(() => items.filter(isRemoteImageArtifact), [items])
   const artifactItems = useMemo(
     () => items.filter((item) => !isRemoteImageArtifact(item)),
     [items]
   )
-  const visibleImages = imageItems.slice(0, VISIBLE_ARTIFACT_COUNT)
-  const visibleArtifacts = artifactItems.slice(0, VISIBLE_ARTIFACT_COUNT)
-  const imageRemaining = imageItems.length - visibleImages.length
-  const remaining =
-    imageRemaining + artifactItems.length - visibleArtifacts.length
-  const imageIndex = imageItems.findIndex((item) => item.id === selectedImageId)
-  const selectedImage = imageIndex >= 0 ? imageItems[imageIndex] : null
+  const visibleImages = imageItems
+  const visibleArtifacts = artifactItems
 
-  const select = (item: TaskArtifactInfo) => {
-    if (isRemoteImageArtifact(item)) {
-      setSelectedImageId(item.id)
-    } else {
-      setSelected(item)
-    }
-  }
-
-  const viewAllImages = () => {
-    const firstHiddenImage = imageItems[VISIBLE_ARTIFACT_COUNT]
-    if (firstHiddenImage) setSelectedImageId(firstHiddenImage.id)
-  }
   return {
     selected,
     setSelected,
-    setSelectedImageId,
     allOpen,
     setAllOpen,
     visibleImages,
     visibleArtifacts,
-    imageRemaining,
-    remaining,
-    imageItems,
-    imageIndex,
-    selectedImage,
-    select,
+    select: setSelected,
     viewAll: () => setAllOpen(true),
-    viewAllImages,
   }
 }
 
@@ -105,22 +74,16 @@ function ArtifactPanelSurface({
   generatingImages,
   visibleImages,
   visibleArtifacts,
-  imageRemaining,
-  remaining,
   onSelect,
   onViewAll,
-  onViewAllImages,
   children,
 }: {
   items: TaskArtifactInfo[]
   generatingImages: boolean
   visibleImages: TaskArtifactInfo[]
   visibleArtifacts: TaskArtifactInfo[]
-  imageRemaining: number
-  remaining: number
   onSelect: (item: TaskArtifactInfo) => void
   onViewAll: () => void
-  onViewAllImages: () => void
   children: ReactNode
 }) {
   const t = useTranslations("Folder.taskArtifacts")
@@ -130,31 +93,25 @@ function ArtifactPanelSurface({
       aria-label={t("currentReplyTitle")}
       className="mt-3 min-w-0 max-w-full overflow-hidden border-t border-border/60 pt-3"
     >
-      <ArtifactPanelHeader
-        count={items.length}
-        remaining={remaining}
-        onViewAll={onViewAll}
-      />
+      <ArtifactPanelHeader count={items.length} onViewAll={onViewAll} />
       <div className="space-y-2">
         {(visibleImages.length > 0 || generatingImages) && (
-          <div className="max-w-full overflow-x-auto overscroll-x-contain pb-1">
+          <ArtifactCarousel>
             <CompactReplyImageStrip
               items={visibleImages}
               generatingImages={generatingImages}
-              remaining={imageRemaining}
               onSelect={onSelect}
-              onViewAll={onViewAllImages}
             />
-          </div>
+          </ArtifactCarousel>
         )}
         {visibleArtifacts.length > 0 && (
-          <div className="max-w-full overflow-x-auto overscroll-x-contain pb-1">
-            <div className="grid min-w-[49.5rem] grid-cols-4 gap-2">
+          <ArtifactCarousel>
+            <div className="grid w-max auto-cols-[12rem] grid-flow-col gap-2">
               {visibleArtifacts.map((item) => (
                 <ArtifactTile key={item.id} item={item} onSelect={onSelect} />
               ))}
             </div>
-          </div>
+          </ArtifactCarousel>
         )}
       </div>
       {children}
@@ -164,11 +121,9 @@ function ArtifactPanelSurface({
 
 function ArtifactPanelHeader({
   count,
-  remaining,
   onViewAll,
 }: {
   count: number
-  remaining: number
   onViewAll: () => void
 }) {
   const t = useTranslations("Folder.taskArtifacts")
@@ -181,10 +136,8 @@ function ArtifactPanelHeader({
       <span className="shrink-0 text-[11px] text-muted-foreground">
         {t("currentReplyCount", { count })}
       </span>
-      {remaining > 0 && (
+      {count > VISIBLE_ARTIFACT_COUNT && (
         <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-          <span>{t("currentReplyRemaining", { count: remaining })}</span>
-          <span aria-hidden="true">·</span>
           <Button
             type="button"
             variant="link"

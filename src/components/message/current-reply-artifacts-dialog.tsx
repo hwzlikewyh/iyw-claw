@@ -14,18 +14,14 @@ import {
 import type { TaskArtifactInfo } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-import { isRemoteImageArtifact } from "./current-reply-image-artifacts"
-
 export function CurrentReplyArtifactsDialog({
   items,
   open,
   onOpenChange,
-  onSelectImage,
 }: {
   items: TaskArtifactInfo[]
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSelectImage?: (item: TaskArtifactInfo) => void
 }) {
   const [selected, setSelected] = useState<TaskArtifactInfo | null>(
     items[0] ?? null
@@ -36,10 +32,6 @@ export function CurrentReplyArtifactsDialog({
   const select = (item: TaskArtifactInfo) => {
     const scopedItem = items.find((candidate) => candidate.id === item.id)
     if (!scopedItem) return
-    if (isRemoteImageArtifact(scopedItem) && onSelectImage) {
-      onSelectImage(scopedItem)
-      return
-    }
     setSelected(scopedItem)
     setMobilePreviewOpen(true)
   }
@@ -93,6 +85,7 @@ function ArtifactsDialogBody({
       />
       <TaskArtifactPreview
         artifact={selected}
+        items={items}
         className={cn("h-full", mobilePreviewOpen ? "grid" : "hidden md:grid")}
         onBack={onBack}
         onOpenWorkspace={onOpenWorkspace}

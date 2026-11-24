@@ -107,7 +107,9 @@ export function TaskArtifactsTab({
         onRequestClose={onRequestClose}
         onDelete={deleteArtifacts}
       />
-      {displayMode === "panel" && <PanelArtifactDialog selection={selection} />}
+      {displayMode === "panel" && (
+        <PanelArtifactDialog selection={selection} items={query.items} />
+      )}
     </div>
   )
 }
@@ -126,10 +128,18 @@ interface ArtifactSelection extends TaskArtifactsBrowserSelection {
   closeDialog: () => void
 }
 
-function PanelArtifactDialog({ selection }: { selection: ArtifactSelection }) {
+function PanelArtifactDialog({
+  selection,
+  items,
+}: {
+  selection: ArtifactSelection
+  items: TaskArtifactInfo[]
+}) {
   return (
     <TaskArtifactDialog
       artifact={selection.dialogArtifact}
+      items={items}
+      onSelect={selection.select}
       open={selection.dialogArtifact !== null}
       onOpenChange={(open) => !open && selection.closeDialog()}
     />
