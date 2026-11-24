@@ -575,7 +575,22 @@ impl ConnectionManager {
         &self,
         agent_type: AgentType,
     ) -> Result<(), AcpError> {
-        self.require_agent_launch_policy(agent_type, true).await
+        let conn = self
+            .version_center_db
+            .get()
+            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
+        let store = self
+            .capability_policy
+            .get()
+            .ok_or_else(|| AcpError::protocol("Agent capability policy is not initialized"))?;
+        crate::acp::capability_policy::CapabilityEnforcer::new(conn.clone(), store.clone())
+            .require_agent_install(agent_type)
+            .await
+            .map_err(|error| {
+                let mapped = AcpError::from_capability_error(error);
+                tracing::warn!(agent = %agent_type, error = %mapped, "[capability-policy] Agent version management denied");
+                mapped
+            })
     }
 
     async fn require_agent_launch_policy(

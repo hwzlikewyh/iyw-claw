@@ -52,6 +52,26 @@ impl CapabilityEnforcer {
         )
     }
 
+    pub(crate) async fn require_agent_install(
+        &self,
+        agent_type: AgentType,
+    ) -> Result<(), AppCommandError> {
+        let mut request = self
+            .agent_request(agent_type, Capability::AgentLaunch, true)
+            .await?;
+        tracing::info!(
+            agent = %agent_type,
+            local_launch_enabled = request.local_enabled,
+            "[capability-policy] Checking Agent version management authorization"
+        );
+        // 本地开关只控制启动；版本管理仍校验编译支持和平台策略，不修改启用偏好。
+        request.local_enabled = true;
+        require_enabled(
+            evaluate(&request, &self.store.view().await, Utc::now()),
+            Capability::AgentLaunch,
+        )
+    }
+
     pub async fn monitor_client(
         &self,
         capability: Capability,
