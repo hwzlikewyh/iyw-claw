@@ -9,6 +9,9 @@ export interface ParsedPluginPromptInstruction extends PluginPromptReference {
 
 const INSTRUCTION_PREFIX = "本次使用插件 "
 const INSTRUCTION_SUFFIX = "，请通过当前会话已授权的该插件能力处理以下任务。"
+// 兼容历史消息中的半角括号、标点及合并文本时的空白。
+const INSTRUCTION_PATTERN =
+  /本次使用插件\s+([^\r\n]+?)[（(]\s*([a-zA-Z0-9_-][a-zA-Z0-9._-]*)\s*[）)]\s*[，,]\s*请通过当前会话已授权的该插件能力处理以下任务。/g
 
 export function pluginPromptInstruction(plugin: PluginPromptReference): string {
   return `${INSTRUCTION_PREFIX}${plugin.label}（${plugin.pluginSlug}）${INSTRUCTION_SUFFIX}`
@@ -17,26 +20,27 @@ export function pluginPromptInstruction(plugin: PluginPromptReference): string {
 export function parsePluginPromptInstruction(
   value: string
 ): ParsedPluginPromptInstruction | null {
-  const instruction = value.trim()
-  if (!instruction.startsWith(INSTRUCTION_PREFIX)) return null
-  const suffixIndex = instruction.indexOf(
-    INSTRUCTION_SUFFIX,
-    INSTRUCTION_PREFIX.length
-  )
-  if (suffixIndex < 0) return null
-  const body = instruction.slice(INSTRUCTION_PREFIX.length, suffixIndex)
-  const remainder = instruction.slice(suffixIndex + INSTRUCTION_SUFFIX.length)
-  if (remainder && !/^\s/.test(remainder)) return null
-  const separator = body.lastIndexOf("（")
-  if (separator < 1 || !body.endsWith("）")) return null
+  const [instruction] = findPluginPromptInstructions(value)
+  if (!instruction || value.slice(0, instruction.start).trim()) return null
+  return {
+    label: instruction.label,
+    pluginSlug: instruction.pluginSlug,
+    remainder: value.slice(instruction.end).trim(),
+  }
+}
 
-  const label = body.slice(0, separator).trim()
-  const pluginSlug = body.slice(separator + 1, -1)
-  if (
-    !label ||
-    !/^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/.test(pluginSlug) ||
-    pluginSlug.includes("..")
-  )
-    return null
-  return { label, pluginSlug, remainder: remainder.trimStart() }
+export function findPluginPromptInstructions(value: string) {
+  return Array.from(value.matchAll(INSTRUCTION_PATTERN)).flatMap((match) => {
+    const label = match[1].trim()
+    const pluginSlug = match[2]
+    if (!label || pluginSlug.includes("..")) return []
+    return [
+      {
+        label,
+        pluginSlug,
+        start: match.index,
+        end: match.index + match[0].length,
+      },
+    ]
+  })
 }

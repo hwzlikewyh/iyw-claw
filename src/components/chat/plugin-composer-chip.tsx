@@ -51,11 +51,12 @@ export function PluginComposerChip({
           items.get(
             source.marketId ? "market:" + source.marketId : source.slug
           ) ?? items.get(source.slug)
+        const label = item?.label.trim() || source.label
         return (
           <ComposerSourceChip
             key={source.kind + ":" + source.slug}
             kind={source.kind}
-            label={source.label}
+            label={label}
             src={item?.iconUrl}
             onOpen={
               panel?.appKey && panel.state === "available"
@@ -65,7 +66,7 @@ export function PluginComposerChip({
                   }
                 : undefined
             }
-            removeLabel={t("removeSelection", { name: source.label })}
+            removeLabel={t("removeSelection", { name: label })}
             onRemove={() => {
               removeComposerSource(editor, source)
               if (panel && tabId) clearComposerPlugin(tabId)

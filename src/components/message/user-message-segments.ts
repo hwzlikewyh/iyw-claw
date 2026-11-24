@@ -1,6 +1,7 @@
 import { parseIywClawReferenceUri } from "@/components/chat/composer/reference-uri"
 import type { ReferenceAttrs } from "@/components/chat/composer/types"
 import { INVOCATION_TOKEN_RE } from "@/lib/invocation-token"
+import { findPluginPromptInstructions } from "@/lib/plugin-prompt"
 import {
   tokenizeReferenceLinks,
   unescapeReferenceLabel,
@@ -91,6 +92,25 @@ function pushReferenceSegments(
       output.push({ kind: "text", text: token.raw })
       continue
     }
-    pushProseSegments(token.value, output)
+    pushPluginSegments(token.value, output)
   }
+}
+
+function pushPluginSegments(text: string, output: UserMessageSegment[]): void {
+  let cursor = 0
+  for (const plugin of findPluginPromptInstructions(text)) {
+    pushProseSegments(text.slice(cursor, plugin.start), output)
+    output.push({
+      kind: "reference",
+      attrs: {
+        refType: "skill",
+        id: plugin.pluginSlug,
+        label: plugin.label,
+        uri: null,
+        meta: { composerSource: { kind: "plugin", slug: plugin.pluginSlug } },
+      },
+    })
+    cursor = plugin.end
+  }
+  pushProseSegments(text.slice(cursor), output)
 }

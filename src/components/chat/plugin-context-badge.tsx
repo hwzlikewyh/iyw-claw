@@ -20,7 +20,7 @@ export function PluginContextBadge({
   return (
     <ComposerSourceChip
       kind="plugin"
-      label={label}
+      label={item?.label.trim() || label}
       src={item?.iconUrl}
       className={className}
       onOpen={onClick}

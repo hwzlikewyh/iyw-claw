@@ -19,6 +19,7 @@ import {
 import type { ReactNode } from "react"
 
 import { ComposerSkillIcon } from "../../composer-skill-icon"
+import { ComposerSourceChip } from "../../composer-source-chip"
 import { AgentIcon } from "@/components/agent-icon"
 import { isAgentType } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils"
 import type { ReferenceAttrs } from "../types"
 import { isTaskReference } from "../composer-commands"
 import { ElementReferenceBadge } from "./element-reference-badge"
+import { useReferenceSource } from "./use-reference-source"
 
 const ICON_CLASS = "size-3.5 shrink-0"
 
@@ -222,6 +224,10 @@ export interface ReferenceBadgeProps {
  * editor coupling.
  */
 export function ReferenceBadge({ data, className }: ReferenceBadgeProps) {
+  const source = useReferenceSource(data)
+  if (source) {
+    return <ComposerSourceChip {...source} className={className} />
+  }
   if (data.refType === "element") {
     return <ElementReferenceBadge data={data} className={className} />
   }
