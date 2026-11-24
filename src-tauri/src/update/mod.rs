@@ -25,6 +25,8 @@ mod recovery_store;
 mod recovery_resume;
 #[cfg(feature = "tauri-runtime")]
 mod desktop_cache;
+#[cfg(feature = "tauri-runtime")]
+mod download_policy;
 #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
 mod direct_payload;
 #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]

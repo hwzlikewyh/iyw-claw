@@ -37,6 +37,8 @@ impl CheckReason {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ReleaseExtensions {
+    #[serde(default, deserialize_with = "deserialize_artifact_limit")]
+    pub max_artifact_bytes: Option<u64>,
     #[serde(default)]
     pub app_payload: Option<DirectArtifact>,
     #[serde(default)]
@@ -55,6 +57,13 @@ pub struct ReleaseExtensions {
     pub size: Option<u64>,
     #[serde(default)]
     pub sha256: Option<String>,
+}
+
+fn deserialize_artifact_limit<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    u64::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -175,6 +184,11 @@ pub fn desktop_updater(
     let builder = windows::retain_install_root(builder)?;
     builder
         .timeout(Duration::from_secs(20))
+        .configure_client(|client| {
+            client
+                .connect_timeout(super::download_policy::CONNECT_TIMEOUT)
+                .read_timeout(super::download_policy::READ_TIMEOUT)
+        })
         .build()
         .map_err(updater_error)
 }
@@ -184,7 +198,7 @@ pub async fn check_desktop_update(
     request: &DesktopUpdateRequest<'_>,
     reason: CheckReason,
 ) -> Result<Option<(AppUpdateInfo, Update)>, AppCommandError> {
-    let Some(update) = desktop_updater(request, reason)?
+    let Some(mut update) = desktop_updater(request, reason)?
         .check()
         .await
         .map_err(updater_error)?
@@ -192,6 +206,8 @@ pub async fn check_desktop_update(
         return Ok(None);
     };
     let extensions = validated_extensions(&update, request.preferences)?;
+    // SDK 将检查与下载的 timeout 分开保存；大包显式使用独立总时限。
+    update.timeout = Some(super::download_policy::TOTAL_TIMEOUT);
     #[cfg(target_os = "windows")]
     let update = super::direct_payload::select(update, &extensions)
         .map_err(|error| AppCommandError::configuration_invalid(error))?;
@@ -213,6 +229,8 @@ fn validated_extensions(
     preferences: &UpdatePreferences,
 ) -> Result<ReleaseExtensions, AppCommandError> {
     let extensions = extensions(update)?;
+    super::download_policy::validate_release(&extensions)
+        .map_err(AppCommandError::configuration_invalid)?;
     if extensions
         .channel
         .is_some_and(|value| value != preferences.channel)

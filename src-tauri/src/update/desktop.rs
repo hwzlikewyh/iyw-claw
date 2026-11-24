@@ -218,18 +218,9 @@ pub(super) async fn load_or_download(task: &Task, update: &mut Update) -> Result
     }
     state::set_download_target(&task.handle, &task.emitter(), update.version.clone());
     let progress = state::ProgressEmitter::new(task.handle.clone(), task.emitter());
-    let mut downloaded = 0_u64;
-    let bytes = update
-        .download(
-            |chunk_len, content_len| {
-                downloaded += chunk_len as u64;
-                progress.downloading(downloaded, content_len);
-            },
-            || progress.verifying(),
-        )
-        .await
-        .map_err(|error| format!("Update download failed: {error}"))?;
+    let result = super::download_policy::download(update, &progress).await;
     update.headers.remove("token");
+    let bytes = result?;
     desktop_cache::store(&task.app, update, &bytes).await?;
     Ok(bytes)
 }

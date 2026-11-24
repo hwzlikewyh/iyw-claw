@@ -30,6 +30,14 @@ pub(super) fn cache_path(app: &tauri::AppHandle, update: &Update) -> Result<Path
 
 pub async fn load(app: &tauri::AppHandle, update: &Update) -> Result<Option<Vec<u8>>, String> {
     let path = cache_path(app, update)?;
+    let ext = release::extensions(update).map_err(|error| error.to_string())?;
+    let limit = super::download_policy::artifact_limit(ext.max_artifact_bytes)?;
+    if tokio::fs::metadata(&path)
+        .await
+        .is_ok_and(|value| value.len() > limit)
+    {
+        return Ok(None);
+    }
     let bytes = match tokio::fs::read(path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -75,8 +83,13 @@ async fn persist(directory: &Path, path: &Path, bytes: &[u8]) -> Result<(), std:
 }
 
 fn validate(update: &Update, bytes: &[u8]) -> Result<(), String> {
-    verify::verify_release_signature(bytes, &update.signature)?;
     let extensions = release::extensions(update).map_err(|error| error.to_string())?;
+    super::download_policy::validate_release(&extensions)?;
+    super::download_policy::validate_size(
+        bytes.len() as u64,
+        super::download_policy::artifact_limit(extensions.max_artifact_bytes)?,
+    )?;
+    verify::verify_release_signature(bytes, &update.signature)?;
     if extensions
         .size
         .is_some_and(|size| size != bytes.len() as u64)

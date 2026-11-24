@@ -1,11 +1,10 @@
-use super::{desktop::Task, direct_payload, direct_trust, release, verify};
+use super::{desktop::Task, direct_payload, direct_trust, download_policy, release, verify};
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read, os::windows::fs::OpenOptionsExt, path::PathBuf, time::Duration};
+use std::{fs::File, io::Read, os::windows::fs::OpenOptionsExt, path::PathBuf};
 use tauri::Manager;
 use tauri_plugin_updater::Update;
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 
-const MAX_BYTES: u64 = 32 * 1024 * 1024;
 pub(super) struct Installer {
     pub path: PathBuf,
     // 保持禁止写入/删除的句柄，覆盖验签、能力检查和启动交接。
@@ -23,7 +22,7 @@ fn cached(path: &std::path::Path, metadata: &release::DirectArtifact) -> Option<
         return None;
     }
     let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    file.take(metadata.size + 1).read_to_end(&mut bytes).ok()?;
     valid_bytes(&bytes, metadata).then_some(bytes)
 }
 
@@ -32,7 +31,9 @@ async fn response(
     metadata: &release::DirectArtifact,
 ) -> Result<reqwest::Response, String> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
+        .timeout(download_policy::TOTAL_TIMEOUT)
+        .connect_timeout(download_policy::CONNECT_TIMEOUT)
+        .read_timeout(download_policy::READ_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
@@ -103,7 +104,7 @@ fn seal(path: PathBuf, metadata: release::DirectArtifact) -> Result<Installer, S
     }
     let mut bytes = Vec::new();
     (&mut file)
-        .take(MAX_BYTES + 1)
+        .take(metadata.size + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if !valid_bytes(&bytes, &metadata) {
@@ -153,24 +154,7 @@ fn installed(metadata: &release::DirectArtifact) -> Option<Installer> {
     None
 }
 
-pub(super) async fn prepare(task: &Task, update: &Update) -> Result<Installer, String> {
-    let ext = release::extensions(update).map_err(|e| e.to_string())?;
-    let metadata = ext.bootstrapper.ok_or("Installer metadata is missing")?;
-    direct_payload::validate(
-        &metadata,
-        ext.release_id.as_deref().unwrap_or(""),
-        "bootstrapper",
-    )?;
-    if metadata.size > MAX_BYTES {
-        return Err("Installer exceeds download limit".into());
-    }
-    let installed_metadata = metadata.clone();
-    let installed = tokio::task::spawn_blocking(move || installed(&installed_metadata))
-        .await
-        .map_err(|error| error.to_string())?;
-    if let Some(installer) = installed {
-        return Ok(installer);
-    }
+async fn cache_path(task: &Task, metadata: &release::DirectArtifact) -> Result<PathBuf, String> {
     let directory = task
         .app
         .path()
@@ -180,14 +164,37 @@ pub(super) async fn prepare(task: &Task, update: &Update) -> Result<Installer, S
     tokio::fs::create_dir_all(&directory)
         .await
         .map_err(|e| e.to_string())?;
-    let path = directory.join(format!("{}.exe", metadata.sha256.to_ascii_lowercase()));
+    Ok(directory.join(format!("{}.exe", metadata.sha256.to_ascii_lowercase())))
+}
+
+pub(super) async fn prepare(task: &Task, update: &Update) -> Result<Installer, String> {
+    let ext = release::extensions(update).map_err(|e| e.to_string())?;
+    let metadata = ext.bootstrapper.ok_or("Installer metadata is missing")?;
+    direct_payload::validate(
+        &metadata,
+        ext.release_id.as_deref().unwrap_or(""),
+        "bootstrapper",
+    )?;
+    let limit = download_policy::installer_limit(ext.max_artifact_bytes)?;
+    download_policy::validate_size(metadata.size, limit)?;
+    let installed_metadata = metadata.clone();
+    let installed = tokio::task::spawn_blocking(move || installed(&installed_metadata))
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(installer) = installed {
+        return Ok(installer);
+    }
+    let path = cache_path(task, &metadata).await?;
     if cached(&path, &metadata).is_none() {
-        let bytes = download(task, &metadata).await?;
+        let bytes = tokio::time::timeout(download_policy::TOTAL_TIMEOUT, download(task, &metadata))
+            .await
+            .map_err(|_| "Installer download timed out")??;
         if !valid_bytes(&bytes, &metadata) {
             return Err("Installer digest mismatch".into());
         }
         verify::verify_release_signature(&bytes, &metadata.signature)?;
-        let temp = tempfile::NamedTempFile::new_in(&directory).map_err(|e| e.to_string())?;
+        let temp = tempfile::NamedTempFile::new_in(path.parent().ok_or("Invalid installer cache")?)
+            .map_err(|e| e.to_string())?;
         tokio::fs::write(temp.path(), &bytes)
             .await
             .map_err(|e| e.to_string())?;

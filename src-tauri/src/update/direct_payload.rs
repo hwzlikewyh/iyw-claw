@@ -36,7 +36,7 @@ pub(super) fn validate(
         || artifact.target != target
         || artifact.arch != arch
         || artifact.size == 0
-        || artifact.size > 1024 * 1024 * 1024
+        || artifact.size > super::download_policy::HARD_MAX_BYTES
         || artifact.signature.is_empty()
         || artifact.sha256.len() != 64
         || !artifact.sha256.bytes().all(|c| c.is_ascii_hexdigit())
