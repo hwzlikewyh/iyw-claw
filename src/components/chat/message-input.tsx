@@ -5,7 +5,6 @@ import { useComposerSendGuard } from "@/hooks/use-composer-send-guard"
 import { reportSendEvent } from "@/lib/send-diagnostics"
 import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
-import { ConversationConnectorComposerChips } from "@/components/chat/conversation-connector-composer-chips"
 import { ConversationPluginMenu } from "@/components/chat/conversation-plugins"
 import { getInstalledMarketInfo } from "@/lib/skill-market"
 import { ComposerSkillIcon } from "./composer-skill-icon"
@@ -4108,6 +4107,9 @@ export function MessageInput({
   // textarea, instead of always jumping to the end.
   const handleChromeMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // Portal 菜单的事件仍会冒泡到输入框，不能抢走菜单焦点。
+      if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target))
+        return
       // Not gated on `disabled`: the editor stays editable while connecting (see
       // `handleSend`), so chrome clicks must focus too — else only the existing
       // text line is clickable and the blank area below it is dead until ready.
@@ -4628,7 +4630,6 @@ export function MessageInput({
                   tabId={attachmentTabId}
                   onOpen={() => setKnowledgeOpen(true)}
                 />
-                <ConversationConnectorComposerChips tabId={attachmentTabId} />
               </div>
               {visibleTask && (
                 <TaskModeRail
