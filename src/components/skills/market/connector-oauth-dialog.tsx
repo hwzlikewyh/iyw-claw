@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef } from "react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,7 +20,6 @@ export function ConnectorOAuthDialog({
   onClose: () => void
 }) {
   const t = useTranslations("ConnectorMarket")
-  const state = useConnectorOAuth(id)
   return (
     <Dialog
       open
@@ -32,22 +32,43 @@ export function ConnectorOAuthDialog({
           <DialogTitle>{t("authorize")}</DialogTitle>
           <DialogDescription>{t("oauthHint")}</DialogDescription>
         </DialogHeader>
-        <p className="text-sm" role="status">
-          {state.status
-            ? t(`oauth_${state.status.state}`)
-            : t("oauth_starting")}
-        </p>
-        {state.error || state.status?.error ? (
-          <p role="alert" className="break-words text-sm text-destructive">
-            {state.error || state.status?.error}
-          </p>
-        ) : null}
-        <OAuthActions state={state} />
+        <ConnectorOAuthContent id={id} />
         <Button variant="outline" onClick={onClose}>
           {t("close")}
         </Button>
       </DialogContent>
     </Dialog>
+  )
+}
+
+export function ConnectorOAuthContent({
+  id,
+  onComplete,
+}: {
+  id: string
+  onComplete?: () => void
+}) {
+  const t = useTranslations("ConnectorMarket")
+  const state = useConnectorOAuth(id)
+  const completed = useRef<string | null>(null)
+  useEffect(() => {
+    if (state.status?.state !== "completed") return
+    if (completed.current === state.status.id) return
+    completed.current = state.status.id
+    onComplete?.()
+  }, [state.status, onComplete])
+  return (
+    <>
+      <p className="text-sm" role="status">
+        {state.status ? t(`oauth_${state.status.state}`) : t("oauth_starting")}
+      </p>
+      {state.error || state.status?.error ? (
+        <p role="alert" className="break-words text-sm text-destructive">
+          {state.error || state.status?.error}
+        </p>
+      ) : null}
+      <OAuthActions state={state} />
+    </>
   )
 }
 

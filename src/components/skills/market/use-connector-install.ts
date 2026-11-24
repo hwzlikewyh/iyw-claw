@@ -149,6 +149,7 @@ export function useConnectorInstall({
     ...data,
     values,
     task,
+    submittedTaskId: operation.task?.id,
     busy,
     cancel: () => cancelSubmission(operation, task, onTaskChanged),
     error: operation.error || data.error,

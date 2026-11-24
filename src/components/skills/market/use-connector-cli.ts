@@ -83,10 +83,13 @@ function useVerification({
 
 export function useConnectorCLI(
   id: string,
-  onChecked: (value: ConnectorCheck) => void
+  onChecked: (value: ConnectorCheck) => void,
+  autoStart = false
 ) {
   const [transport] = useState(getTransport)
-  const [terminal, setTerminal] = useState<string | null>(null)
+  const [terminal, setTerminal] = useState<string | null>(() =>
+    autoStart ? `mcp-cli-${crypto.randomUUID()}` : null
+  )
   const lease = useLifetime(terminal, transport)
   const state = useVerification({ id, terminal, transport, onChecked, lease })
   const spawn = useCallback(
