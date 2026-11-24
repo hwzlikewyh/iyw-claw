@@ -1,12 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { addOfficeTeardown } from "../app-compat/patches.mjs"
 
 export async function adaptPanel(fork) {
   const directory = path.join(fork, "dist/ui")
   const panelFile = path.join(directory, "panel.html")
   await writeFile(
     panelFile,
-    (await readFile(panelFile, "utf8")).replaceAll(
+    addOfficeTeardown(await readFile(panelFile, "utf8")).replaceAll(
       '"zcode/surface"',
       '"iyw/surface"'
     )

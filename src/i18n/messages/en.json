@@ -225,6 +225,7 @@
     "openedApps": "Open plugins",
     "moveFailed": "Could not move the plugin. The original page is still open. Save and retry.",
     "closeConfirm": "Close this plugin page? Save any changes first. Unsaved content may be lost.",
+    "forceCloseConfirm": "The plugin did not finish closing or saving. Force close this page? Unsaved changes may be lost. Cancel to keep the page open.",
     "closeFailed": "The plugin has not finished saving or closing. This page has been kept open. Check its save status and retry.",
     "state": {
       "available": "Installed · open in this conversation",

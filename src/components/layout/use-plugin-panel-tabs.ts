@@ -244,12 +244,16 @@ function usePanelClose(input: {
   useEffect(() => {
     latest.current = input
   }, [input])
-  return useCallback(async (id: string) => {
+  return useCallback(async (id: string, force = false) => {
     const { lifecycle, panel, setTabs, setError } = latest.current
     const currentTab = latest.current.tabs.find((tab) => tab.id === id)
     if (!currentTab) return true
     const generation = lifecycle.current.generation
-    if (currentTab.kind === "mcp-app" && !(await requestPluginAppTeardown(id)))
+    if (
+      !force &&
+      currentTab.kind === "mcp-app" &&
+      !(await requestPluginAppTeardown(id))
+    )
       return false
     if (!lifecycle.current.alive) return true
     const current = lifecycle.current.generation === generation

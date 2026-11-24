@@ -1,4 +1,5 @@
 const TEARDOWN_TIMEOUT_MS = 15_000
+const METHOD_NOT_FOUND = -32601
 type CloseHandler = () => Promise<boolean>
 const handlers = new Map<string, CloseHandler>()
 let requestSequence = 0
@@ -20,48 +21,67 @@ export function requestPluginAppTeardown(instanceId: string) {
 export function createPluginAppTeardown(
   send: (message: Record<string, unknown>) => boolean
 ) {
-  let pending: {
-    id: string
-    promise: Promise<boolean>
-    finish: (success: boolean) => void
-  } | null = null
+  let pending: ReturnType<typeof createRequest> | null = null
   return {
     request() {
       if (pending) return pending.promise
-      const id = `teardown-${Date.now()}-${++requestSequence}`
-      let settle!: (success: boolean) => void
-      const promise = new Promise<boolean>((resolve) => {
-        settle = resolve
+      const request = createRequest(() => {
+        pending = null
       })
-      const timer = setTimeout(() => finish(false), TEARDOWN_TIMEOUT_MS)
-      const finish = (success: boolean) => {
-        clearTimeout(timer)
-        if (pending?.id === id) pending = null
-        settle(success)
-      }
-      pending = { id, promise, finish }
+      pending = request
       try {
-        if (
-          !send({
-            jsonrpc: "2.0",
-            id,
-            method: "ui/resource-teardown",
-            params: { reason: "user_close" },
-          })
-        )
-          finish(false)
+        if (!send(request.message)) request.finish(false)
       } catch {
-        finish(false)
+        request.finish(false)
       }
-      return promise
+      return request.promise
     },
     accept(value: unknown) {
       if (!pending || !value || typeof value !== "object") return false
       const message = value as Record<string, unknown>
-      if (message.jsonrpc !== "2.0" || message.id !== pending.id) return false
-      pending.finish("result" in message && !("error" in message))
+      if (message.jsonrpc !== "2.0" || message.id !== pending.message.id)
+        return false
+      pending.finish(teardownSucceeded(message))
       return true
     },
     dispose: () => pending?.finish(false),
   }
+}
+
+function createRequest(clear: () => void) {
+  const id = `teardown-${Date.now()}-${++requestSequence}`
+  let settle!: (success: boolean) => void
+  const promise = new Promise<boolean>((resolve) => {
+    settle = resolve
+  })
+  const timer = setTimeout(() => {
+    console.warn("Plugin app teardown timed out")
+    finish(false)
+  }, TEARDOWN_TIMEOUT_MS)
+  const finish = (success: boolean) => {
+    clearTimeout(timer)
+    clear()
+    settle(success)
+  }
+  return {
+    message: {
+      jsonrpc: "2.0",
+      id,
+      method: "ui/resource-teardown",
+      params: { reason: "user_close" },
+    },
+    promise,
+    finish,
+  }
+}
+
+function teardownSucceeded(message: Record<string, unknown>) {
+  const error = message.error as { code?: unknown } | null | undefined
+  const unsupported = !("result" in message) && error?.code === METHOD_NOT_FOUND
+  const success = ("result" in message && !("error" in message)) || unsupported
+  if (!success)
+    console.warn("Plugin app teardown rejected", {
+      code: typeof error?.code === "number" ? error.code : undefined,
+    })
+  return success
 }

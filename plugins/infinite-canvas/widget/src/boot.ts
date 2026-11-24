@@ -7,8 +7,7 @@ import type {} from "./upstream/host-bridge.js"
 import "../../vendor/infinite-canvas-web/src/styles/globals.css"
 
 async function start(): Promise<void> {
-  const app = new App({ name: "Infinite Canvas", version: "0.1.22" }, { availableDisplayModes: ["inline", "fullscreen"] })
-  await app.connect()
+  const app = new App({ name: "Infinite Canvas", version: "0.1.23" }, { availableDisplayModes: ["inline", "fullscreen"] })
   const call = async (name: string, arguments_: Record<string, unknown>) => {
     const result = await app.callServerTool({ name, arguments: arguments_ }, { timeout: name === "download_infinite_canvas_image" ? 180_000 : 60_000 })
     const text = result.content.find((part) => part.type === "text")?.text
@@ -17,11 +16,12 @@ async function start(): Promise<void> {
   }
   const assets = new AssetClient(call)
   const disposeBlobs = installBlobFetch()
+  app.onteardown = async () => { assets.dispose(); disposeBlobs(); return {} }
+  await app.connect()
   window.__IYW_CANVAS_BRIDGE__ = { app, assets }
   installModelGatewayAdapter(app)
   await installPluginStorage(app, assets)
   await import("@/plugin-main")
-  app.onteardown = async () => { assets.dispose(); disposeBlobs(); return {} }
 }
 
 void start().catch((error: unknown) => {

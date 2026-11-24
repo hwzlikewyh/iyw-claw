@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   Files,
   House,
@@ -128,7 +128,7 @@ function AppTab({
   moving,
 }: {
   tab: PluginPanelTab
-  close: (id: string) => Promise<boolean>
+  close: (id: string, force?: boolean) => Promise<boolean>
   detach: (tab: PluginPanelTab) => Promise<boolean>
   moving: boolean
 }) {
@@ -202,17 +202,25 @@ function AppTab({
   )
 }
 
-function useAppTabClose(id: string, close: (id: string) => Promise<boolean>) {
+function useAppTabClose(
+  id: string,
+  close: (id: string, force?: boolean) => Promise<boolean>
+) {
   const t = useTranslations("PluginPanels")
   const [closing, setClosing] = useState(false)
+  const pending = useRef(false)
   const closePanel = async () => {
-    if (closing || !window.confirm(t("closeConfirm"))) return
-    setClosing(true)
+    if (pending.current) return
+    pending.current = true
     try {
-      if (!(await close(id))) window.alert(t("closeFailed"))
+      if (!window.confirm(t("closeConfirm"))) return
+      setClosing(true)
+      if (await close(id)) return
+      if (window.confirm(t("forceCloseConfirm"))) await close(id, true)
     } catch {
       window.alert(t("closeFailed"))
     } finally {
+      pending.current = false
       setClosing(false)
     }
   }

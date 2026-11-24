@@ -104,8 +104,16 @@ export function usePluginWindowClose(
           }
           closing = true
           try {
-            if (!(await requestPluginAppTeardown(tab.id)))
-              throw Error(t("closeFailed"))
+            const closed = await requestPluginAppTeardown(tab.id)
+            if (disposed) {
+              event.preventDefault()
+              return
+            }
+            if (isUnavailable()) return
+            if (!closed && !window.confirm(t("forceCloseConfirm"))) {
+              event.preventDefault()
+              return
+            }
             if (isUnavailable()) return
             await transport.call("plugin_app_teardown", {
               request: {
