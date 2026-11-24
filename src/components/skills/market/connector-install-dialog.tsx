@@ -15,7 +15,8 @@ import type { McpMarketplaceItem } from "@/lib/types"
 import type { ConnectorInstallTask } from "@/lib/connector-install-tasks"
 import { ConnectorInstallFields } from "./connector-install-fields"
 import { ConnectorInstallTaskStatus } from "./connector-install-task-status"
-import { ConnectorOAuthDialog } from "./connector-oauth-dialog"
+import { ConnectorSetupDialog } from "./connector-setup-dialog"
+import { getConnectorSetup } from "./use-connector-setup"
 import { useConnectorInstall } from "./use-connector-install"
 
 type InstallState = ReturnType<typeof useConnectorInstall>
@@ -31,7 +32,6 @@ type ConnectorInstallDialogProps = {
 
 export function ConnectorInstallDialog(props: ConnectorInstallDialogProps) {
   const state = useConnectorInstall(props)
-  const [oauth, setOAuth] = useState(false)
   const [editing, setEditing] = useState(false)
   const showForm =
     !state.busy &&
@@ -39,13 +39,40 @@ export function ConnectorInstallDialog(props: ConnectorInstallDialogProps) {
   const begin = async () => {
     if (await state.install()) setEditing(false)
   }
-  if (oauth)
+  const setup = getConnectorSetup(state, props.installed)
+  if (setup && !editing)
     return (
-      <ConnectorOAuthDialog
+      <ConnectorSetupDialog
+        key={setup.taskId}
         id={props.item.server_id}
-        onClose={() => setOAuth(false)}
+        name={props.item.name}
+        mode={setup.mode}
+        autoAuthorize={setup.autoAuthorize}
+        onClose={props.onClose}
+        onConfigure={() => setEditing(true)}
+        onManageInstalled={props.onManageInstalled}
       />
     )
+  return (
+    <InstallationForm
+      {...props}
+      state={state}
+      showForm={showForm}
+      onReconfigure={() => setEditing(true)}
+      onBegin={() => void begin()}
+    />
+  )
+}
+
+function InstallationForm(
+  props: ConnectorInstallDialogProps & {
+    state: InstallState
+    showForm: boolean
+    onReconfigure: () => void
+    onBegin: () => void
+  }
+) {
+  const { state, showForm } = props
   return (
     <Dialog
       open
@@ -66,10 +93,9 @@ export function ConnectorInstallDialog(props: ConnectorInstallDialogProps) {
         <InstallationFooter
           state={state}
           onClose={props.onClose}
-          onAuthorize={() => setOAuth(true)}
           onManageInstalled={props.onManageInstalled}
-          onReconfigure={() => setEditing(true)}
-          onBegin={() => void begin()}
+          onReconfigure={props.onReconfigure}
+          onBegin={props.onBegin}
           showForm={showForm}
         />
       </DialogContent>
@@ -124,7 +150,6 @@ function InstallationBody({
 function InstallationFooter({
   state,
   onClose,
-  onAuthorize,
   onManageInstalled,
   onReconfigure,
   onBegin,
@@ -132,7 +157,6 @@ function InstallationFooter({
 }: {
   state: InstallState
   onClose: () => void
-  onAuthorize: () => void
   onManageInstalled: () => void
   onReconfigure: () => void
   onBegin: () => void
@@ -147,12 +171,6 @@ function InstallationFooter({
       <Button variant="outline" onClick={onClose}>
         {state.busy ? t("continueInBackground") : t("close")}
       </Button>
-      {state.task?.phase === "completed" && auth === "cli" ? (
-        <Button onClick={onManageInstalled}>{t("cliLogin")}</Button>
-      ) : null}
-      {state.task?.phase === "completed" && auth === "oauth" ? (
-        <Button onClick={onAuthorize}>{t("authorize")}</Button>
-      ) : null}
       {state.task?.phase === "completed" && !showForm ? (
         <>
           <Button variant="outline" onClick={onReconfigure}>
@@ -167,7 +185,11 @@ function InstallationFooter({
             ? t("installing")
             : state.task && state.task.phase !== "completed"
               ? t("retry")
-              : t("install")}
+              : t(
+                  auth === "oauth" || auth === "cli"
+                    ? "installAndSignIn"
+                    : "install"
+                )}
         </Button>
       ) : null}
     </DialogFooter>

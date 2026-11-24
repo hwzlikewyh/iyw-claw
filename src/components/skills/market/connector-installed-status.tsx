@@ -31,7 +31,11 @@ export function ConnectorInstalledStatus({
           ? t("checkingConnection")
           : state.view
             ? t(`connection_${state.view.state}`)
-            : t("configured")}
+            : t(
+                ["cli", "oauth"].includes(meta?.auth_mode || "")
+                  ? "connection_unverified"
+                  : "configured"
+              )}
       </Badge>
       <Button
         size="sm"
@@ -67,7 +71,7 @@ function AuthenticationActions({
           disabled={state.busy || disabled}
           onClick={state.open}
         >
-          {meta?.auth_mode === "cli" ? t("cliLogin") : t("authorize")}
+          {t(state.view?.state === "ready" ? "signInAgain" : "continueSetup")}
         </Button>
       ) : null}
       {meta?.auth_mode === "cli" && meta.cli_auth?.plan?.logout ? (
