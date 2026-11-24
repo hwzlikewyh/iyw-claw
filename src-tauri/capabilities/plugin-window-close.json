@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "plugin-window-close",
+  "description": "Allow detached plugin windows to complete an accepted close request.",
+  "windows": ["plugin-*"],
+  "permissions": ["core:window:allow-destroy"]
+}

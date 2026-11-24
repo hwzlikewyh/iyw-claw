@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import { useTranslations } from "next-intl"
 import { getTransport } from "@/lib/transport"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
@@ -81,35 +81,41 @@ export function useDetachedPluginLoad(
   return { tab, error }
 }
 
-export function usePluginWindowClose(tab: McpPluginPanelTab) {
+export function usePluginWindowClose(
+  tab: McpPluginPanelTab,
+  unavailable: boolean
+) {
   const [error, setError] = useState("")
   const t = useTranslations("PluginPanels")
+  const isUnavailable = useEffectEvent(() => unavailable)
   useEffect(() => {
-    let disposed = false,
-      closing = false,
-      allowed = false
+    let disposed = false
+    let closing = false
     let unlisten: (() => void) | undefined
     const transport = getTransport()
     void import("@tauri-apps/api/window")
       .then(async ({ getCurrentWindow }) => {
         const win = getCurrentWindow()
         const stop = await win.onCloseRequested(async (event) => {
-          if (allowed) return
-          event.preventDefault()
-          if (closing) return
+          if (isUnavailable()) return
+          if (closing) {
+            event.preventDefault()
+            return
+          }
           closing = true
           try {
             if (!(await requestPluginAppTeardown(tab.id)))
               throw Error(t("closeFailed"))
+            if (isUnavailable()) return
             await transport.call("plugin_app_teardown", {
               request: {
                 instanceId: tab.id,
                 conversationId: tab.conversationId,
               },
             })
-            allowed = true
-            await win.close()
           } catch (cause) {
+            if (isUnavailable()) return
+            event.preventDefault()
             if (!disposed) setError(toErrorMessage(cause))
           } finally {
             closing = false

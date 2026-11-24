@@ -78,7 +78,8 @@ function DetachedContent({ tab }: { tab: McpPluginPanelTab }) {
   const t = useTranslations("PluginPanels")
   const revoked = usePluginPanelAuthority(tab)
   const sync = useDetachedPluginSync(tab)
-  const closeError = usePluginWindowClose(tab)
+  const unavailable = revoked || sync.forbidden === true
+  const closeError = usePluginWindowClose(tab, unavailable)
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {closeError && (
@@ -86,7 +87,7 @@ function DetachedContent({ tab }: { tab: McpPluginPanelTab }) {
           {closeError}
         </p>
       )}
-      {revoked || sync.forbidden ? (
+      {unavailable ? (
         <p role="alert" className="p-4">
           {t("revoked")}
         </p>
