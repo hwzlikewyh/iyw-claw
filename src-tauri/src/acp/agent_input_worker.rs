@@ -63,6 +63,10 @@ pub(crate) async fn run(
     };
     let mut tracking = WorkerTracking::default();
     loop {
+        if manager.is_relaunching() {
+            tokio::time::sleep(OUTBOX_READ_RETRY_DELAY).await;
+            continue;
+        }
         let Some((state, emitter)) = manager.get_state_and_emitter(conn_id).await else {
             return;
         };

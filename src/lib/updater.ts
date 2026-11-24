@@ -90,6 +90,8 @@ export type AppUpdateLifecycle =
   | "downloading"
   | "verifying"
   | "ready_to_install"
+  | "waiting_for_tasks"
+  | "preparing_restart"
   | "installing"
   | "ready_to_restart"
   | "restarting"
@@ -120,6 +122,9 @@ export interface AppUpdateState {
   capability?: ServerUpdateCapability
   /** Raw error message (error only); classify via {@link normalizeAppUpdateError}. */
   error?: string
+  blockedReason?: string
+  recoveryError?: string
+  recoveringTasks?: boolean
 }
 
 /** Snapshot of the current update state. Works in every mode: desktop reads a
@@ -143,7 +148,22 @@ export function subscribeAppUpdateState(
  * current snapshot; progress arrives via {@link subscribeAppUpdateState}. The
  * download runs detached in the backend, so it is not bound to this call's
  * lifetime. */
-export function startAppUpdate(): Promise<AppUpdateState> {
+export type AppUpdateMode =
+  | "now"
+  | "after_tasks"
+  | "force_resume"
+  | "cancel_waiting"
+  | "retry_recovery"
+
+export function startAppUpdate(
+  mode: AppUpdateMode = "now"
+): Promise<AppUpdateState> {
+  if (usesTauriUpdater()) {
+    saveRouteForRestore()
+    return getTransport().call<AppUpdateState>("perform_app_update", { mode })
+  }
+  if (mode !== "now")
+    return Promise.reject(new Error("Desktop update action unavailable"))
   return getTransport().call<AppUpdateState>("perform_app_update")
 }
 
@@ -176,6 +196,7 @@ export type AppUpdateErrorKind =
   | "network"
   | "download_failed"
   | "install_failed"
+  | "tasks_active"
   | "unknown"
 
 export interface AppUpdateErrorInfo {
@@ -366,6 +387,14 @@ export function closeAppUpdate(_update: AppUpdateInfo): Promise<void> {
 export function normalizeAppUpdateError(error: unknown): AppUpdateErrorInfo {
   const rawMessage = toErrorMessage(error)
   const normalized = rawMessage.toLowerCase()
+
+  if (
+    normalized.includes("update_blocked:") ||
+    normalized.includes("active tasks must finish") ||
+    normalized.includes("active agent operations must finish")
+  ) {
+    return { kind: "tasks_active", rawMessage }
+  }
 
   if (
     normalized.includes("latest.json") ||

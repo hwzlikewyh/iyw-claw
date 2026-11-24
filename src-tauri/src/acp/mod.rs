@@ -82,6 +82,8 @@ pub mod internal_bus;
 mod iyw_gateway_mcp;
 pub mod lifecycle;
 pub mod manager;
+#[cfg(feature = "tauri-runtime")]
+pub(crate) mod update_tasks;
 mod mcp_namespace;
 pub mod memory_turn;
 pub mod model_budget;

@@ -14,6 +14,16 @@
 #[cfg(feature = "tauri-runtime")]
 pub mod desktop;
 #[cfg(feature = "tauri-runtime")]
+pub mod manual;
+#[cfg(feature = "tauri-runtime")]
+mod manual_wait;
+#[cfg(feature = "tauri-runtime")]
+pub(crate) mod task_recovery;
+#[cfg(feature = "tauri-runtime")]
+mod recovery_store;
+#[cfg(feature = "tauri-runtime")]
+mod recovery_resume;
+#[cfg(feature = "tauri-runtime")]
 mod desktop_cache;
 #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
 mod direct_payload;

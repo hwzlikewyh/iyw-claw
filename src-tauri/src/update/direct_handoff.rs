@@ -49,11 +49,13 @@ async fn recheck(task: &Task, update: &Update, silent: bool) -> Result<(), Strin
     } else {
         Duration::ZERO
     };
-    if silent_safety::task_blocker_with_idle_delay(&task.app, idle)
-        .await?
-        .is_some()
-    {
-        return Err("Active tasks must finish before updating".into());
+    let blocker = if task.force_resume {
+        silent_safety::non_agent_blocker(&task.app).await?
+    } else {
+        silent_safety::task_blocker_with_idle_delay(&task.app, idle).await?
+    };
+    if let Some(reason) = blocker {
+        return Err(format!("update_blocked:{reason}"));
     }
     let settings = preferences::load(&task.conn)
         .await
@@ -158,8 +160,10 @@ pub(super) async fn launch(task: &Task, update: &Update, silent: bool) -> Result
     arguments(&mut command, task, update)?;
     let mut child = spawn_installer(&mut command, &ready)?;
     wait_ready(&mut child, &ready).await?;
-    let _manual_relaunch = if silent {
+    let _manual_relaunch = if silent || task.relaunch_claimed {
         None
+    } else if task.force_resume {
+        Some(super::task_recovery::pause(task).await?)
     } else {
         Some(
             task.app
@@ -171,6 +175,7 @@ pub(super) async fn launch(task: &Task, update: &Update, silent: bool) -> Result
     };
     // 下载、校验及准备期间用户可能恢复操作；退出前再次检查。
     recheck(task, update, silent).await?;
+    super::state::set_installing(&task.handle, &task.emitter());
     directory.close().map_err(|e| e.to_string())?;
     tracing::info!(version=%update.version, "[app-update] verified installer ready; shutting down normally");
     shutdown(task).await

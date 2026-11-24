@@ -13,6 +13,7 @@ import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import {
   type AppUpdateState,
+  type AppUpdateMode,
   confirmRollbackVersion,
   getAppUpdateState,
   getRunningServerVersion,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/updater"
 import { getTransport } from "@/lib/transport"
 import { RequiredUpdateGate } from "@/components/providers/required-update-gate"
+import { OPEN_APP_UPDATE_EVENT } from "@/components/layout/sidebar-update-event"
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -39,6 +41,8 @@ const LIFECYCLES = new Set([
   "downloading",
   "verifying",
   "ready_to_install",
+  "waiting_for_tasks",
+  "preparing_restart",
   "installing",
   "ready_to_restart",
   "restarting",
@@ -76,7 +80,7 @@ export interface UpdateContextValue {
   isBusy: boolean
   /** Install the downloaded desktop update, or download first when needed.
    * Progress arrives via {@link state}. */
-  startUpdate: () => Promise<void>
+  startUpdate: (mode?: AppUpdateMode) => Promise<void>
   /** Relaunch into the staged update. Call when `state.status` is
    * `ready_to_restart`. Desktop relaunches the app; server drives the
    * countdown + health-poll + reload. */
@@ -120,6 +124,17 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   // then `state` is the default `idle` placeholder, which consumers must not
   // treat as a real "idle" backend status (e.g. offering rollback).
   const [hydrated, setHydrated] = useState(false)
+
+  useEffect(() => {
+    if (!state.recoveryError) return
+    toast.error(t("updateTasks.recoveryFailed"), {
+      id: "update-task-recovery",
+      action: {
+        label: t("viewUpdate"),
+        onClick: () => window.dispatchEvent(new Event(OPEN_APP_UPDATE_EVENT)),
+      },
+    })
+  }, [state.recoveryError, t])
 
   // Mirror state into a ref so the action callbacks read the latest snapshot
   // without being re-created on every transition.
@@ -210,19 +225,26 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Actions ────────────────────────────────────────────────────────────
 
-  const startUpdate = useCallback(async () => {
-    try {
-      const snap = await startAppUpdate()
-      applyState(snap)
-    } catch (err) {
-      // The detached backend task reports its own failures via the state
-      // event; this only fires if the kickoff call itself failed (e.g. the
-      // server is unreachable).
-      const { rawMessage } = normalizeAppUpdateError(err)
-      toast.error(t("installFailed", { message: rawMessage }))
-      console.error("[Update] start failed:", err)
-    }
-  }, [applyState, t])
+  const startUpdate = useCallback(
+    async (mode: AppUpdateMode = "now") => {
+      try {
+        const snap = await startAppUpdate(mode)
+        applyState(snap)
+      } catch (err) {
+        // The detached backend task reports its own failures via the state
+        // event; this only fires if the kickoff call itself failed (e.g. the
+        // server is unreachable).
+        const { kind, rawMessage } = normalizeAppUpdateError(err)
+        toast.error(
+          kind === "tasks_active"
+            ? t("updateErrors.tasksActive")
+            : t("installFailed", { message: rawMessage })
+        )
+        console.error("[Update] start failed:", err)
+      }
+    },
+    [applyState, t]
+  )
 
   const restart = useCallback(async () => {
     setIsRestarting(true)
@@ -333,8 +355,12 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       toast.success(t("upgradeSuccess"))
       window.location.reload()
     } catch (err) {
-      const { rawMessage } = normalizeAppUpdateError(err)
-      toast.error(t("installFailed", { message: rawMessage }))
+      const { kind, rawMessage } = normalizeAppUpdateError(err)
+      toast.error(
+        kind === "tasks_active"
+          ? t("updateErrors.tasksActive")
+          : t("installFailed", { message: rawMessage })
+      )
       console.error("[Update] restart flow failed:", err)
     } finally {
       setRestartCountdown(null)
@@ -405,8 +431,10 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const isUpdating =
     state.status === "downloading" ||
     state.status === "verifying" ||
-    state.status === "installing"
+    state.status === "installing" ||
+    state.status === "preparing_restart"
   const isBusy =
+    Boolean(state.recoveringTasks) ||
     isUpdating ||
     isRollingBack ||
     isRestarting ||

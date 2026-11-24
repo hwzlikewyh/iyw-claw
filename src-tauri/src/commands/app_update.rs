@@ -247,11 +247,14 @@ pub async fn remind_app_update_later(
 /// progress via the `app_update_state` event.
 #[tauri::command]
 pub async fn perform_app_update(
+    mode: Option<crate::update::manual::InstallMode>,
     app: tauri::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<AppUpdateState, AppCommandError> {
-    desktop::install(desktop::Task::new(&app, &db.conn, state.inner()))
+    crate::update::manual::install(
+        desktop::Task::new(&app, &db.conn, state.inner()), mode.unwrap_or_default(),
+    )
 }
 
 /// Relaunch into the freshly-installed bytes. Flips the shared snapshot to
