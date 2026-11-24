@@ -29,6 +29,8 @@ use codex_login::AuthOwner;
 use std::collections::HashMap;
 #[path = "client_timing.rs"]
 pub(crate) mod timing;
+#[path = "client_connection_diagnostics.rs"]
+mod connection_diagnostics;
 #[path = "managed_image_store.rs"]
 pub(crate) mod managed_images;
 #[path = "client_remote_image.rs"]
@@ -2053,6 +2055,10 @@ impl ResponsesHttpExecutor<'_> {
                 .client
                 .responses_headers(client_setup.auth.as_ref(), &model_info.slug);
             tracing::Span::current().record("api.path", "/responses");
+            let connection = connection_diagnostics::ConnectionDiagnostics::new(
+                &client_setup.api_provider,
+                &client_setup.http_client_factory,
+            );
             let transport = client_setup.http_transport("/responses")?;
             let request_auth_context = AuthRequestTelemetryContext::new(
                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
@@ -2067,6 +2073,7 @@ impl ResponsesHttpExecutor<'_> {
                 RequestRouteTelemetry::for_endpoint("/responses"),
                 self.client.state.auth_env_telemetry.clone(),
             );
+            let request_telemetry = connection.wrap(request_telemetry);
             let failed_request_ids = Arc::new(StdMutex::new(Vec::new()));
             let billing_guard = BillingRequestGuard {
                 client: Arc::clone(&self.client.state),

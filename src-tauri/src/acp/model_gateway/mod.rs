@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 mod assets;
 mod auth;
+mod diagnostics;
 mod edit;
 mod error;
 mod forward;
@@ -107,7 +108,7 @@ impl ModelGateway {
         *active_base()
             .write()
             .map_err(|_| io::Error::other("Local gateway state unavailable"))? = Some(base.clone());
-        tracing::info!(target: "model_gateway", proxy_mode = "direct", "process local model gateway ready");
+        diagnostics::ready(&runtime);
         let task = tokio::spawn(serve(tcp, runtime));
         Ok(Self {
             shutdown,

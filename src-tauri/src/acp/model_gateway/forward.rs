@@ -8,6 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use futures_util::{stream, StreamExt};
+use tracing::Instrument;
 
 use super::{
     error::GatewayError,
@@ -23,15 +24,21 @@ pub(super) async fn handle(
     socket: Result<WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>,
     request: Request,
 ) -> Response {
-    let stop = runtime.shutdown.clone();
-    let result = tokio::select! {
-        _ = stop.cancelled() => Err(GatewayError::unavailable("Local model gateway is stopping")),
-        result = dispatch(runtime, socket.ok(), request) => result,
-    };
-    match result {
-        Ok(response) => response,
-        Err(error) => error.into_response(),
+    let span = super::diagnostics::request_span(&runtime, request.method());
+    async move {
+        tracing::info!(target: "model_gateway", phase = "received", "local model request received");
+        let stop = runtime.shutdown.clone();
+        let result = tokio::select! {
+            _ = stop.cancelled() => Err(GatewayError::unavailable("Local model gateway is stopping")),
+            result = dispatch(runtime, socket.ok(), request) => result,
+        };
+        match result {
+            Ok(response) => response,
+            Err(error) => error.into_response(),
+        }
     }
+    .instrument(span)
+    .await
 }
 
 async fn dispatch(
@@ -133,6 +140,7 @@ async fn forward_http(
         Output::Prepared(asset) => return Ok(prepared_response(asset, original_bytes, started)),
     };
     let final_bytes = body.len();
+    let diagnostic = super::diagnostics::CloudAttempt::new(&target);
     let request = runtime
         .client
         .request(parts.method, target)
@@ -142,10 +150,7 @@ async fn forward_http(
         .header("accept-encoding", "identity")
         .header("content-length", final_bytes)
         .body(body.into_body()?);
-    let response = tokio::time::timeout(HEADER_TIMEOUT, request.send())
-        .await
-        .map_err(|_| GatewayError::unavailable("Cloud model response headers timed out"))?
-        .map_err(GatewayError::cloud)?;
+    let response = send_cloud(request, &diagnostic).await?;
     if let Some(key) = count_key {
         runtime.token_counts.observe(key, &response);
     }
@@ -155,6 +160,24 @@ async fn forward_http(
         response.status().as_u16(),
     );
     Ok(stream_response(response, permit, runtime.shutdown.clone()))
+}
+
+async fn send_cloud(
+    request: reqwest::RequestBuilder,
+    diagnostic: &super::diagnostics::CloudAttempt,
+) -> Result<reqwest::Response, GatewayError> {
+    let response = tokio::time::timeout(HEADER_TIMEOUT, request.send())
+        .await
+        .map_err(|_| {
+            diagnostic.timed_out();
+            GatewayError::unavailable("Cloud model response headers timed out")
+        })?
+        .map_err(|error| {
+            diagnostic.failed(&error);
+            GatewayError::cloud(error)
+        })?;
+    diagnostic.responded(response.status().as_u16());
+    Ok(response)
 }
 
 async fn prepare_body(
