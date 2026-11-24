@@ -478,6 +478,15 @@ impl ConnectionManager {
         }
         Ok(claim)
     }
+
+    #[cfg(feature = "tauri-runtime")]
+    pub(crate) fn claim_update_pause(&self) -> Result<RelaunchClaim, AcpError> {
+        self.operation_gate.try_claim_relaunch()
+    }
+
+    pub(crate) fn is_relaunching(&self) -> bool {
+        self.operation_gate.is_relaunching()
+    }
     pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
@@ -2652,6 +2661,7 @@ impl ConnectionManager {
     }
 
     pub async fn cancel(&self, db: &DatabaseConnection, conn_id: &str) -> Result<(), AcpError> {
+        let _operation_guard = self.acquire_operation_read().await?;
         let (cmd_tx, state_arc, emitter) = {
             let connections = self.connections.lock().await;
             let conn = connections
@@ -2677,6 +2687,9 @@ impl ConnectionManager {
         // status if the turn happened to end just before the user clicked.
         let conversation_id = state_arc.read().await.conversation_id;
         if let Some(cid) = conversation_id {
+            #[cfg(feature = "tauri-runtime")]
+            crate::update::task_recovery::discard_user_cancelled(db, cid)
+                .await.map_err(AcpError::protocol)?;
             match conversation_service::update_status_if(
                 db,
                 cid,

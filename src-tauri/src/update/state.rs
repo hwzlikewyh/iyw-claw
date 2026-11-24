@@ -45,6 +45,8 @@ pub enum AppUpdateLifecycle {
     Downloading,
     Verifying,
     ReadyToInstall,
+    WaitingForTasks,
+    PreparingRestart,
     Installing,
     ReadyToRestart,
     Restarting,
@@ -105,6 +107,13 @@ pub struct AppUpdateState {
     /// display via `normalizeAppUpdateError`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_error: Option<String>,
+    pub recovering_tasks: bool,
+    #[serde(skip)]
+    pub(crate) waiting_id: Option<String>,
 }
 
 impl AppUpdateState {
@@ -126,6 +135,10 @@ impl AppUpdateState {
             trial_seconds: None,
             capability: None,
             error: None,
+            blocked_reason: None,
+            recovery_error: None,
+            recovering_tasks: false,
+            waiting_id: None,
         }
     }
 
@@ -146,6 +159,8 @@ impl AppUpdateState {
         self.trial_seconds = None;
         self.capability = None;
         self.error = None;
+        self.blocked_reason = None;
+        self.waiting_id = None;
     }
 }
 
@@ -215,7 +230,7 @@ fn claim_restarting(
 /// Apply `f` under the write lock, bump `seq`, then emit the resulting
 /// snapshot. Used for every discrete transition (the per-chunk progress path
 /// is throttled separately by [`ProgressEmitter`]).
-fn mutate(
+pub(super) fn mutate(
     handle: &AppUpdateStateHandle,
     emitter: &EventEmitter,
     f: impl FnOnce(&mut AppUpdateState),

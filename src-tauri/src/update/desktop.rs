@@ -5,14 +5,13 @@ use std::sync::Mutex;
 use sea_orm::DatabaseConnection;
 use tauri_plugin_updater::Update;
 
-use crate::app_error::AppCommandError;
 use crate::web::event_bridge::EventEmitter;
 
 use super::desktop_cache;
 use super::offer::{self, Identity};
 use super::preferences;
 use super::release::{self, AppUpdateInfo, CheckReason, DesktopUpdateRequest};
-use super::state::{self, AppUpdateState, AppUpdateStateHandle};
+use super::state::{self, AppUpdateStateHandle};
 
 // 只保存 SDK 的安装上下文，完整更新包留在磁盘，不常驻内存。
 static PREPARED_UPDATE: Mutex<Option<(Identity, Update, bool)>> = Mutex::new(None);
@@ -21,6 +20,8 @@ pub struct Task {
     pub(super) app: tauri::AppHandle,
     pub(super) conn: DatabaseConnection,
     pub(super) handle: AppUpdateStateHandle,
+    pub(super) force_resume: bool,
+    pub(super) relaunch_claimed: bool,
 }
 
 impl Task {
@@ -33,6 +34,8 @@ impl Task {
             app: app.clone(),
             conn: conn.clone(),
             handle: handle.clone(),
+            force_resume: false,
+            relaunch_claimed: false,
         }
     }
 
@@ -162,50 +165,7 @@ pub fn prefetch(task: Task, checked: (AppUpdateInfo, Update), silent: bool) {
     });
 }
 
-pub fn install(task: Task) -> Result<AppUpdateState, AppCommandError> {
-    let (started, snapshot, identity) = offer::try_begin(&task.handle, &task.emitter());
-    if !started {
-        return Ok(snapshot);
-    }
-    let Some(identity) = identity else {
-        task.fail("Available update metadata is incomplete".to_string());
-        return Err(AppCommandError::configuration_invalid(
-            "Available update metadata is incomplete",
-        ));
-    };
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = install_impl(&task, &identity).await {
-            task.fail(error);
-        }
-    });
-    Ok(snapshot)
-}
-
-async fn install_impl(task: &Task, identity: &Identity) -> Result<(), String> {
-    let preferences = preferences::load(&task.conn)
-        .await
-        .map_err(|error| error.to_string())?;
-    if preferences.channel.as_str() != identity.channel {
-        return Err("The selected update channel changed before installation".to_string());
-    }
-    let mut update = checked_update(task, identity, &preferences).await?;
-    let bytes = load_or_download(task, &mut update).await?;
-    let data_dir = crate::system_skills::data_dir_from_env();
-    if let Err(error) = super::digest::record_before_update(&data_dir).await {
-        tracing::warn!(%error, "[app-update] failed to record pre-update managed-root digest");
-    }
-    state::set_installing(&task.handle, &task.emitter());
-    tracing::info!(version = %update.version, "[app-update] installing cached update after user request");
-    #[cfg(target_os = "windows")]
-    if super::direct_payload::uses_installer(&update) {
-        drop(bytes);
-        return super::direct_handoff::launch(task, &update, false).await;
-    }
-    update.install(bytes).map_err(|error| error.to_string())?;
-    finish_install(task, update.version)
-}
-
-async fn checked_update(
+pub(super) async fn checked_update(
     task: &Task,
     identity: &Identity,
     preferences: &preferences::UpdatePreferences,
@@ -233,7 +193,7 @@ async fn checked_update(
     Ok(update)
 }
 
-async fn load_or_download(task: &Task, update: &mut Update) -> Result<Vec<u8>, String> {
+pub(super) async fn load_or_download(task: &Task, update: &mut Update) -> Result<Vec<u8>, String> {
     state::set_verifying(&task.handle, &task.emitter());
     #[cfg(target_os = "windows")]
     if super::direct_payload::uses_installer(update) {
@@ -275,12 +235,12 @@ async fn load_or_download(task: &Task, update: &mut Update) -> Result<Vec<u8>, S
 }
 
 #[cfg(target_os = "windows")]
-fn finish_install(_task: &Task, _version: String) -> Result<(), String> {
+pub(super) fn finish_install(_task: &Task, _version: String) -> Result<(), String> {
     Err("NSIS updater returned without terminating the application".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn finish_install(task: &Task, version: String) -> Result<(), String> {
+pub(super) fn finish_install(task: &Task, version: String) -> Result<(), String> {
     state::set_ready(
         &task.handle,
         &task.emitter(),

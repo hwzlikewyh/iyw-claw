@@ -8,6 +8,9 @@ pub(super) async fn dispatch_force_batch(
     items: Vec<AgentInputItem>,
     snapshot: WorkerSnapshot,
 ) {
+    let Ok(_operation_guard) = context.manager.acquire_operation_read().await else {
+        return;
+    };
     let Some(batch_id) = items.first().and_then(|item| item.force_batch_id.clone()) else {
         return;
     };

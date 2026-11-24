@@ -11,6 +11,12 @@ import {
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
+import {
+  UpdateTaskActions,
+  UpdateTaskStatus,
+  UpdateRecoveryNotice,
+  hasUpdateTaskStatus,
+} from "@/components/layout/title-bar-update-tasks"
 import { AppIcon } from "@/components/app-icon"
 import { TitleBarUpdateReleaseDetails } from "@/components/layout/title-bar-update-release-details"
 import type { UpdateContextValue } from "@/components/providers/update-provider"
@@ -74,6 +80,7 @@ function UpdateStatus({ update, dialog }: UpdateDialogProps) {
   const t = useTranslations("SystemSettings")
   const { state } = update
   const lifecycleError = getLifecycleErrorKind(state, dialog.details)
+  if (hasUpdateTaskStatus(update)) return <UpdateTaskStatus update={update} />
   const errorKind = dialog.checkErrorKind ?? lifecycleError
   if (
     dialog.checking ||
@@ -278,13 +285,17 @@ export function TitleBarUpdateDialog({ update, dialog }: UpdateDialogProps) {
         </div>
         <UpdateStatus update={update} dialog={dialog} />
         <UpdateProgress state={update.state} />
+        <UpdateRecoveryNotice update={update} />
         <TitleBarUpdateReleaseDetails
           update={visibleUpdate}
           details={dialog.details}
         />
       </div>
-      <div className="flex justify-end">
-        <UpdateAction update={update} dialog={dialog} />
+      <div className="flex flex-col items-end gap-3">
+        <UpdateTaskActions update={update} />
+        {update.state.status !== "waiting_for_tasks" && (
+          <UpdateAction update={update} dialog={dialog} />
+        )}
       </div>
     </DialogContent>
   )

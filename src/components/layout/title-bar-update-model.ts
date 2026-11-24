@@ -10,6 +10,7 @@ export const ACTIVE_UPDATE_STATUSES = new Set<AppUpdateState["status"]>([
   "downloading",
   "verifying",
   "installing",
+  "preparing_restart",
   "restarting",
 ])
 
@@ -36,6 +37,7 @@ export type UpdateErrorKey =
   | "updateErrors.network"
   | "updateErrors.downloadFailed"
   | "updateErrors.installFailed"
+  | "updateErrors.tasksActive"
   | "updateErrors.unknown"
 
 export function hasFreshCheck(
@@ -85,6 +87,8 @@ export function getUpdateErrorKey(
   action: "check" | "install"
 ): UpdateErrorKey {
   switch (kind) {
+    case "tasks_active":
+      return "updateErrors.tasksActive"
     case "source_unreachable":
       return "updateErrors.sourceUnavailable"
     case "network":
