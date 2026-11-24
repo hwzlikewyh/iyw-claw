@@ -1378,7 +1378,27 @@
       "up_to_date": "系统技能已是最新版本",
       "error": "系统技能更新发生错误"
     },
+    "updateTasks": {
+      "afterTasks": "任务完成后自动更新",
+      "force": "强制重启更新",
+      "forceHint": "强制更新会先保存并暂停可恢复的任务，重启后在原会话继续执行。",
+      "waiting": "已预约更新，任务完成后将自动安装并重启。",
+      "cancel": "取消本次自动更新",
+      "saving": "正在保存并暂停任务，准备重启更新…",
+      "agentActive": "仍有任务正在执行，请等待完成，或选择强制重启更新。",
+      "automationActive": "自动化任务正在执行，请等待完成后更新。",
+      "voiceActive": "语音会话仍在进行，请先结束语音会话。",
+      "terminalOpen": "终端仍在运行，请关闭终端后更新。",
+      "interactionPending": "任务正在等待确认，请先处理会话中的确认请求。",
+      "unrecoverable": "存在暂不支持重启后自动恢复的任务，请等待这些任务完成后更新。",
+      "pauseTimeout": "任务尚未完成暂停，本次更新已中止；请查看原会话后重试。",
+      "recoveryPending": "上次更新的任务尚未恢复，请先处理任务恢复。",
+      "recoveryFailed": "部分任务未能自动恢复，恢复记录已保留。",
+      "retryRecovery": "重试恢复任务",
+      "details": "查看恢复详情"
+    },
     "updateErrors": {
+      "tasksActive": "仍有任务正在执行，请等待任务完成后更新。",
       "sourceUnavailable": "无法连接更新源，请检查网络或代理设置后重试。",
       "network": "网络连接异常，请检查网络或代理设置后重试。",
       "downloadFailed": "下载更新包失败，请稍后重试。",

@@ -14,6 +14,9 @@ pub(crate) struct AgentOperationGate {
 }
 
 impl AgentOperationGate {
+    pub(crate) fn is_relaunching(&self) -> bool {
+        self.relaunch_claimed.load(Ordering::Acquire)
+    }
     pub(crate) async fn acquire_read(&self) -> Result<OwnedRwLockReadGuard<()>, AcpError> {
         if self.relaunch_claimed.load(Ordering::Acquire) {
             return Err(relaunching_error());

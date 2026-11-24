@@ -1378,7 +1378,27 @@
       "up_to_date": "System skills are up to date",
       "error": "The system skills update failed"
     },
+    "updateTasks": {
+      "afterTasks": "Update after tasks finish",
+      "force": "Restart and update now",
+      "forceHint": "Saves and pauses resumable tasks, then continues them in their original conversations after restarting.",
+      "waiting": "Update scheduled. The app will install and restart after tasks finish.",
+      "cancel": "Cancel scheduled update",
+      "saving": "Saving and pausing tasks before updating…",
+      "agentActive": "Tasks are still running. Wait for completion or restart and update now.",
+      "automationActive": "An automation is running. Wait for it to finish before updating.",
+      "voiceActive": "End the active voice session before updating.",
+      "terminalOpen": "Close the running terminals before updating.",
+      "interactionPending": "A task is waiting for your confirmation. Resolve it in the conversation first.",
+      "unrecoverable": "Some active tasks do not support automatic recovery after restart. Wait for them to finish.",
+      "pauseTimeout": "A task could not finish pausing. The update was stopped; check the original conversation before retrying.",
+      "recoveryPending": "Tasks from an earlier update still need recovery. Resolve them first.",
+      "recoveryFailed": "Some tasks could not resume automatically. Their recovery records were retained.",
+      "retryRecovery": "Retry task recovery",
+      "details": "Recovery details"
+    },
     "updateErrors": {
+      "tasksActive": "Tasks are still running. Wait for them to finish before updating.",
       "sourceUnavailable": "Cannot reach the update source. Check your network or proxy and try again.",
       "network": "Network connection failed. Check your network or proxy and try again.",
       "downloadFailed": "Failed to download update package. Please try again later.",

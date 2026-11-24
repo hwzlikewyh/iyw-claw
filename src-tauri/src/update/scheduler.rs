@@ -44,6 +44,7 @@ pub fn spawn(
     state: crate::update::AppUpdateStateHandle,
 ) {
     crate::update::silent::spawn(crate::update::desktop::Task::new(&app, &conn, &state));
+    crate::update::task_recovery::spawn(crate::update::desktop::Task::new(&app, &conn, &state));
     tauri::async_runtime::spawn(async move {
         let startup_delay = rand::thread_rng().gen_range(30..=90);
         tokio::select! {

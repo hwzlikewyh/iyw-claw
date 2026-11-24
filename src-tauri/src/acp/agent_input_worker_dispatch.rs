@@ -14,6 +14,9 @@ pub(super) async fn dispatch_feedback(
     item: &AgentInputItem,
     snapshot: &WorkerSnapshot,
 ) {
+    let Ok(_operation_guard) = context.manager.acquire_operation_read().await else {
+        return;
+    };
     let dispatch_lock = context
         .manager
         .agent_input_runtime
@@ -56,6 +59,9 @@ pub(super) async fn dispatch_native(
     snapshot: &WorkerSnapshot,
     kind: NativeSteerKind,
 ) {
+    let Ok(_operation_guard) = context.manager.acquire_operation_read().await else {
+        return;
+    };
     if !matches!(
         kind,
         NativeSteerKind::AcpSessionSteer | NativeSteerKind::CodexTurnSteer
@@ -151,6 +157,9 @@ pub(super) async fn dispatch_next(
     item: AgentInputItem,
     snapshot: WorkerSnapshot,
 ) {
+    let Ok(_operation_guard) = context.manager.acquire_operation_read().await else {
+        return;
+    };
     let dispatch_lock = context
         .manager
         .agent_input_runtime

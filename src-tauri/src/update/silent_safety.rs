@@ -97,6 +97,10 @@ pub(super) async fn task_blocker_with_idle_delay(
     if !manager.is_globally_idle(idle).await {
         return Ok(Some("agent_operation_active"));
     }
+    non_agent_blocker(app).await
+}
+
+pub(super) async fn non_agent_blocker(app: &AppHandle) -> Result<Option<&'static str>, String> {
     let db = app.state::<crate::db::AppDatabase>();
     if !crate::db::service::automation_service::list_active_runs(&db.conn)
         .await
