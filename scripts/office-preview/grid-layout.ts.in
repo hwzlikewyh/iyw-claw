@@ -1,0 +1,80 @@
+import type { IStyleData } from "@univerjs/core"
+import { WrapStrategy } from "@univerjs/core"
+import type { FWorksheet } from "@univerjs/sheets/facade"
+import type { ParsedGridChunk } from "./hcd-parser"
+
+type DisplayStyle = IStyleData & { officeShrinkToFit?: boolean }
+const POINT_TO_PIXEL = 96 / 72
+const CELL_PADDING = 4
+const MIN_FONT_POINTS = 1
+const FONT_PRECISION = 10
+let measure: CanvasRenderingContext2D | null
+
+export function configureGridLayout(
+  css: string,
+  styles: Record<string, IStyleData>
+) {
+  for (const match of css.matchAll(/\.hcd-xs-(\d+)\s*\{([^}]*)\}/g)) {
+    const style: DisplayStyle | undefined = styles["hcd-xs-" + match[1]]
+    if (style && /--hcd-shrink-to-fit:\s*1/.test(match[2]))
+      style.officeShrinkToFit = true
+  }
+  measure = document.createElement("canvas").getContext("2d")
+}
+
+// 只调整显示字号。原始值、公式、数字格式和富文本内容保持不变。
+export function fitGridCells(
+  parsed: ParsedGridChunk,
+  sheet: FWorksheet,
+  styles: Record<string, IStyleData>
+) {
+  if (!measure) return
+  for (const cell of parsed.cells) {
+    const style: DisplayStyle | undefined =
+      (typeof cell.data.s === "string" ? styles[cell.data.s] : cell.data.s) ||
+      undefined
+    if (
+      !style?.officeShrinkToFit ||
+      style.tb === WrapStrategy.WRAP ||
+      !cell.link?.text
+    )
+      continue
+    const merge = parsed.merges.find(
+      (range) =>
+        range.startRow === cell.row && range.startColumn === cell.column
+    )
+    const last = merge?.endColumn ?? cell.column
+    let width = -CELL_PADDING
+    for (let col = cell.column; col <= last; col++)
+      width += sheet.getColumnWidth(col)
+    const fontSize = style.fs || 11
+    const size = fittedSize(style, cell.link.text, width)
+    if (size === undefined) continue
+    cell.data.s = { ...style, fs: size }
+    for (const run of cell.data.p?.body?.textRuns || []) {
+      if (run.ts)
+        run.ts = { ...run.ts, fs: ((run.ts.fs || fontSize) * size) / fontSize }
+    }
+    sheet.getRange(cell.row, cell.column).setValues([[cell.data]])
+  }
+}
+
+function fittedSize(style: IStyleData, text: string, width: number) {
+  if (!measure || width <= 0) return
+  const fontSize = style.fs || 11
+  const family = style.ff || "Arial"
+  measure.font =
+    (style.it ? "italic " : "") +
+    (style.bl ? "bold " : "") +
+    fontSize * POINT_TO_PIXEL +
+    'px "' +
+    family +
+    '"'
+  const textWidth = measure.measureText(text).width
+  if (textWidth <= width) return
+  return Math.max(
+    MIN_FONT_POINTS,
+    Math.floor(((fontSize * width) / textWidth) * FONT_PRECISION) /
+      FONT_PRECISION
+  )
+}

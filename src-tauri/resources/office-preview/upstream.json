@@ -5,6 +5,9 @@
   "changes": [
     "Capability-aware asset URLs",
     "Sandbox-compatible shadow document viewport",
+    "Word page geometry, measured line spacing, table row continuation and keep-next headings",
+    "Fit slide width and separate speaker notes",
+    "Restore source picture cropping and spreadsheet shrink-to-fit",
     "Cancelled stale document requests",
     "Ignore inactive worksheet eviction and disposed grid callbacks",
     "Host-driven reload and viewport restoration",
@@ -17,6 +20,9 @@
     "examples/hdoc/xlsx-univer-viewer/src/pivot-projection.ts": "d0255448af0bbe867d96d8f969f295df2a355dc8bd41e372025cb2cd20a1d905",
     "examples/hdoc/xlsx-univer-viewer/src/rich-text.ts": "0b5fc1499600a16d09ba431ab313401d6986baf6f83a7a0fa82ffaccd38bc51f",
     "examples/hdoc/lazy-viewer/viewer.js": "fe233b61e9497ea8d5f0a0b8467a257945cfef9d19784e9eff9dadb93192909d",
+    "crates/hcd-core/src/docx_layout.js": "25e38f948a2d2a3cf8c20ead4ea92996da32105d26859d4db3135ce9b2d06142",
+    "crates/hcd-core/src/docx_pagination.js": "d76ea5294ee2d74192618aeddf5f8bfd103bc681dd4da4b9e532e94e9c9dcd0d",
+    "crates/hcd-core/src/presentation.rs": "6cd3fd2f1925272a3a1baf9539f3d3e91b5a8bfb7db2ca1dd1223c8089f1aa97",
     "LICENSE": "01ac3e9a41fbe85d8311b49ab0b5e124a41cfee921bb5caf98023707a9270ee2"
   }
 }

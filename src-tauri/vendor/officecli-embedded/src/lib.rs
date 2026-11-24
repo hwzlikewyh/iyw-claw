@@ -41,7 +41,10 @@ mod resident {
 }
 mod schema_crc;
 mod screenshot;
+mod render_output;
 mod watch;
+pub mod word_preview;
+pub mod preview_styles;
 
 use clap::Parser;
 use handler_common::{DocumentHandler, HandlerError, OutputFormat};

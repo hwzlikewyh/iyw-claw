@@ -5,6 +5,24 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn local_document_url(html_path: &str) -> Result<reqwest::Url, String> {
+    let path = Path::new(html_path)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    reqwest::Url::from_file_path(path).map_err(|_| "invalid document file URL".to_string())
+}
+
+fn headless_command(browser: &Path, profile: &tempfile::TempDir) -> Command {
+    let mut command = Command::new(browser);
+    command
+        .arg("--headless=new")
+        .arg("--disable-gpu")
+        .arg("--virtual-time-budget=10000")
+        .arg("--no-first-run")
+        .arg(format!("--user-data-dir={}", profile.path().display()));
+    command
+}
+
 pub struct ScreenshotResult {
     pub backend: String,
     pub output_path: String,
@@ -105,20 +123,22 @@ pub fn capture(
     }
 
     // Cap to <= 1920px width for LLM limits (mirrors upstream)
+    if width == 0 || height == 0 {
+        return Err("screenshot dimensions must be positive".to_string());
+    }
     let w = width.min(1920);
-    let h = height.min((1920 * height / width).max(800));
-
-    let url = format!(
-        "file://{}#screenshot",
-        Path::new(html_path)
-            .canonicalize()
-            .map_err(|e| format!("cannot resolve HTML path: {}", e))?
-            .display()
+    let h = height.min(
+        (1920u64 * u64::from(height) / u64::from(width))
+            .max(800)
+            .min(u32::MAX as u64) as u32,
     );
 
+    let mut url = local_document_url(html_path)?;
+    url.set_fragment(Some("screenshot"));
+
     match backend.as_str() {
-        "playwright" => capture_playwright(&browser_path, &url, out_path, w, h, &backend),
-        _ => capture_chromium(&browser_path, &url, out_path, w, h, &backend),
+        "playwright" => capture_playwright(&browser_path, url.as_str(), out_path, w, h, &backend),
+        _ => capture_chromium(&browser_path, url.as_str(), out_path, w, h, &backend),
     }
 }
 
@@ -130,13 +150,12 @@ fn capture_chromium(
     height: u32,
     backend: &str,
 ) -> Result<ScreenshotResult, String> {
-    let output = Command::new(browser)
+    let profile = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let staged = crate::render_output::RenderOutput::new(out_path, ".png")?;
+    let output = headless_command(browser, &profile)
         .args([
-            "--headless=new",
-            "--disable-gpu",
-            "--no-sandbox",
             &format!("--window-size={},{}", width, height),
-            &format!("--screenshot={}", out_path),
+            &format!("--screenshot={}", staged.path().display()),
             url,
         ])
         .output()
@@ -147,9 +166,7 @@ fn capture_chromium(
         return Err(format!("browser exited with error: {}", stderr));
     }
 
-    if !Path::new(out_path).exists() {
-        return Err("screenshot file was not created".to_string());
-    }
+    staged.finish(out_path, b"IEND\xae\x42\x60\x82")?;
 
     Ok(ScreenshotResult {
         backend: backend.to_string(),
@@ -210,13 +227,7 @@ pub fn capture_pdf(
             .map_err(|e| format!("failed to create output dir: {}", e))?;
     }
 
-    let url = format!(
-        "file://{}",
-        Path::new(html_path)
-            .canonicalize()
-            .map_err(|e| format!("cannot resolve HTML path: {}", e))?
-            .display()
-    );
+    let url = local_document_url(html_path)?.to_string();
 
     // Use Chromium/Chrome/Edge headless print-to-pdf
     match backend.as_str() {
@@ -249,13 +260,13 @@ fn capture_pdf_chromium(
     height: u32,
     _backend: &str,
 ) -> Result<String, String> {
-    let output = Command::new(browser)
+    let profile = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let staged = crate::render_output::RenderOutput::new(out_path, ".pdf")?;
+    let output = headless_command(browser, &profile)
         .args([
-            "--headless=new",
-            "--disable-gpu",
-            "--no-sandbox",
+            "--no-pdf-header-footer",
             &format!("--window-size={},{}", width, height),
-            &format!("--print-to-pdf={}", out_path),
+            &format!("--print-to-pdf={}", staged.path().display()),
             url,
         ])
         .output()
@@ -266,9 +277,7 @@ fn capture_pdf_chromium(
         return Err(format!("browser PDF export error: {}", stderr));
     }
 
-    if !Path::new(out_path).exists() {
-        return Err("PDF file was not created".to_string());
-    }
+    staged.finish(out_path, b"%%EOF")?;
 
     Ok(out_path.to_string())
 }

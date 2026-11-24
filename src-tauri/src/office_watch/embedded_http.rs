@@ -153,6 +153,12 @@ async fn asset_file(state: &State, relative: PathBuf) -> Response {
     if !metadata.is_file() || metadata.len() > 64 * 1024 * 1024 {
         return StatusCode::NOT_FOUND.into_response();
     }
+    if relative
+        .file_name()
+        .is_some_and(|name| name == "styles.css")
+    {
+        return preview_styles(&target).await;
+    }
     let Ok(file) = tokio::fs::File::open(target).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -174,6 +180,30 @@ async fn asset_file(state: &State, relative: PathBuf) -> Response {
         Body::from_stream(content),
     )
         .into_response()
+}
+
+async fn preview_styles(target: &std::path::Path) -> Response {
+    let result = async {
+        let mut css = tokio::fs::read_to_string(target).await?;
+        let extra = target.with_file_name(iyw_office_engine::preview_styles::FILE);
+        css.push_str(&tokio::fs::read_to_string(extra).await?);
+        Ok::<_, std::io::Error>(css)
+    }
+    .await;
+    match result {
+        Ok(css) => (
+            [
+                (header::CONTENT_TYPE, "text/css"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            css,
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::warn!(%error, "[office-preview] layout stylesheet unavailable");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 fn mime(relative: &std::path::Path) -> &'static str {

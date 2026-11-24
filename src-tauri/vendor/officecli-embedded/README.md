@@ -11,3 +11,5 @@ v0.1.32新增office-engine与canvas-core库，命令解释器仍由本目录适�
 按宿主仓库规则，不随命令层复制上游新增的独立tests.rs及其cfg(test)模块声明；现有源码中的条件编译测试块保留。
 
 上游既有源码/函数长度按第三方代码维护，本地入口放在宿主office_embedded.rs。升级时需核对所有current_exe调用、命令协议、技能、schema与许可，禁止自动更新。
+
+排版补充由 `word_preview.rs`、`preview_styles.rs` 和 assets 下的独立脚本实现：共享 Word 分页、PPT 等比适配与图片裁剪、Excel 缩字。CLI 与应用继续共用固定版本 HCD 库，派生显示样式不回写 Office 文件。浏览器截图与 PDF 先写临时输出，确认完整后发布目标文件。

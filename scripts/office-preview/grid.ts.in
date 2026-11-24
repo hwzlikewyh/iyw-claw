@@ -8,6 +8,7 @@ import "@univerjs/preset-sheets-drawing/lib/index.css"
 import { HcdBundleClient } from "./hcd.ts"
 import { HcdUniverAdapter } from "./adapter.ts"
 import { parseStyleCatalog } from "./hcd-parser.ts"
+import { configureGridLayout } from "./grid-layout"
 
 declare global {
   interface Window {
@@ -48,7 +49,9 @@ window.officeLoad = async function (base: string) {
 async function openGrid(base: string, sheetId?: string, position?: { startRow: number; startColumn: number }) {
   const client = new HcdBundleClient(base)
   await client.open()
-  const styles = parseStyleCatalog(await client.readStyles())
+  const css = await client.readStyles()
+  const styles = parseStyleCatalog(css.replace(/\.hcd-xs-\d+\s*\{--hcd-shrink-to-fit:1\}\s*/g, ""))
+  configureGridLayout(css, styles)
   const sheets = client.sheets()
   if (!sheets.length) throw new Error("No worksheets in this document")
   const data = sheetData(client)

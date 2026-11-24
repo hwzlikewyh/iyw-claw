@@ -17,10 +17,17 @@ LazyHcdViewer.prototype.createDocument = function (styles) {
   body.dataset.hcdRevision = String(this.revision)
   body.dataset.hcdTextHitboxes = "off"
   body.dataset.hcdImageHitboxes = "off"
+  if (this.manifest.source.format === "docx") style.textContent += wordPageCss
+  if (this.manifest.source.format === "pptx") style.textContent += slidePageCss
   head.append(style)
   html.append(head, body)
   root.replaceChildren(html)
   this.doc = { body, createElement: (tag) => document.createElement(tag) }
+  this.wordHead = head
+  if (this.manifest.source.format === "pptx") {
+    this.slideObserver = new ResizeObserver(() => sizeSlides(body, frame.clientWidth))
+    this.slideObserver.observe(frame)
+  }
   this.tail = document.createElement("div")
   this.tail.id = "hcd-lazy-tail"
   body.append(this.tail)
@@ -42,13 +49,57 @@ LazyHcdViewer.prototype.showChunkError = function (slot, error) {
   this.fail(error)
 }
 
+LazyHcdViewer.prototype.preparePresentation = function (node, descriptor) {
+  const result = this.manifest.source.format === "pptx"
+    ? prepareSlide(node, descriptor.region === "note") : node
+  requestAnimationFrame(() => {
+    if (!this.abort.signal.aborted) sizeSlides(this.doc.body, frame.clientWidth)
+  })
+  return result
+}
+const closeDocument = LazyHcdViewer.prototype.close
+LazyHcdViewer.prototype.close = function () {
+  this.slideObserver?.disconnect()
+  closeDocument.call(this)
+}
+
 let officeViewer
 const RESIDENT_CHUNKS = 12
+// 分页需要所有段落同时参与测量。大型文件继续通过可见分片控制内存。
+const MAX_LAYOUT_CHUNKS = 64
+const MAX_LAYOUT_NODES = 20_000
+const MAX_LAYOUT_BYTES = 8 * 1024 * 1024
+
+async function layoutWord(viewer) {
+  const { manifest, slots, abort } = viewer
+  if (manifest.source.format !== "docx" || manifest.chunkCount > MAX_LAYOUT_CHUNKS) return
+  const all = [...slots.values()]
+  if (!all.length || all.length !== manifest.chunkCount) return
+  const sum = (key) => all.reduce((total, slot) => total + slot.descriptor[key], 0)
+  if (sum("nodeCount") > MAX_LAYOUT_NODES || sum("byteLength") > MAX_LAYOUT_BYTES) return
+  viewer.residentLimit = all.length
+  viewer.observer.disconnect()
+  viewer.tailObserver?.disconnect()
+  for (const slot of all) {
+    await viewer.loadChunk(slot)
+    abort.signal.throwIfAborted()
+  }
+  viewer.observer.disconnect()
+  const body = viewer.doc.body
+  await Promise.all([...body.querySelectorAll("img")].map((image) => image.decode().catch(() => {})))
+  await document.fonts.ready
+  abort.signal.throwIfAborted()
+  paginateWord(body, viewer.wordHead)
+}
+
 window.officeLoad = async function (base) {
   const top = frame.scrollTop
   officeViewer?.close()
   officeViewer = new LazyHcdViewer(new URL(base), undefined, RESIDENT_CHUNKS)
-  await officeViewer.open()
+  const viewer = officeViewer
+  await viewer.open()
+  await layoutWord(viewer)
+  if (viewer.abort.signal.aborted) return
   frame.scrollTo(0, top)
 }
 window.officeDispose = () => officeViewer?.close()

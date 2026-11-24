@@ -28,9 +28,14 @@ fn render_sync(path: PathBuf) -> Result<String, WatchError> {
     let options = hcd_core::HtmlPresentationOptions {
         text_hitboxes_enabled: false,
         image_hitboxes_enabled: false,
+        override_stylesheet: Some(
+            iyw_office_engine::preview_styles::read(bundle.root())
+                .map_err(|error| WatchError::Io(error.to_string()))?,
+        ),
         ..Default::default()
     };
-    hcd_core::render_standalone_html_with_transform(&bundle, &options, &mut output, |html| {
+    let mut writer = iyw_office_engine::word_preview::WordLayoutWriter(&mut output);
+    hcd_core::render_standalone_html_with_transform(&bundle, &options, &mut writer, |html| {
         let mut result = html.to_string();
         for (hash, data) in &assets {
             result = result.replace(&format!("asset://sha256/{hash}"), data);

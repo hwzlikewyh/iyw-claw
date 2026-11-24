@@ -45,7 +45,7 @@ pub(crate) fn export(
             theme_stylesheet,
             ..Default::default()
         },
-        &mut source,
+        &mut crate::word_preview::WordLayoutWriter(&mut source),
     )
     .map_err(error)?;
     let mut source = String::from_utf8(source).map_err(error)?;

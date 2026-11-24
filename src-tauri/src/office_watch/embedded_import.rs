@@ -86,6 +86,11 @@ fn convert_sync(file: &Path, output: &Path, cancel: &CancellationToken) -> Resul
             return Err(hcd_core::HcdError::Unsupported("Preview closed".into()));
         }
         Ok(())
+    })
+    .and_then(|manifest| {
+        iyw_office_engine::preview_styles::write(&source, output)
+            .map_err(|error| hcd_core::HcdError::Unsupported(format!("Preview layout: {error}")))?;
+        Ok(manifest)
     });
     let _ = std::fs::remove_file(source);
     if super::super::file_state(file) != Some(before) {

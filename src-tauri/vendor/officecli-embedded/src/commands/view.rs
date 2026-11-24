@@ -77,7 +77,6 @@ pub struct ViewCommand {
 }
 
 pub fn handle_view(cmd: ViewCommand, format: OutputFormat) -> Result<String, HandlerError> {
-    let handler = crate::open_handler(&cmd.file, false)?;
     let mode = cmd.positional_mode.as_deref().unwrap_or(&cmd.mode);
 
     // pdf mode: export to PDF via exporter plugin
@@ -102,6 +101,26 @@ pub fn handle_view(cmd: ViewCommand, format: OutputFormat) -> Result<String, Han
     let issue_type = cmd.r#type.as_deref();
     let issue_limit = cmd.limit;
 
+    if matches!(mode, "html" | "h") {
+        let html = view_html(&cmd, opts)?;
+        return match format {
+            OutputFormat::Json => Ok(serde_json::json!({ "html": html }).to_string()),
+            OutputFormat::Text => {
+                if browser {
+                    open_html_in_browser(&html, &cmd.file)?;
+                }
+                Ok(html)
+            }
+        };
+    }
+    if matches!(mode, "screenshot" | "p") {
+        let result = handle_screenshot(&cmd)?;
+        return match format {
+            OutputFormat::Json => Ok(serde_json::json!({ "screenshot": result }).to_string()),
+            OutputFormat::Text => Ok(result),
+        };
+    }
+    let handler = crate::open_handler(&cmd.file, false)?;
     match format {
         OutputFormat::Text => match mode {
             "text" | "t" => handler.view_as_text(opts),
@@ -116,13 +135,6 @@ pub fn handle_view(cmd: ViewCommand, format: OutputFormat) -> Result<String, Han
                     .collect();
                 Ok(lines.join("\n"))
             }
-            "html" | "h" => {
-                let html = handler.view_as_html(opts)?;
-                if browser {
-                    open_html_in_browser(&html, &cmd.file)?;
-                }
-                Ok(html)
-            }
             "svg" | "g" => {
                 let svg = handler.view_as_svg()?;
                 if browser {
@@ -130,7 +142,6 @@ pub fn handle_view(cmd: ViewCommand, format: OutputFormat) -> Result<String, Han
                 }
                 Ok(svg)
             }
-            "screenshot" | "p" => handle_screenshot(handler.as_ref(), &cmd),
             "forms" | "f" => handler.view_as_forms(),
             other => Err(HandlerError::UnsupportedMode(format!(
                 "view mode '{}' not supported. Available: text, annotated, outline, stats, issues, html, svg, screenshot, pdf, forms",
@@ -150,15 +161,8 @@ pub fn handle_view(cmd: ViewCommand, format: OutputFormat) -> Result<String, Han
                 "annotated" | "a" => {
                     serde_json::json!({ "annotated": handler.view_as_annotated(opts)? })
                 }
-                "html" | "h" => {
-                    serde_json::json!({ "html": handler.view_as_html(opts)? })
-                }
                 "svg" | "g" => {
                     serde_json::json!({ "svg": handler.view_as_svg()? })
-                }
-                "screenshot" | "p" => {
-                    let result = handle_screenshot(handler.as_ref(), &cmd)?;
-                    serde_json::json!({ "screenshot": result })
                 }
                 "forms" | "f" => {
                     let forms = handler.view_as_forms()?;
@@ -176,6 +180,41 @@ pub fn handle_view(cmd: ViewCommand, format: OutputFormat) -> Result<String, Han
     }
 }
 
+fn view_html(cmd: &ViewCommand, opts: ViewOptions) -> Result<String, HandlerError> {
+    let path = std::path::Path::new(&cmd.file);
+    let full_document = [
+        opts.range.is_none(),
+        opts.start_line.is_none(),
+        opts.end_line.is_none(),
+        opts.max_lines.is_none(),
+        opts.cols.is_none(),
+        opts.page.is_none(),
+    ]
+    .into_iter()
+    .all(|all| all);
+    if full_document
+        && path.extension().is_some_and(|ext| {
+            ["docx", "pptx", "xlsx"]
+                .iter()
+                .any(|format| ext.eq_ignore_ascii_case(format))
+        })
+    {
+        match crate::word_preview::render(path) {
+            Ok(html) => return Ok(html),
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<hcd_core::HcdError>(),
+                    Some(hcd_core::HcdError::ResourceLimit(_) | hcd_core::HcdError::Unsupported(_))
+                ) =>
+            {
+                eprintln!("Office page layout unavailable ({error}); using the document handler");
+            }
+            Err(error) => return Err(HandlerError::OperationFailed(error.to_string())),
+        }
+    }
+    crate::open_handler(&cmd.file, false)?.view_as_html(opts)
+}
+
 /// Handle `view -m pdf` — export document to PDF.
 fn handle_view_pdf(cmd: &ViewCommand, _format: OutputFormat) -> Result<String, HandlerError> {
     let pdf_path = cmd.out.clone().unwrap_or_else(|| {
@@ -187,12 +226,11 @@ fn handle_view_pdf(cmd: &ViewCommand, _format: OutputFormat) -> Result<String, H
 
     // For docx/pptx/xlsx: use the handler's HTML preview and a headless browser
     // to render to PDF. This mirrors the C# exporter plugin approach.
-    let handler = crate::open_handler(&cmd.file, false)?;
     let opts = ViewOptions {
         page: cmd.page.clone(),
         ..Default::default()
     };
-    let html = handler.view_as_html(opts)?;
+    let html = view_html(cmd, opts)?;
 
     // Write HTML to temp file
     let temp_dir = std::env::temp_dir();
@@ -221,10 +259,7 @@ fn handle_view_pdf(cmd: &ViewCommand, _format: OutputFormat) -> Result<String, H
 }
 
 /// Handle `view -m screenshot` — render HTML, then capture to PNG via headless browser.
-fn handle_screenshot(
-    handler: &dyn handler_common::DocumentHandler,
-    cmd: &ViewCommand,
-) -> Result<String, HandlerError> {
+fn handle_screenshot(cmd: &ViewCommand) -> Result<String, HandlerError> {
     let opts = ViewOptions {
         range: cmd.range.clone(),
         start_line: cmd.start_line,
@@ -239,7 +274,7 @@ fn handle_screenshot(
     };
 
     // Step 1: Render HTML
-    let html = handler.view_as_html(opts)?;
+    let html = view_html(cmd, opts)?;
 
     // Step 2: Write to temp file
     let temp_dir = std::env::temp_dir();

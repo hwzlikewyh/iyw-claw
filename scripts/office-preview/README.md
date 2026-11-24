@@ -18,3 +18,5 @@ node scripts/office-preview/build.mjs
 Word/PPT 通过上游 HCD 语义/固定几何视图显示，不承诺与 Microsoft Office 像素一致。人工编辑继续经 Agent 的 OfficeCLI-rust 工具修改原文件，文件稳定后应用重新解析并主动通知视图更新。
 
 当前固定Foldly v0.1.32，document-viewer.js在同一沙箱的Shadow DOM中渲染Word/PPT。构建替换点有精确计数校验；Excel适配器补充活动工作表与销毁状态约束，保留只读内容栏。入口仍使用grid.ts.in模板，升级时对替换后的源码单独执行严格类型检查。
+
+本地排版扩展：`word-pagination.mjs` 组装 Word 分页；`grid-layout.ts.in` 按原样式对窄单元格缩字，与入口一样在构建缓存中生成 TypeScript，避免主项目解析仅在构建时存在的上游模块；内置引擎 assets 下的 `slide-layout.js` 和 `office-fonts.js` 同时供实时视图与独立导出使用。源文件裁剪、缩字规则由 `preview_styles.rs` 提取为派生 CSS，不修改已校验的 HCD 内容。

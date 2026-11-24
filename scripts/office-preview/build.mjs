@@ -4,6 +4,7 @@ import { readFile, writeFile, mkdir, mkdtemp, rm, readdir } from "node:fs/promis
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tmpdir } from "node:os"
+import { wordPagination } from "./word-pagination.mjs"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const commit = "1846fb35fcca4b5dcc49525089d1030578c3b8e0"
@@ -13,6 +14,9 @@ const output = resolve(root, "../../src-tauri/resources/office-preview")
 const files = ["adapter.ts", "hcd.ts", "hcd-parser.ts", "pivot-projection.ts", "rich-text.ts"]
 const hashes = {}
 const expected = {
+  "crates/hcd-core/src/docx_layout.js": "25e38f948a2d2a3cf8c20ead4ea92996da32105d26859d4db3135ce9b2d06142",
+  "crates/hcd-core/src/docx_pagination.js": "d76ea5294ee2d74192618aeddf5f8bfd103bc681dd4da4b9e532e94e9c9dcd0d",
+  "crates/hcd-core/src/presentation.rs": "6cd3fd2f1925272a3a1baf9539f3d3e91b5a8bfb7db2ca1dd1223c8089f1aa97",
   "examples/hdoc/xlsx-univer-viewer/src/adapter.ts": "eb028556e142f00791f529149837744b6d9b878427d29aea077c8c1e31f99eb8",
   "examples/hdoc/xlsx-univer-viewer/src/hcd.ts": "74b5dc7391ccd72bfc51d6af86408772456429ed1a162c0e19ce7e2112705930",
   "examples/hdoc/xlsx-univer-viewer/src/hcd-parser.ts": "d7e7c83a4c926ff2282ec0af1fe307c02b5867d89f3cff801727ba8ba2f398af",
@@ -57,6 +61,7 @@ function adaptDocumentViewer(text) {
     ["fetchDecoded(this.resolve(href), limit, kind, hash, length)", "fetchDecoded(this.resolve(href), limit, kind, hash, length, this.abort.signal)"],
     ["const page = await this.readJson(href, `index page ${pageNumber}`);", "const page = await this.readJson(href, `index page ${pageNumber}`); if (this.abort.signal.aborted) return;"],
     ["const roots = [...template.content.children];", "if (generation !== this.generation) return; const roots = [...template.content.children];"],
+    ["node.dataset.hcdSequence = String(slot.descriptor.sequence);", "node = this.preparePresentation(node, slot.descriptor); node.dataset.hcdSequence = String(slot.descriptor.sequence);"],
     ["close() {", "close() { this.abort.abort();"],
     ["this.tailObserver = new frame.contentWindow.IntersectionObserver", "this.tailObserver = new IntersectionObserver"],
     ["}, { rootMargin: '200% 0px' });", "}, { root: frame, rootMargin: '200% 0px' });"],
@@ -68,6 +73,8 @@ function adaptDocumentViewer(text) {
 function adaptGridAdapter(text) {
   // 后台工作表的延迟滚动事件不能清空当前工作表的窗口数据。
   const replacements = [
+    ["if (parsed.freeze) sheet.setFreeze(parsed.freeze);",
+      "fitGridCells(parsed, sheet, this.styleCatalog);\n      if (parsed.freeze) sheet.setFreeze(parsed.freeze);"],
     ["private async ensureVisible(sheet: FWorksheet): Promise<void> {",
       "private async ensureVisible(sheet: FWorksheet): Promise<void> {\n    if (this.disposed || this.workbook.getActiveSheet().getSheetId() !== sheet.getSheetId()) return;"],
     ["private evictOutsideWindow(activeSheetId: string, keep: Set<string>): void {",
@@ -80,7 +87,7 @@ function adaptGridAdapter(text) {
       "await this.applyParsedChunk(sheet, descriptor, parsed);\n      if (this.disposed) return;"],
   ]
   for (const [before, after] of replacements) text = replaceOnce(text, before, after)
-  return text
+  return 'import { fitGridCells } from "./grid-layout";\n' + text
 }
 
 const cache = await mkdtemp(join(tmpdir(), "iyw-office-resources-"))
@@ -93,9 +100,14 @@ try {
         "return window.officeUrl(new URL(href, this.baseUrl));")
     }
     if (file === "adapter.ts") text = adaptGridAdapter(text)
+    if (file === "hcd-parser.ts") {
+      text = replaceOnce(text, "declarations.get('white-space')?.includes('wrap')",
+        "/^(normal|pre-wrap|pre-line|break-spaces)$/.test(declarations.get('white-space') ?? '')")
+    }
     await writeFile(join(cache, file), text)
   }
   await writeFile(join(cache, "grid.ts"), await readFile(join(root, "grid.ts.in")))
+  await writeFile(join(cache, "grid-layout.ts"), await readFile(join(root, "grid-layout.ts.in")))
   const built = await build({
     entryPoints: [join(cache, "grid.ts")],
     nodePaths: [join(root, "node_modules")],
@@ -120,13 +132,18 @@ try {
   }
   await writeFile(join(output, "licenses.json"), JSON.stringify(notices))
   let lazy = adaptDocumentViewer(await source("examples/hdoc/lazy-viewer/viewer.js"))
+  const word = await wordPagination(source)
+  const compiledWord = await transform(word, { minifyWhitespace: true, target: "chrome109", charset: "utf8" })
+  await writeFile(join(root, "../../src-tauri/vendor/officecli-embedded/assets/word-pages.js"), compiledWord.code)
+  lazy += "\n" + word
+  lazy += "\n" + await readFile(join(root, "../../src-tauri/vendor/officecli-embedded/assets/slide-layout.js"), "utf8")
   lazy += "\n" + await readFile(join(root, "document-viewer.js"), "utf8")
   const compiled = await transform(lazy, { minify: true, target: "chrome109", charset: "utf8" })
   await writeFile(join(output, "viewer.js"), compiled.code)
   await writeFile(join(output, "LICENSE-OfficeCLI.txt"), await source("LICENSE"))
   await writeFile(join(output, "upstream.json"), JSON.stringify({
     repository: "RainLib/Foldly", version: "0.1.32", commit,
-    changes: ["Capability-aware asset URLs", "Sandbox-compatible shadow document viewport", "Cancelled stale document requests", "Ignore inactive worksheet eviction and disposed grid callbacks", "Host-driven reload and viewport restoration", "Read-only embedded grid entry"],
+    changes: ["Capability-aware asset URLs", "Sandbox-compatible shadow document viewport", "Word page geometry, measured line spacing, table row continuation and keep-next headings", "Fit slide width and separate speaker notes", "Restore source picture cropping and spreadsheet shrink-to-fit", "Cancelled stale document requests", "Ignore inactive worksheet eviction and disposed grid callbacks", "Host-driven reload and viewport restoration", "Read-only embedded grid entry"],
     sources: hashes,
   }, null, 2) + "\n")
 } finally {

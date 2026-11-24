@@ -561,6 +561,8 @@ fn import(
             Ok(())
         })
         .map_err(handler_error)?;
+    crate::preview_styles::write(Path::new(&command.source), Path::new(&command.output))
+        .map_err(|error| HandlerError::OperationFailed(error.to_string()))?;
     if events.is_some() {
         Ok((String::new(), true))
     } else {
@@ -1053,11 +1055,15 @@ fn render_html(
     }
     let output = Path::new(&command.output);
     let style_path = command.style.clone();
-    let override_stylesheet = command
+    let user_stylesheet = command
         .style
         .as_deref()
         .map(read_preview_stylesheet)
         .transpose()?;
+    let mut preview_stylesheet = crate::preview_styles::read(bundle.root())
+        .map_err(|error| HandlerError::OperationFailed(error.to_string()))?;
+    preview_stylesheet.push_str(user_stylesheet.as_deref().unwrap_or(""));
+    let override_stylesheet = Some(preview_stylesheet);
     let parent = output
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -1080,7 +1086,7 @@ fn render_html(
             override_stylesheet,
             ..HtmlPresentationOptions::default()
         },
-        temporary.as_file_mut(),
+        &mut crate::word_preview::WordLayoutWriter(temporary.as_file_mut()),
         hcd_formats::enhance_presentation_fragment,
     )
     .map_err(handler_error)?;
@@ -1115,7 +1121,7 @@ fn render_html(
         "chunkCount": report.chunk_count,
         "totalChunkCount": report.total_chunk_count,
         "nextChunk": report.next_chunk,
-        "bytes": report.bytes_written,
+        "bytes": std::fs::metadata(output)?.len(),
         "output": output,
         "style": style_path,
         "screenshot": screenshot,
