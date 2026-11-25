@@ -98,13 +98,18 @@ async fn inspect(spec: &Value, id: &str) -> Result<ConnectorCheck, AppCommandErr
             None,
         ));
     }
+    // 只在认证通过后创建运行时探测 Future，避免打开详情时在调用栈中携带整个星河运行时。
+    Box::pin(inspect_runtime(spec, id)).await
+}
+
+async fn inspect_runtime(spec: &Value, id: &str) -> Result<ConnectorCheck, AppCommandError> {
     let resolved = super::mcp::hydrate_market_spec(spec)?;
     let args = super::mcp_oauth_runtime::start_args(id, &resolved)?;
-    let client = tokio::time::timeout(START_TIMEOUT, UpstreamClient::start(args))
+    let client = tokio::time::timeout(START_TIMEOUT, Box::pin(UpstreamClient::start(args)))
         .await
         .map_err(|_| AppCommandError::task_execution_failed("连接检查运行时启动超时"))?
         .map_err(|_| AppCommandError::task_execution_failed("连接检查运行时无法启动"))?;
-    let outcome = tokio::time::timeout(PROBE_TIMEOUT, probe(&client, id)).await;
+    let outcome = tokio::time::timeout(PROBE_TIMEOUT, Box::pin(probe(&client, id))).await;
     if tokio::time::timeout(CLOSE_TIMEOUT, client.shutdown())
         .await
         .is_err()
