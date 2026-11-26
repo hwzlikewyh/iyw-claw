@@ -1,0 +1,96 @@
+{
+  "id": "textin-xparse",
+  "name": "TextIn xParse·智能文档解析",
+  "env": {
+    "XPARSE_OAUTH_CLIENT_ID": "cli_textin_xparse_workbuddy",
+    "XPARSE_BASE_URL": "https://api.textin.com",
+    "NODE_OPTIONS": ""
+  },
+  "packages": [
+    {
+      "name": "xparse-cli",
+      "spec": "xparse-cli@2.6.1",
+      "integrity": "sha512-bL6F6AD/H+HqiA+I3Eq7CBmklHFb6o6JwviUfbKQ+jMV3rFC+VEIOIKRMKFGyOVUVbvJjhNLauMfq3IfhhDsBg=="
+    }
+  ],
+  "python": [],
+  "install": [
+    {
+      "program": "xparse-cli",
+      "args": [
+        "--profile",
+        "workbuddy",
+        "config",
+        "set",
+        "base_url",
+        "https://api.textin.com"
+      ]
+    }
+  ],
+  "login": [
+    {
+      "command": {
+        "program": "xparse-cli",
+        "args": [
+          "--profile",
+          "workbuddy",
+          "auth",
+          "device",
+          "--open-browser=always",
+          "--output=jsonl"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "xparse-cli",
+      "args": [
+        "--profile",
+        "workbuddy",
+        "auth",
+        "logout",
+        "--method",
+        "oauth"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "xparse-cli",
+        "args": [
+          "--profile",
+          "workbuddy"
+        ]
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "logged_in": "true",
+    "method": "oauth"
+  },
+  "status": {
+    "program": "xparse-cli",
+    "args": [
+      "--profile",
+      "workbuddy",
+      "auth",
+      "status",
+      "--output=json"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "2.4.3",
+    "pattern": "xparse-cli version v?(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "xparse-cli",
+      "args": [
+        "version"
+      ]
+    }
+  }
+}

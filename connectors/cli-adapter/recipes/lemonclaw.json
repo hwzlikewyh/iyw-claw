@@ -1,0 +1,65 @@
+{
+  "id": "lemonclaw",
+  "name": "LemonClaw",
+  "env": {},
+  "packages": [
+    {
+      "name": "@lemonbeijing/lemonclaw-cli",
+      "spec": "@lemonbeijing/lemonclaw-cli@1.0.5",
+      "integrity": "sha512-gjpRpgiPMF2FgDtMNXuIgVT1qeXUbTAAHjdaHVdtvq/PMDW8c7NY4T3ltJzwNtXabAmgSoM5l4tQEwo9wXt+vw=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "lemonclaw-cli",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "lemonclaw-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "lemonclaw-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "status": "authenticated"
+  },
+  "status": {
+    "program": "lemonclaw-cli",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.5",
+    "pattern": null,
+    "command": {
+      "program": "lemonclaw-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

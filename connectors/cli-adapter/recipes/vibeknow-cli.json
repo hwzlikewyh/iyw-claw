@@ -1,0 +1,68 @@
+{
+  "id": "vibeknow-cli",
+  "name": "VibeKnow CLI",
+  "env": {},
+  "packages": [
+    {
+      "name": "vibeknow-cli",
+      "spec": "vibeknow-cli@0.10.2",
+      "integrity": "sha512-3UbhOOPQBZcVQE9gtpSuqRZ4AenkCfDZ6su9KBqya7yrRG80n+Kev3M2h/0f2+Zke/x9S0hXyJ4eeEhBz5bWeA=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "vibeknow",
+        "args": [
+          "auth",
+          "login",
+          "--headless"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "vibeknow",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "vibeknow",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "authenticated": "true"
+  },
+  "status": {
+    "program": "vibeknow",
+    "args": [
+      "auth",
+      "status",
+      "--output",
+      "json"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.9.1",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "vibeknow",
+      "args": [
+        "version"
+      ]
+    }
+  }
+}

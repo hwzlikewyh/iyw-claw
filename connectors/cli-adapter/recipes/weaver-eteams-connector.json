@@ -1,0 +1,82 @@
+{
+  "id": "weaver-eteams-connector",
+  "name": "泛微eteams数智办公云平台",
+  "env": {},
+  "packages": [
+    {
+      "name": "weaver-work-cli",
+      "spec": "weaver-work-cli@0.1.68",
+      "integrity": "sha512-blltT9hO9qlYmLvfCoQsOCsTJx8h3CNHKQLQkX1jlHbPh4NMsRrnMWJcIW/OOmX48dlnBfJFBeEpKGwH6ECRQQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "weaver-work-cli",
+        "args": [
+          "--base-url",
+          "https://weapp.eteams.cn",
+          "auth",
+          "login",
+          "--agent_type",
+          "workbuddy"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "weaver-work-cli",
+      "args": [
+        "--profile",
+        "eteams",
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "weaver-work-cli",
+        "args": [
+          "--base-url",
+          "https://weapp.eteams.cn"
+        ]
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "loggedIn": "true",
+    "profile": "eteams",
+    "baseUrl": "https://weapp.eteams.cn",
+    "valid": "true"
+  },
+  "status": {
+    "program": "weaver-work-cli",
+    "args": [
+      "--profile",
+      "eteams",
+      "--base-url",
+      "https://weapp.eteams.cn",
+      "--json",
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.1.8",
+    "pattern": null,
+    "command": {
+      "program": "weaver-work-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

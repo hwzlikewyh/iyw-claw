@@ -1,0 +1,66 @@
+{
+  "id": "tencentads",
+  "name": "腾讯营销投放",
+  "env": {},
+  "packages": [
+    {
+      "name": "tencentads-cli",
+      "spec": "tencentads-cli@1.1.5",
+      "integrity": "sha512-FM5RT+1Ku6gzMQeSBWczqwmlOj9OCZkeTUltdLB7zqndBbpC36qDcwnByj/D5h/C2YqI4uFl2jAcGW5qvefmAQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "tencentads",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "tencentads",
+      "args": [
+        "auth",
+        "logout",
+        "--force"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "tencentads",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "status": "active"
+  },
+  "status": {
+    "program": "tencentads",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.1.5",
+    "pattern": null,
+    "command": {
+      "program": "tencentads",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

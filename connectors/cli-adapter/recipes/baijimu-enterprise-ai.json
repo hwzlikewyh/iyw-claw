@@ -1,0 +1,57 @@
+{
+  "id": "baijimu-enterprise-ai",
+  "name": "百积木",
+  "env": {},
+  "packages": [
+    {
+      "name": "@baijimu/cli",
+      "spec": "@baijimu/cli@0.44.4",
+      "integrity": "sha512-cQsBkSHybUQreC2j7ozNykWB6RpyhCnXHNFT8Rgjg6yo7jWVv9gbghImDLe0ZhumqLH08MxSDT4mYb5krlWeWg=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "baijimu",
+        "args": [
+          "auth",
+          "login",
+          "--no-browser"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "baijimu",
+      "args": [
+        "auth",
+        "logout",
+        "--json"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "baijimu",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "\\\"authenticated\\\"\\s*:\\s*true",
+  "status": {
+    "program": "baijimu",
+    "args": [
+      "auth",
+      "status",
+      "--verify",
+      "--json"
+    ]
+  }
+}

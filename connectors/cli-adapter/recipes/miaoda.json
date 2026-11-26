@@ -1,0 +1,60 @@
+{
+  "id": "miaoda",
+  "name": "秒哒应用搭建",
+  "env": {},
+  "packages": [
+    {
+      "name": "miaoda-cli",
+      "spec": "miaoda-cli@1.0.4",
+      "integrity": "sha512-ZzyICuq/tey1MlaMztdR1mPUW4dESs1TjgJogiVPkv8J37EBKKkDQ+1avwv9ZOKRwlONbs951euGvb4aO66yGQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "miaoda",
+        "args": [
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "miaoda",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "miaoda",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Logged in",
+  "status": {
+    "program": "miaoda",
+    "args": [
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.0",
+    "pattern": null,
+    "command": {
+      "program": "miaoda",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

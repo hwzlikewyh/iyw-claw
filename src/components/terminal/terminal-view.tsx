@@ -9,6 +9,7 @@ import {
   terminalKill,
 } from "@/lib/api"
 import { createWriteQueue } from "@/lib/terminal/write-queue"
+import { toErrorMessage } from "@/lib/app-error"
 import { useZoomLevel, useTerminalFont } from "@/hooks/use-appearance"
 import { detectPlatform } from "@/hooks/use-platform"
 import type { TerminalEvent } from "@/lib/types"
@@ -142,6 +143,7 @@ interface TerminalViewProps {
   isActive: boolean
   isVisible: boolean
   onProcessExited?: (terminalId: string) => void
+  onProcessError?: (error: unknown) => void
   spawnProcess?: (terminalId: string) => Promise<void>
 }
 
@@ -153,6 +155,7 @@ export function TerminalView({
   isActive,
   isVisible,
   onProcessExited,
+  onProcessError,
   spawnProcess,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -162,6 +165,7 @@ export function TerminalView({
   const isActiveRef = useRef(isActive)
   const isVisibleRef = useRef(isVisible)
   const onProcessExitedRef = useRef(onProcessExited)
+  const onProcessErrorRef = useRef(onProcessError)
   const { zoomLevel } = useZoomLevel()
   const { terminalFontStack, terminalFontSize, terminalLigatures } =
     useTerminalFont()
@@ -179,7 +183,8 @@ export function TerminalView({
 
   useEffect(() => {
     onProcessExitedRef.current = onProcessExited
-  }, [onProcessExited])
+    onProcessErrorRef.current = onProcessError
+  }, [onProcessExited, onProcessError])
 
   useEffect(() => {
     let cancelled = false
@@ -333,8 +338,13 @@ export function TerminalView({
         if (spawnProcess) await spawnProcess(terminalId)
         else await terminalSpawn(workingDir, shell, initialCommand, terminalId)
       } catch (err) {
-        onProcessExitedRef.current?.(terminalId)
-        term.write(`\r\n\x1b[31m[Failed to start terminal: ${err}]\x1b[0m\r\n`)
+        writeQueue.dispose()
+        if (!cancelled) {
+          onProcessErrorRef.current?.(err)
+          term.write(
+            `\r\n\x1b[31m[Failed to start terminal: ${toErrorMessage(err)}]\x1b[0m\r\n`
+          )
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }

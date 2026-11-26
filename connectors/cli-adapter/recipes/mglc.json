@@ -1,0 +1,69 @@
+{
+  "id": "mglc",
+  "name": "芒果灵创 CLI",
+  "env": {},
+  "packages": [],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/mglc.exe",
+        "args": [
+          "auth",
+          "--source",
+          "workbuddy"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "{{RUNTIME_DIR}}/bin/mglc.exe",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用官方 CLI",
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/mglc.exe",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/mglc/mglc.exe",
+      "path": "bin/mglc.exe",
+      "sha256": "cf91801f82957e16e410feefc48baddff104a4d0cc331edf645e3ed14eb49415"
+    }
+  ],
+  "statusMatch": "OK 登录状态正常",
+  "status": {
+    "program": "{{RUNTIME_DIR}}/bin/mglc.exe",
+    "args": [
+      "status",
+      "--text-plain"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.1.13",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "{{RUNTIME_DIR}}/bin/mglc.exe",
+      "args": [
+        "version"
+      ]
+    }
+  },
+  "runtimeFiles": [
+    {
+      "path": "bin/mglc.exe",
+      "sha256": "cf91801f82957e16e410feefc48baddff104a4d0cc331edf645e3ed14eb49415"
+    }
+  ]
+}

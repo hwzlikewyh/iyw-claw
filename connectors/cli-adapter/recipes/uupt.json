@@ -1,0 +1,69 @@
+{
+  "id": "uupt",
+  "name": "UU跑腿",
+  "env": {},
+  "packages": [],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/uupt-open-cli.exe",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "{{RUNTIME_DIR}}/bin/uupt-open-cli.exe",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用官方 CLI",
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/uupt-open-cli.exe",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/uupt/uupt-open-cli.exe",
+      "path": "bin/uupt-open-cli.exe",
+      "sha256": "d6ae00f948372979431d797f47f24450b357a9229eeac033770bd6495d711697"
+    }
+  ],
+  "statusMatch": "Logged in as",
+  "status": {
+    "program": "{{RUNTIME_DIR}}/bin/uupt-open-cli.exe",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.1.0",
+    "pattern": null,
+    "command": {
+      "program": "{{RUNTIME_DIR}}/bin/uupt-open-cli.exe",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "runtimeFiles": [
+    {
+      "path": "bin/uupt-open-cli.exe",
+      "sha256": "d6ae00f948372979431d797f47f24450b357a9229eeac033770bd6495d711697"
+    }
+  ]
+}

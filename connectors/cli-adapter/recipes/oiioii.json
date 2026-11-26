@@ -1,0 +1,66 @@
+{
+  "id": "oiioii",
+  "name": "OiiOii",
+  "env": {},
+  "packages": [
+    {
+      "name": "@oiioii/cli",
+      "spec": "@oiioii/cli@0.1.22",
+      "integrity": "sha512-bVg2+dIqvY9cUz1LwBsEwKBM6zGrnioXfLzbFn6FQtEnD0fOcn9Q+krmfix40pisHTaQMzB+UYrubsIt2Tnifg=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "oiioii",
+        "args": [
+          "auth",
+          "login",
+          "--workbuddy",
+          "--no-browser"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "oiioii",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "oiioii",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "\"authenticated\"\\s*:\\s*true",
+  "status": {
+    "program": "oiioii",
+    "args": [
+      "auth",
+      "status",
+      "--json"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.1.7",
+    "pattern": null,
+    "command": {
+      "program": "oiioii",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

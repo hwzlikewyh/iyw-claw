@@ -1,0 +1,66 @@
+{
+  "id": "cloudbase",
+  "name": "腾讯云 CloudBase",
+  "env": {
+    "INTEGRATION_IDE": "WorkBuddy"
+  },
+  "packages": [
+    {
+      "name": "@cloudbase/cli",
+      "spec": "@cloudbase/cli@3.9.4",
+      "integrity": "sha512-FX+oyslhTz0qvDSN1fGnwForgbPbjUcM1DPcsXqTLFvQzLbr/rEU19IT9uTeJWwQq4S4GdRggWhrl+clAXQhNA=="
+    },
+    {
+      "name": "@cloudbase/cloudbase-mcp",
+      "spec": "@cloudbase/cloudbase-mcp@2.37.9",
+      "integrity": "sha512-Osbva/G26ZnIMIunH9nCVBoFqbvajjBObdHbHrfMsLnoHxgCgBf7P6QPWKnYIn6CmDuIjAr8L6PdcvfVqmCzrg=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "tcb",
+        "args": [
+          "login",
+          "--flow",
+          "web",
+          "--yes"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "tcb",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [],
+  "resources": [],
+  "status": {
+    "program": "tcb",
+    "args": [
+      "env",
+      "list"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "3.8.4",
+    "pattern": null,
+    "command": {
+      "program": "tcb",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "mcp": {
+    "program": "cloudbase-mcp",
+    "args": [],
+    "package": "@cloudbase/cloudbase-mcp"
+  }
+}

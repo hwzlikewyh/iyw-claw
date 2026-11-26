@@ -1,0 +1,156 @@
+{
+  "id": "shanlong-claw",
+  "name": "天财商龙餐饮SaaS",
+  "env": {
+    "SL_CLI_HOME": "{{AUTH_DIR}}/.slclaw",
+    "SL_CONNECTOR_HOME": "{{ARTIFACT_DIR}}/vendor",
+    "SL_CLI_SKIP_UPDATE": "1",
+    "SL_ENV": "prod",
+    "SL_MAX_SECURITY_LEVEL": "S1",
+    "SL_SLY_BASEURL": "https://sly.tcsl.com.cn",
+    "SL_CONNECTOR_AUTH_PAGE": "https://sly.tcsl.com.cn/login/index",
+    "SL_AI_HOST": "https://aia.tcsl.com.cn",
+    "SL_GATEWAY_HOST": "https://aia.tcsl.com.cn/aiproxy",
+    "SL_CY7_VIA_GATEWAY": "true",
+    "SL_CRM_VIA_GATEWAY": "true",
+    "SL_SCM_VIA_GATEWAY": "true",
+    "SL_CY7_API_BASE_URL": "https://cyfast.tcsl.com.cn/fast",
+    "SL_CRM_API_BASE_URL": "https://scrm.wuuxiang.com",
+    "SL_SCM_API_BASE_URL": "https://tcsl.engine.fxscm.net",
+    "SL_ANALYSIS_API_BASE_URL": "https://tcsl.engine.fxscm.net",
+    "SL_REPORT_API_BASE_URL": "https://cy.wuuxiang.com/cy7reportcenter/",
+    "SL_DC_API_BASE_URL": "https://aia.tcsl.com.cn/aiproxy/ai2dcweb/",
+    "SL_DC_VIA_GATEWAY": "false",
+    "MCP_STARROCKS_URL": "https://dmp-mcp.tcsl.com.cn/mcp/workbuddy/",
+    "SL_DC_MCP_ACCESS_ID": "chat-workbuddy-secret-token"
+  },
+  "packages": [],
+  "python": [],
+  "install": [
+    {
+      "program": "{{RUNTIME_DIR}}/bin/sl-sea.exe",
+      "args": [
+        "--sl-config-migrate",
+        "--home",
+        "{{AUTH_DIR}}/.slclaw"
+      ]
+    }
+  ],
+  "login": [
+    {
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/sl-sea.exe",
+        "args": [
+          "connector",
+          "auth"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "{{RUNTIME_DIR}}/bin/sl-sea.exe",
+      "args": [
+        "connector",
+        "unauth"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用官方 CLI",
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/sl-sea.exe",
+        "args": []
+      },
+      "helpFiles": [
+        "vendor/skills/member-campaign-analysis/SKILL.md",
+        "vendor/skills/member-consumption-analysis/SKILL.md",
+        "vendor/skills/member-coupon-analysis/SKILL.md",
+        "vendor/skills/member-data-overview-analysis/SKILL.md",
+        "vendor/skills/member-points-analysis/SKILL.md",
+        "vendor/skills/member-profile-analysis/SKILL.md",
+        "vendor/skills/member-recharge-analysis/SKILL.md",
+        "vendor/skills/member-repurchase-analysis/SKILL.md",
+        "vendor/skills/tcsl-company-intro/SKILL.md"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/shanlong-claw/sl-sea.exe",
+      "path": "bin/sl-sea.exe",
+      "sha256": "a67bdc0c24c6a0523f9c11645a193e2b72fb5fddb42e19d7af5257a04d2ec706"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-campaign-analysis/SKILL.md",
+      "path": "vendor/skills/member-campaign-analysis/SKILL.md",
+      "sha256": "4ad275f841a95d5c55e37f5896c001d99dc111fb59c2ca2f1fc454bb5e394c8e"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-consumption-analysis/SKILL.md",
+      "path": "vendor/skills/member-consumption-analysis/SKILL.md",
+      "sha256": "9e74b39873b3d78aae9a04aad78a96f8f2e0aad3449e1cd6696c6997f2bf9c79"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-coupon-analysis/SKILL.md",
+      "path": "vendor/skills/member-coupon-analysis/SKILL.md",
+      "sha256": "dcd5c647eed59007025d8eb0c27faa0d94322f3ce27e5f9b720e5bb78176dbb3"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-data-overview-analysis/SKILL.md",
+      "path": "vendor/skills/member-data-overview-analysis/SKILL.md",
+      "sha256": "91be4c3086a3db928cd23434aaf4b072502040473ea070661b2d551f489e4546"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-points-analysis/SKILL.md",
+      "path": "vendor/skills/member-points-analysis/SKILL.md",
+      "sha256": "862e88a011eb5e1d3bb0c87ffd52315aecdeb4afec44bcabb1478de3a1eebf81"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-profile-analysis/SKILL.md",
+      "path": "vendor/skills/member-profile-analysis/SKILL.md",
+      "sha256": "b9bdf36c47f9559ab7eeb234ca09846c1e3116b17aa9b4c3c9c804881b4f9651"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-recharge-analysis/SKILL.md",
+      "path": "vendor/skills/member-recharge-analysis/SKILL.md",
+      "sha256": "d10ef4245cc50f2ed919b828dd0289663bd17f9d4175193d92386220f92afbb8"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/member-repurchase-analysis/SKILL.md",
+      "path": "vendor/skills/member-repurchase-analysis/SKILL.md",
+      "sha256": "d3902374a724221a572784a54fc98770a735a95a192c15fe75de2366852e1841"
+    },
+    {
+      "source": "workbuddy/shanlong-claw/skills/tcsl-company-intro/SKILL.md",
+      "path": "vendor/skills/tcsl-company-intro/SKILL.md",
+      "sha256": "72effe597995f63757a628138d4f0348dd9cbfc55919c4b7d2d5b8e2db12453b"
+    }
+  ],
+  "statusMatch": "\"authenticated\"\\s*:\\s*true",
+  "status": {
+    "program": "{{RUNTIME_DIR}}/bin/sl-sea.exe",
+    "args": [
+      "connector",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.168",
+    "pattern": null,
+    "command": {
+      "program": "{{RUNTIME_DIR}}/bin/sl-sea.exe",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "runtimeFiles": [
+    {
+      "path": "bin/sl-sea.exe",
+      "sha256": "a67bdc0c24c6a0523f9c11645a193e2b72fb5fddb42e19d7af5257a04d2ec706"
+    }
+  ]
+}

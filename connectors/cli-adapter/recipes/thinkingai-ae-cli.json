@@ -1,0 +1,66 @@
+{
+  "id": "thinkingai-ae-cli",
+  "name": "ThinkingAI AE",
+  "env": {
+    "AE_CLI_CONFIG_DIR": "{{AUTH_DIR}}/.ae-cli-workbuddy"
+  },
+  "packages": [
+    {
+      "name": "@thinkingai/ae-cli",
+      "spec": "@thinkingai/ae-cli@6.0.48-workbuddy",
+      "integrity": "sha512-R9Imi2svHPIILcKsrFzqYKlEh/CpUp/xEV3N8suuDgWJskkXsWTzg6QDorrLfS/KJymGJS73vdJ3D1jQgHLdbw=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "ae-cli-workbuddy",
+        "args": [
+          "auth",
+          "workbuddy-host-page"
+        ]
+      }
+    },
+    {
+      "command": {
+        "program": "ae-cli-workbuddy",
+        "args": [
+          "auth",
+          "login",
+          "--no-browser"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "ae-cli-workbuddy",
+      "args": [
+        "auth",
+        "logout",
+        "--all"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "ae-cli-workbuddy",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "\\\"authenticated\\\"\\s*:\\s*true",
+  "status": {
+    "program": "ae-cli-workbuddy",
+    "args": [
+      "auth",
+      "status"
+    ]
+  }
+}

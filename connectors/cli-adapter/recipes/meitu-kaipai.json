@@ -1,0 +1,54 @@
+{
+  "id": "meitu-kaipai",
+  "name": "美图 · 开拍",
+  "env": {},
+  "packages": [
+    {
+      "name": "meitu-kaipai-cli",
+      "spec": "meitu-kaipai-cli@0.1.16",
+      "integrity": "sha512-HveR6xlhzAy5Qzmf117SFFBWsTGN5S5lWz/IYF/f3LVhUCndW0ZGgahjKhVJfU7CuUpNWxl8X8Uz64do89hU3Q=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "kaipai",
+        "args": [
+          "auth",
+          "login",
+          "--no-open"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "kaipai",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "kaipai",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "^connected\\s*$",
+  "status": {
+    "program": "kaipai",
+    "args": [
+      "auth",
+      "status"
+    ]
+  }
+}

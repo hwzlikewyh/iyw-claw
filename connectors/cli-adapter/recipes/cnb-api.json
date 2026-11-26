@@ -1,0 +1,60 @@
+{
+  "id": "cnb-api",
+  "name": "CNB",
+  "env": {},
+  "packages": [
+    {
+      "name": "@cnbcool/cnb-cli",
+      "spec": "@cnbcool/cnb-cli@1.24.15",
+      "integrity": "sha512-URVSlxRdxpF2kFmpHi99HV1yef4I4qFO1gUQKKpXjxqxdo14NO5HhIx0fUZVD10GSxE50gLDOyk5U+ibsARXHg=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "cnb",
+        "args": [
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "cnb",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "cnb",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "已登录",
+  "status": {
+    "program": "cnb",
+    "args": [
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.16.13",
+    "pattern": null,
+    "command": {
+      "program": "cnb",
+      "args": [
+        "-v"
+      ]
+    }
+  }
+}

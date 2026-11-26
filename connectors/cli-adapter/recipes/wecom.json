@@ -1,0 +1,62 @@
+{
+  "id": "wecom",
+  "name": "企业微信",
+  "env": {
+    "WECOM_CLI_CONFIG_DIR": "{{AUTH_DIR}}/.config/wecom"
+  },
+  "packages": [
+    {
+      "name": "@wecom/cli",
+      "spec": "@wecom/cli@1.3.4",
+      "integrity": "sha512-vz47EsT/BKkHBONVt94xhZtUWhvMR4uF9Y4TTNUwF7PnLETqyFyrNNHwG3aTLmhMNC/ecqRWUUqvNgP90nreaQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "wecom-cli",
+        "args": [
+          "auth",
+          "init",
+          "--noninteractive",
+          "--no-browser"
+        ]
+      }
+    }
+  ],
+  "logout": [],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "wecom-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "(?:^|\\n)Status: authorized\\s*(?:\\r?\\n|$)",
+  "status": {
+    "program": "wecom-cli",
+    "args": [
+      "auth",
+      "show"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.3.2",
+    "pattern": null,
+    "command": {
+      "program": "wecom-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "clearAuthDirectories": [
+    "{{AUTH_DIR}}/.config/wecom"
+  ]
+}

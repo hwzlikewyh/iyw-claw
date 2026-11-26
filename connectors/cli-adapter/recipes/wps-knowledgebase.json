@@ -1,0 +1,78 @@
+{
+  "id": "wps-knowledgebase",
+  "name": "WPS知识库",
+  "env": {
+    "KWIKI_CONNECTOR_HOME": "{{ARTIFACT_DIR}}/vendor"
+  },
+  "packages": [
+    {
+      "name": "@ks-personal/kwiki-cli",
+      "spec": "{{ARTIFACT_DIR}}/vendor/cli-package.tgz"
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "kwiki-cli",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "kwiki-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "kwiki-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/wps-knowledgebase/package.tgz",
+      "path": "vendor/cli-package.tgz",
+      "sha256": "5a896ae9a76a9a59a5154e5542fba2a4ab6a6f3f4ff39c87a81b6aae56de01d7"
+    }
+  ],
+  "statusMatch": "Logged in",
+  "status": {
+    "program": "kwiki-cli",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "2.0.2",
+    "pattern": null,
+    "command": {
+      "program": "kwiki-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "configDefaults": [
+    {
+      "path": "{{AUTH_DIR}}/.kwiki-cli/config.json",
+      "values": {
+        "source": "workbuddy"
+      }
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "id": "cloudhub",
+  "name": "云之家",
+  "env": {},
+  "packages": [],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/yzj-cli.exe",
+        "args": [
+          "--profile",
+          "iyw-{{ACCOUNT_ID}}",
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "{{RUNTIME_DIR}}/bin/yzj-cli.exe",
+      "args": [
+        "--profile",
+        "iyw-{{ACCOUNT_ID}}",
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用官方 CLI",
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/yzj-cli.exe",
+        "args": [
+          "--profile",
+          "iyw-{{ACCOUNT_ID}}"
+        ]
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/cloudhub/yzj-cli.exe",
+      "path": "bin/yzj-cli.exe",
+      "sha256": "c6db6cc985269906bc4075cf6a0cd8932c119f7ca764e5d11db45b35799e098a"
+    }
+  ],
+  "statusMatch": "\"success\":\\s*true",
+  "status": {
+    "program": "{{RUNTIME_DIR}}/bin/yzj-cli.exe",
+    "args": [
+      "--profile",
+      "iyw-{{ACCOUNT_ID}}",
+      "contact",
+      "user",
+      "get"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.1.5",
+    "pattern": null,
+    "command": {
+      "program": "{{RUNTIME_DIR}}/bin/yzj-cli.exe",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "runtimeFiles": [
+    {
+      "path": "bin/yzj-cli.exe",
+      "sha256": "c6db6cc985269906bc4075cf6a0cd8932c119f7ca764e5d11db45b35799e098a"
+    }
+  ]
+}

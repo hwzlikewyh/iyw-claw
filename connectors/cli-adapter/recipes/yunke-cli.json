@@ -1,0 +1,62 @@
+{
+  "id": "yunke-cli",
+  "name": "云客AI工作手机",
+  "env": {
+    "YUNKE_PC_OAUTH_BASE_URL": "https://crm.yunkecn.com/pc"
+  },
+  "packages": [
+    {
+      "name": "@yunkeai/yunke-cli",
+      "spec": "@yunkeai/yunke-cli@3.0.4",
+      "integrity": "sha512-4Q4e2p8s7Iso4yL/++TnIC/RbM8HgFgdhluEYoZwzl6f+gYGJsldzJ1Yh49gxL0so0G8j0L++fcok9rxXe3G2w=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "yunke",
+        "args": [
+          "crm.auth.login-web"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "yunke",
+      "args": [
+        "crm.auth.logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "yunke",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Logged in as",
+  "status": {
+    "program": "yunke",
+    "args": [
+      "crm.auth.status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "2.0.0",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "yunke",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

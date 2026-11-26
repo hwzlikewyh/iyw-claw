@@ -1,0 +1,49 @@
+{
+  "id": "ai-hive",
+  "name": "AI-HIVE",
+  "env": {},
+  "packages": [
+    {
+      "name": "@infimind-next/ai-hive-mcp",
+      "spec": "@infimind-next/ai-hive-mcp@0.6.1",
+      "integrity": "sha512-ZmZE5hxvQp0k6Xq3ADetl952TUsG8InWlo8qtyaDK0l7ek4wKexu7YuRJM4XjaIHz6f2VbkWNfCW+XrC1SZ5CA=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "ai-hive-mcp",
+        "args": [
+          "auth"
+        ],
+        "package": "@infimind-next/ai-hive-mcp"
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "ai-hive-mcp",
+      "args": [
+        "logout"
+      ],
+      "package": "@infimind-next/ai-hive-mcp"
+    }
+  ],
+  "tools": [],
+  "resources": [],
+  "statusMatch": "Authenticated",
+  "status": {
+    "program": "ai-hive-mcp",
+    "args": [
+      "status"
+    ],
+    "package": "@infimind-next/ai-hive-mcp"
+  },
+  "mcp": {
+    "program": "ai-hive-mcp",
+    "args": [],
+    "package": "@infimind-next/ai-hive-mcp"
+  }
+}

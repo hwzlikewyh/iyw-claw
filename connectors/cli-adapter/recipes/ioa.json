@@ -1,0 +1,62 @@
+{
+  "id": "ioa",
+  "name": "零信任安全 iOA",
+  "env": {},
+  "packages": [
+    {
+      "name": "@ioacloud/ioacloud-cli",
+      "spec": "@ioacloud/ioacloud-cli@1.0.18",
+      "integrity": "sha512-PuWHQCQTW0EUV3BSjlueLgXtpV0RhGPD71Cck8OY+xS2YYj2/Bpmu/XlBlDj8QV2bxuEgt38QmOq51pamJJtww=="
+    },
+    {
+      "name": "@ioacloud/ioacloud-mcp",
+      "spec": "@ioacloud/ioacloud-mcp@1.0.31",
+      "integrity": "sha512-HhlrDEPbWAJpwl17LEpOdsVcUKaX02bB0kML/NfwfcovOpRye4Y7wkGFBwL7+CkuItwYe5mFtroogTyvY6/mCQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "ioacloud-cli",
+        "args": [
+          "login",
+          "--yes"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "ioacloud-cli",
+      "args": [
+        "logout",
+        "--yes"
+      ]
+    }
+  ],
+  "tools": [],
+  "resources": [],
+  "status": {
+    "program": "ioacloud-cli",
+    "args": [
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.18",
+    "pattern": null,
+    "command": {
+      "program": "ioacloud-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "mcp": {
+    "program": "ioacloud-mcp",
+    "args": [],
+    "package": "@ioacloud/ioacloud-mcp"
+  }
+}

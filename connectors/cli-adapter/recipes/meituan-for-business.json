@@ -1,0 +1,65 @@
+{
+  "id": "meituan-for-business",
+  "name": "美团企业版",
+  "env": {},
+  "packages": [
+    {
+      "name": "@sqt/auth-cli",
+      "spec": "{{ARTIFACT_DIR}}/vendor/cli-package.tgz"
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "sqt-auth-cli",
+        "args": [
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "sqt-auth-cli",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "sqt-auth-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/meituan-for-business/package.tgz",
+      "path": "vendor/cli-package.tgz",
+      "sha256": "f85169216a2684a51cc4b1648ad35924d570fefc6d98775728e169140fff4471"
+    }
+  ],
+  "statusMatch": "已登录",
+  "status": {
+    "program": "sqt-auth-cli",
+    "args": [
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.3.8",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "sqt-auth-cli",
+      "args": [
+        "version"
+      ]
+    }
+  }
+}

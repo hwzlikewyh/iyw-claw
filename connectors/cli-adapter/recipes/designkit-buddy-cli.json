@@ -1,0 +1,64 @@
+{
+  "id": "designkit-buddy-cli",
+  "name": "美图设计室 AI设计 CLI",
+  "env": {},
+  "packages": [
+    {
+      "name": "meitu-designkit-cli",
+      "spec": "meitu-designkit-cli@1.0.80",
+      "integrity": "sha512-wUvqMdAShqBZwFj8JXiydatCEimfRE/0DbmOi3hZCiIWMc5daUN+a4En/BHBESonk+fDLtno/ECy5b2wO31vIw=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "designkit",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "designkit",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "designkit",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "connected",
+  "status": {
+    "program": "designkit",
+    "args": [
+      "auth",
+      "status",
+      "--check"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.24",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "designkit",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "id": "zsxq",
+  "name": "知识星球",
+  "env": {},
+  "packages": [
+    {
+      "name": "zsxq-cli",
+      "spec": "zsxq-cli@0.5.1",
+      "integrity": "sha512-WT04YABCkx0W0D9DlSW50sq1GfE2GwEuO1cye00zQDt79FEq+PRcUhBMM/Zk+jUHgtZf37JeO7uKpwGpIhxFgg=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "zsxq-cli",
+        "args": [
+          "auth",
+          "login",
+          "--no-wait"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "zsxq-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "zsxq-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Logged in as",
+  "status": {
+    "program": "zsxq-cli",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.5.1",
+    "pattern": null,
+    "command": {
+      "program": "zsxq-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

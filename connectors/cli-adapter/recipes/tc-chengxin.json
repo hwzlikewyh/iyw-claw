@@ -1,0 +1,71 @@
+{
+  "id": "tc-chengxin",
+  "name": "同程程心",
+  "env": {
+    "TC_CONNECTOR_HOME": "{{ARTIFACT_DIR}}/vendor"
+  },
+  "packages": [
+    {
+      "name": "@tongcheng/tc-chengxin-cli",
+      "spec": "{{ARTIFACT_DIR}}/vendor/cli-package.tgz"
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "tc-chengxin",
+        "args": [
+          "auth",
+          "login",
+          "--no-wait"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "tc-chengxin",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "tc-chengxin",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "workbuddy/tc-chengxin/cli/tc-chengxin-cli.tgz",
+      "path": "vendor/cli-package.tgz",
+      "sha256": "240bc71e7dce77ed4a56a1e2b043661516435dcccb0e6e837e22fb08ca2e46b2"
+    }
+  ],
+  "statusMatch": "Logged in",
+  "status": {
+    "program": "tc-chengxin",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.3",
+    "pattern": null,
+    "command": {
+      "program": "tc-chengxin",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

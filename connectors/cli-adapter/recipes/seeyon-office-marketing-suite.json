@@ -1,0 +1,193 @@
+{
+  "id": "seeyon-office-marketing-suite",
+  "name": "致远互联协同办公服务",
+  "env": {
+    "SEEYON_CONNECTOR_HOME": "{{ARTIFACT_DIR}}/vendor"
+  },
+  "packages": [],
+  "python": [
+    "requests==2.34.2",
+    "pycryptodome==3.24.1"
+  ],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "node",
+        "args": [
+          "{{ARTIFACT_DIR}}/vendor/cli/seeyon-connector.js",
+          "auth"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "node",
+      "args": [
+        "{{ARTIFACT_DIR}}/vendor/cli/seeyon-connector.js",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "seeyon_office",
+      "description": "致远 OA 办公操作，先调用 --help 查看参数",
+      "command": {
+        "program": "python",
+        "args": [
+          "{{ARTIFACT_DIR}}/vendor/skills/seeyon-collaborative-office-loop-skill/scripts/seeyon_office.py"
+        ]
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/connector-config.json",
+      "path": "vendor/connector-config.json",
+      "sha256": "8241d8cfa9cf0efc52eedabfcd6cdf0ed0fa826311c41be2ac5441e9f0b47f5f"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/cli/seeyon-connector.js",
+      "path": "vendor/cli/seeyon-connector.js",
+      "sha256": "464bd55c6cd9a529471c7599ea2a88f508ed22ded65ea452b944c87a75542060"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/attachment_upload.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/attachment_upload.py",
+      "sha256": "227ac13ac3510dc054a3654d6994702e5a428fa6d81feaffdaaf209a9f9b2c80"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/auth.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/auth.py",
+      "sha256": "b57e24c842df48dda34bdee1d595297eb0fc7ee49912a1ecd22fbf5e8696ae76"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/collaboration_core.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/collaboration_core.py",
+      "sha256": "d7b4396fd52751d4121d70429ed239218f11b32e63c31c7d5cc3c890d92f9681"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/meeting_core.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/meeting_core.py",
+      "sha256": "595dfc714730b1da4824fdc2bca6cf3be192e84a0ba71291aa5d1fd883ab64ad"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/organization_resolver.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/organization_resolver.py",
+      "sha256": "f130b0f2e9033a52bf82a366429b7380215cda979106a2d29cbc9ac22297c5bb"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/participant_resolver.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/participant_resolver.py",
+      "sha256": "14be18c5f257b6f16b45f5f85827dd78a4ca1d1d0cb2b55630b56b3f9b3d1c2f"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/query_meetings.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/query_meetings.py",
+      "sha256": "0b42128e2a7d81104a26abc9ad5b3fd3a23ca269d512f74a7c51314b7e11df78"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/query_organization.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/query_organization.py",
+      "sha256": "c008cfbffa421ee642c64570a32712ad45331c05235531b401364a5d0cef0b01"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/seeyon_http.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/seeyon_http.py",
+      "sha256": "dee0a14c84011550536fb46ad34ad756ccae44a9c7182bd20016d4d00d126c26"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/seeyon_office.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/seeyon_office.py",
+      "sha256": "7a312b6351a5a06538a385a6291a2a2861d4775834c7ff6cba1487bebae3613a"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/send_collaboration.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/send_collaboration.py",
+      "sha256": "9eb0df4be876f3a5cc39984e1ddd5fbbd53ef527f5de9f80d7e72a14511b8f1e"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/send_meeting.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/send_meeting.py",
+      "sha256": "92d8d41d1af0dc6bc9c1248e07c0ecccb4596a1bd4d7396eb14e316101bfcc73"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-collaborative-office-loop-skill/scripts/session_context.py",
+      "path": "vendor/skills/seeyon-collaborative-office-loop-skill/scripts/session_context.py",
+      "sha256": "0d815a4f12be5673982e0e4b60203283b1ba43165608f85594b6cd33b197a986"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/attachment_upload.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/attachment_upload.py",
+      "sha256": "227ac13ac3510dc054a3654d6994702e5a428fa6d81feaffdaaf209a9f9b2c80"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/auth.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/auth.py",
+      "sha256": "b57e24c842df48dda34bdee1d595297eb0fc7ee49912a1ecd22fbf5e8696ae76"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/collaboration_core.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/collaboration_core.py",
+      "sha256": "d7b4396fd52751d4121d70429ed239218f11b32e63c31c7d5cc3c890d92f9681"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/organization_resolver.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/organization_resolver.py",
+      "sha256": "f130b0f2e9033a52bf82a366429b7380215cda979106a2d29cbc9ac22297c5bb"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/query_organization.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/query_organization.py",
+      "sha256": "c008cfbffa421ee642c64570a32712ad45331c05235531b401364a5d0cef0b01"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/query_sales_orders.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/query_sales_orders.py",
+      "sha256": "b22d81a12492ec276150139acf4c0a9df0c5afb853f55062df37aa347ceced6c"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/seeyon_http.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/seeyon_http.py",
+      "sha256": "dee0a14c84011550536fb46ad34ad756ccae44a9c7182bd20016d4d00d126c26"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/seeyon_marketing.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/seeyon_marketing.py",
+      "sha256": "a5dec7d93636c52dae5fdc76144c6c92ef8b66058b7d409ee08fbd9e795d1bdc"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/send_collaboration.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/send_collaboration.py",
+      "sha256": "9eb0df4be876f3a5cc39984e1ddd5fbbd53ef527f5de9f80d7e72a14511b8f1e"
+    },
+    {
+      "source": "workbuddy/seeyon-office-marketing-suite/skills/seeyon-marketing-data-analysis-skill/scripts/session_context.py",
+      "path": "vendor/skills/seeyon-marketing-data-analysis-skill/scripts/session_context.py",
+      "sha256": "0ef461ae5f1a02958b48cb82ad24052fee6c76593de36a3c86515e8de1314307"
+    }
+  ],
+  "statusMatch": "\"authenticated\"\\s*:\\s*true",
+  "statusMatchJson": {
+    "authenticated": "true"
+  },
+  "status": {
+    "program": "node",
+    "args": [
+      "{{ARTIFACT_DIR}}/vendor/cli/seeyon-connector.js",
+      "status"
+    ]
+  },
+  "parameters": [
+    {
+      "key": "OA_BASE_URL",
+      "label": "企业 OA 地址",
+      "kind": "string",
+      "required": true,
+      "secret": false,
+      "description": "填写本企业致远 OA 的访问地址"
+    }
+  ]
+}

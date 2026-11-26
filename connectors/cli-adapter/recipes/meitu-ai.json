@@ -1,0 +1,62 @@
+{
+  "id": "meitu-ai",
+  "name": "MeituHub AI影像创作",
+  "env": {
+    "MEITU_OPENAPI_AUTH_MODE": "iam",
+    "MEITU_IAM_CLIENT_TYPE": "workbuddy",
+    "MEITU_IAM_CLIENT_ID": "1189857723",
+    "MEITU_CLI_PARTITION": "cn"
+  },
+  "packages": [
+    {
+      "name": "meitu-cli",
+      "spec": "meitu-cli@2.1.21",
+      "integrity": "sha512-ggCFjpN520rrOXJf1VDcnAIyas7mheIs+w5IbK/KFmfGz9xaX/UQqzOiC7shz81JiSKh/hc3vUiI7UmVXN90NQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "meitu",
+        "args": [
+          "auth",
+          "login",
+          "--force",
+          "--no-open-browser",
+          "--no-poll-progress"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "meitu",
+      "args": [
+        "auth",
+        "logout",
+        "--json"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "meitu",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "execution_auth_available:\\s*yes",
+  "status": {
+    "program": "meitu",
+    "args": [
+      "auth",
+      "status"
+    ]
+  }
+}

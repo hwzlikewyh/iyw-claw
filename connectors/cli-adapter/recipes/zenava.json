@@ -1,0 +1,74 @@
+{
+  "id": "zenava",
+  "name": "天润融通·Zenava",
+  "env": {},
+  "packages": [],
+  "python": [
+    "zenava==0.5.8",
+    "tzdata==2026.6"
+  ],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "python",
+        "args": [
+          "{{ARTIFACT_DIR}}/vendor/scripts/auth_server.py"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "python",
+      "args": [
+        "{{ARTIFACT_DIR}}/vendor/scripts/auth_server.py",
+        "--logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用 Zenava CLI",
+      "command": {
+        "program": "zenava",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "workbuddy/zenava/scripts/auth_server.py",
+      "path": "vendor/scripts/auth_server.py",
+      "sha256": "41e7548d994c6ec35486a8194cd7a1f02abdf04916e49c3d409f5d25b81fbcff"
+    },
+    {
+      "source": "workbuddy/zenava/scripts/assets/workbuddy-logo.svg",
+      "path": "vendor/scripts/assets/workbuddy-logo.svg",
+      "sha256": "10ccbc099e7bc3d5ff12c315c4edd7b21386aa7166c1ec19997b3d55010d5c7d"
+    },
+    {
+      "source": "workbuddy/zenava/scripts/assets/zenava-logo.png",
+      "path": "vendor/scripts/assets/zenava-logo.png",
+      "sha256": "d6b866bdd07fe3fb0f76c87cb3d6ac383cd5988937ce0c06e38a51c720fe9c0c"
+    }
+  ],
+  "statusMatch": "CONNECTED",
+  "status": {
+    "program": "python",
+    "args": [
+      "{{ARTIFACT_DIR}}/vendor/scripts/auth_server.py",
+      "--status"
+    ]
+  },
+  "versionCheck": {
+    "command": {
+      "program": "zenava",
+      "args": [
+        "--version"
+      ]
+    },
+    "minimum": "0.5.8"
+  }
+}

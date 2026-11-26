@@ -47,12 +47,21 @@ pub async fn begin(
         release(terminal);
         return Err(AppCommandError::invalid_input("登录已取消"));
     }
-    let spawned = manager.spawn_with_id(options, emitter.clone());
-    if spawned.is_err() {
+    let program = options
+        .direct_command
+        .as_ref()
+        .map(|(program, _)| program.clone());
+    if let Err(error) = manager.spawn_with_id(options, emitter.clone()) {
         release(terminal);
-        return Err(AppCommandError::task_execution_failed(
-            "无法启动 CLI 登录，请检查程序与运行时安装",
-        ));
+        tracing::warn!(connector=%id, program=?program, error=%error, "[MCP] CLI 登录程序启动失败");
+        return Err(AppCommandError::task_execution_failed(format!(
+            "无法启动 CLI 登录程序 {}，请检查程序与运行时安装",
+            program.as_deref().unwrap_or_default()
+        ))
+        .with_detail(format!(
+            "{}: {error}",
+            program.as_deref().unwrap_or_default()
+        )));
     }
     let manager = manager.clone_ref();
     let terminal = terminal.to_owned();
