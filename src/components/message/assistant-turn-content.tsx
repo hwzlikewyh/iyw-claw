@@ -25,6 +25,8 @@ import type { AgentType } from "@/lib/types"
 import { useConversationActivityAnchor } from "./conversation-activity-visibility"
 import { AssistantTurnArchive } from "./assistant-turn-archive"
 import { useSettledTurnCompletion } from "./use-settled-turn-completion"
+import type { TurnCompletion } from "@/lib/turn-completion"
+import { resolveTurnPresentation } from "./assistant-turn-completion"
 import "./conversation-presentation.css"
 
 interface AssistantTurnContentProps {
@@ -33,6 +35,7 @@ interface AssistantTurnContentProps {
   entranceKey: string
   animationEnabled: boolean
   isResponseComplete: boolean
+  completion?: TurnCompletion | null
   displayMode: ConversationDisplayMode
   collapseCompletedTurn: boolean
   autoOpenErrors: boolean
@@ -111,6 +114,8 @@ function AssistantTimeline(
       collapse={props.collapseCompletedTurn && props.displayMode !== "full"}
       foldSegments={props.displayMode !== "full"}
       durationMs={props.durationMs}
+      outcome={resolveTurnPresentation(props.parts, props.completion)}
+      isLatest={props.isLatest}
       renderSection={(section, index, expanded) => (
         <AssistantTimelineSectionView
           {...props}

@@ -43,6 +43,10 @@ import {
   mergeToolCallIds,
 } from "./message-output-metrics"
 import { resolveTurnDuration, sumTurnDurations } from "@/lib/turn-duration"
+import {
+  recordedTurnCompletion,
+  type TurnCompletion,
+} from "@/lib/turn-completion"
 import { LiveTurnStats } from "./live-turn-stats"
 import { UserResourceLinks } from "./user-resource-links"
 import { MessageTimestamp } from "./message-timestamp"
@@ -157,6 +161,7 @@ interface MessageListViewProps {
 }
 
 interface ResolvedMessageGroup {
+  completion: TurnCompletion | null
   id: string
   sourceMessageIDs: string[]
   forkTarget?: ForkTarget
@@ -505,6 +510,7 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
 
 const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   group,
+  completion = group.completion,
   durationMs,
   liveMessage,
   conversationId,
@@ -529,6 +535,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   actions,
 }: {
   group: ResolvedMessageGroup
+  completion?: TurnCompletion | null
   durationMs?: number | null
   liveMessage?: import("@/contexts/acp-connections-context").LiveMessage | null
   conversationId: number
@@ -599,6 +606,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               entranceKey={`${conversationId}:${group.id}`}
               animationEnabled={animationEnabled}
               isResponseComplete={isResponseComplete}
+              completion={completion}
               displayMode={conversationDisplayMode}
               collapseCompletedTurn={collapseCompletedTurn}
               autoOpenErrors={autoOpenErrors}
@@ -799,6 +807,7 @@ export function MessageListView({
   )
 
   const sessionSyncState = session?.syncState ?? "idle"
+  const turnCompletions = session?.turnCompletions
   const persistedSessionId =
     session?.externalId ?? session?.detail?.summary.external_id
 
@@ -847,14 +856,17 @@ export function MessageListView({
       let group = groupCache.get(msg)
       const forkMessageId = allTurns[i].fork_message_id
       const forkSessionId = forkMessageId ? persistedSessionId : undefined
+      const completion = recordedTurnCompletion(turnCompletions, allTurns[i])
       if (
         !group ||
+        group.completion !== completion ||
         group.forkTarget?.messageId !==
           (forkSessionId ? forkMessageId : undefined) ||
         group.forkTarget?.sessionId !== forkSessionId
       ) {
         const metrics = getMessageOutputMetrics(timelineTurns[i].turn)
         group = {
+          completion,
           id: msg.id,
           sourceMessageIDs: [msg.id],
           forkTarget:
@@ -958,6 +970,7 @@ export function MessageListView({
     groupCache,
     assistantGroupCache,
     persistedSessionId,
+    turnCompletions,
   ])
 
   const lastAssistantItem = useMemo(() => {
@@ -987,6 +1000,13 @@ export function MessageListView({
               >
                 <HistoricalMessageGroup
                   group={item.group}
+                  completion={
+                    item.group.completion ??
+                    (item.key === lastAssistantItem?.key &&
+                    session?.detail?.summary.status === "cancelled"
+                      ? "stopped"
+                      : null)
+                  }
                   durationMs={item.durationMs}
                   liveMessage={
                     liveMessage &&
@@ -1077,6 +1097,7 @@ export function MessageListView({
       modelOptions,
       gatewayModels,
       session?.detail?.summary.model,
+      session?.detail?.summary.status,
       sessionActions,
     ]
   )

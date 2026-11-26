@@ -209,6 +209,7 @@ export interface LiveMessage {
   firstTextAt?: number | null
   recoveredVersion?: number
   completedAt?: number | null
+  stopReason?: string
 }
 
 // ── Per-connection state ──
@@ -437,6 +438,7 @@ type Action =
       status: ConnectionStatus
       startedAt?: number
       completedActivity?: SessionActivitySnapshot | null
+      stopReason?: string
     }
   | {
       type: "SESSION_FAILURE"
@@ -1734,10 +1736,22 @@ function connectionsReducer(
           "all"
         )
         updated.outOfTurnToolCalls = null
-      } else if (conn.status === "prompting" || action.completedActivity) {
+      } else if (
+        conn.status === "prompting" ||
+        action.completedActivity ||
+        action.stopReason
+      ) {
         if (conn.liveMessage) {
           updated.liveMessage = completeLiveTurnTiming(
-            conn.liveMessage,
+            {
+              ...conn.liveMessage,
+              stopReason:
+                action.stopReason ??
+                conn.liveMessage.stopReason ??
+                (action.status === "error" || action.status === "disconnected"
+                  ? "stream_disconnected"
+                  : undefined),
+            },
             action.completedActivity
           )
         }
@@ -4197,6 +4211,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             contextKey,
             status: "connected",
             completedActivity: e.activity,
+            stopReason: e.stop_reason,
           })
           // Detect pending question from tool calls in the completed turn
           const turnConn = storeRef.current.connections.get(contextKey)
@@ -4230,7 +4245,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // Send OS notification when window is not focused
           {
             const nc = storeRef.current.connections.get(contextKey)
-            if (nc && getTaskCompletionNotificationEnabled()) {
+            if (
+              nc &&
+              e.stop_reason === "end_turn" &&
+              getTaskCompletionNotificationEnabled()
+            ) {
               const agentLabel = getAgentDisplayName(nc.agentType)
               const fn = folderNameRef.current
               const title = fn ? `${fn} - 原助理` : "原助理"

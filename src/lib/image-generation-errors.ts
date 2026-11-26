@@ -77,10 +77,10 @@ export function imageGenerationErrors(
   failed: boolean
 ): ImageErrorLabel[] {
   const labels = collectImageErrors(output, failed)
-  if (!labels.length && failed) return ["imageGenerationFailed"]
-  // 参数和源图诊断留在工具记录中，避免在重试和历史消息正文中反复提示。
+  // 仅保留需要用户处理的配额/访问问题；生成、参数和源图诊断由工具链处理。
   return labels.filter(
     (label) =>
-      label !== "imageRequestInvalid" && label !== "imageSourceRequired"
+      label === "imageSpaceQuotaExceeded" ||
+      label === "imageServiceAccessFailed"
   )
 }

@@ -9,10 +9,24 @@ import type { AssistantTimelineSection } from "./assistant-turn-timeline"
 import { useArchiveDisclosure } from "./use-archive-disclosure"
 import { buildAssistantArchiveEntries } from "./assistant-archive-segments"
 import { AssistantProgressSegment } from "./assistant-progress-segment"
+import {
+  InterruptedTurnNotice,
+  type TurnPresentation,
+} from "./assistant-turn-completion"
+
+const COMPLETION_LABELS = {
+  completed: "turnCompleted",
+  interrupted: "turnInterrupted",
+  stopped: "turnStopped",
+  unconfirmed: "turnUnconfirmed",
+  ended: "turnEnded",
+} as const
 
 interface AssistantTurnArchiveProps {
   sections: AssistantTimelineSection[]
   complete: boolean
+  outcome: TurnPresentation
+  isLatest?: boolean
   collapse: boolean
   foldSegments?: boolean
   durationMs?: number | null
@@ -35,7 +49,8 @@ export function AssistantTurnArchive(props: AssistantTurnArchiveProps) {
     canFold && props.collapse
   )
   const expanded = !canFold || open
-  const label = completionLabel(props.durationMs, t("turnCompleted"), live)
+  const labelKey = COMPLETION_LABELS[props.outcome]
+  const label = completionLabel(props.durationMs, t(labelKey), live)
   const entries = buildAssistantArchiveEntries(props.sections, props.complete)
   const renderItem = (section: AssistantTimelineSection, index: number) => (
     <ArchiveSection
@@ -81,10 +96,12 @@ export function AssistantTurnArchive(props: AssistantTurnArchiveProps) {
         )}
       </div>
       {props.complete &&
-        !props.sections.some((section) => section.retainOnCompletion) && (
-          <p className="text-sm text-muted-foreground">
-            {t("conversationSummaryFallback")}
-          </p>
+        props.outcome !== "completed" &&
+        props.outcome !== "ended" && (
+          <InterruptedTurnNotice
+            outcome={props.outcome}
+            isLatest={Boolean(props.isLatest)}
+          />
         )}
     </div>
   )

@@ -53,8 +53,7 @@ pub(super) async fn generate(
     authority: &SessionContext,
     arguments: Value,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let request: ImageToolRequest = serde_json::from_value(arguments)
-        .map_err(|error| rmcp::ErrorData::invalid_params(error.to_string(), None))?;
+    let request = request::parse(arguments)?;
     match request {
         ImageToolRequest::Batch(request) => {
             Box::pin(batch::execute_batch(service, authority, request)).await

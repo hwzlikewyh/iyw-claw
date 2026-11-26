@@ -78,6 +78,48 @@ pub(super) enum ImageToolRequest {
     Single(ImageRequest),
 }
 
+pub(super) fn parse(arguments: Value) -> Result<ImageToolRequest, rmcp::ErrorData> {
+    // 先确定调用形态，避免 untagged 枚举吞掉具体参数的反序列化错误。
+    let parsed = if arguments.get("requests").is_some() {
+        serde_json::from_value::<ImageBatchRequest>(arguments).map(ImageToolRequest::Batch)
+    } else {
+        serde_json::from_value::<ImageRequest>(arguments).map(ImageToolRequest::Single)
+    };
+    parsed.map(normalize_parameters).map_err(|error| {
+        tracing::warn!(
+            error_category = ?error.classify(),
+            execution_status = "not_started",
+            "[iyw-image] image arguments rejected before submission"
+        );
+        rmcp::ErrorData::invalid_params(
+            error.to_string(),
+            Some(serde_json::json!({"execution_status": "not_started"})),
+        )
+    })
+}
+
+fn normalize_parameters(mut request: ImageToolRequest) -> ImageToolRequest {
+    let items = match &mut request {
+        ImageToolRequest::Single(item) => std::slice::from_mut(item),
+        ImageToolRequest::Batch(batch) => batch.requests.as_mut_slice(),
+    };
+    for item in items {
+        // Fusion 可选字段的 null 等同于省略，数量/回退预检也应遵循此规则。
+        if matches!(
+            item.kind.as_deref(),
+            None | Some("" | "auto" | "generate" | "edit")
+        ) {
+            item.parameters.retain(|_, value| !value.is_null());
+        }
+        for fallback in &mut item.fallbacks {
+            if matches!(fallback.kind.as_str(), "generate" | "edit") {
+                fallback.parameters.retain(|_, value| !value.is_null());
+            }
+        }
+    }
+    request
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct WaitOptions {

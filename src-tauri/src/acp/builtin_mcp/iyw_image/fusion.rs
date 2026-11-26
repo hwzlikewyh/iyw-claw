@@ -28,6 +28,7 @@ pub(super) async fn generate(
         None
     };
     let mut payload = request.parameters.clone();
+    payload.retain(|_, value| !value.is_null());
     if let Some((model_id, _)) = &selected {
         payload.insert("model".to_string(), Value::String(model_id.clone()));
     }

@@ -47,6 +47,11 @@ import {
 } from "@/stores/turn-metadata"
 import { completeTurnTiming } from "@/lib/turn-duration"
 import {
+  mergeTurnCompletions,
+  recordTurnCompletion,
+  type TurnCompletionRecord,
+} from "@/lib/turn-completion"
+import {
   measuredTurnTimings,
   rememberTurnTimings,
 } from "@/lib/turn-performance"
@@ -127,6 +132,7 @@ export interface ConversationRuntimeSession {
 
   // Active session accumulated turns (promoted optimistic + completed streaming)
   localTurns: MessageTurn[]
+  turnCompletions: TurnCompletionRecord[]
   backgroundTurns: BackgroundOverlayEntry[]
   pendingBackgroundSettlements: PendingBackgroundSettlement[]
 
@@ -350,6 +356,7 @@ function createEmptySession(
     detailError: null,
     acpLoadError: null,
     localTurns: [],
+    turnCompletions: [],
     backgroundTurns: [],
     pendingBackgroundSettlements: [],
     optimisticTurns: [],
@@ -1088,7 +1095,12 @@ export function buildStreamingTurnsFromLiveMessage(
 
   const timestamp = new Date(liveMessage.startedAt).toISOString()
   const turns = groups
-    .filter((group) => group.blocks.length > 0)
+    // 空回复也保留最后一个结束入口，避免异常退出后只剩用户消息。
+    .filter(
+      (group, index) =>
+        group.blocks.length > 0 ||
+        (liveMessage.completedAt != null && index === groups.length - 1)
+    )
     .map((group, i) => ({
       id:
         group.id ??
@@ -1459,6 +1471,11 @@ function reducer(
       return updateSessionInState(state, action.conversationId, () => ({
         ...current,
         localTurns: drained.turns,
+        turnCompletions: recordTurnCompletion(
+          current.turnCompletions,
+          sourceLiveMessage,
+          [...current.optimisticTurns, ...streamingTurns]
+        ),
         pendingBackgroundSettlements: drained.pending,
         optimisticTurns: [],
         liveMessage: null,
@@ -1652,6 +1669,24 @@ function reducer(
         session.syncState !== "awaiting_persist" &&
         (hasExistingTurns || session.detailLoading)
       ) {
+        // 先收到停止状态、后收到结束原因时，仅补齐结算信息，不重放已归档正文。
+        if (
+          action.liveMessage.stopReason &&
+          action.liveMessage.completedAt != null
+        ) {
+          const turns = buildStreamingTurnsFromLiveMessage(
+            action.conversationId,
+            action.liveMessage
+          ).turns
+          return updateSessionInState(state, action.conversationId, () => ({
+            ...session,
+            turnCompletions: recordTurnCompletion(
+              session.turnCompletions,
+              action.liveMessage,
+              turns
+            ),
+          }))
+        }
         return state
       }
 
@@ -1719,6 +1754,10 @@ function reducer(
         detailLoading: to.detailLoading || from.detailLoading,
         detailError: to.detailError ?? from.detailError,
         localTurns: [...from.localTurns, ...to.localTurns],
+        turnCompletions: mergeTurnCompletions(
+          from.turnCompletions,
+          to.turnCompletions
+        ),
         optimisticTurns: [...from.optimisticTurns, ...to.optimisticTurns],
         liveMessage: mergedLiveMessage,
         syncState: to.syncState !== "idle" ? to.syncState : from.syncState,
