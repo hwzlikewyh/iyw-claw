@@ -10,6 +10,10 @@ fn main() {
         return;
     }
     iyw_claw_lib::brand::prepare_environment();
+    if std::env::args_os().any(|value| value == "--installation-brand") {
+        println!("{}", iyw_claw_lib::brand::describe());
+        return;
+    }
     if iyw_claw_lib::office_embedded::dispatch_early() {
         return;
     }

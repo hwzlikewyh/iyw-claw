@@ -14,6 +14,10 @@ on:
         required: false
         type: boolean
         default: true
+      verify_branding:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   verify:
@@ -90,3 +94,35 @@ jobs:
           foreach ($component in @('node','git','uv')) {
             if ($component -notin $snapshot.components.componentId) { throw "Missing required component: $component" }
           }
+      - name: Verify two brands use identical signed PC bytes
+        if: inputs.verify_branding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = @(Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/direct' -Filter '*-app-payload.zip')
+          if ($payload.Count -ne 1) { throw 'Expected one common PC payload' }
+          $identities = @()
+          $digests = @()
+          foreach ($brand in @('iyw', 'yun')) {
+            $root = Join-Path $env:RUNNER_TEMP "installed-brand-$brand-$env:GITHUB_RUN_ID"
+            if (Test-Path -LiteralPath $root) { throw 'Verification destination already exists' }
+            Expand-Archive -LiteralPath $payload[0].FullName -DestinationPath $root
+            New-Item -ItemType Directory -Path "$root/config" | Out-Null
+            $name = if ($brand -eq 'iyw') { '原助理' } else { '云助理' }
+            Copy-Item src-tauri/icons/128x128.png "$root/config/logo.png"
+            @{brandId=$brand;displayName=$name;logoFile='logo.png'} | ConvertTo-Json | Set-Content "$root/config/branding.json" -Encoding utf8
+            $executable = Join-Path $root 'app/iyw-claw.exe'
+            $digests += (Get-FileHash -LiteralPath $executable).Hash
+            $start = [Diagnostics.ProcessStartInfo]::new($executable, '--installation-brand')
+            $start.UseShellExecute=$false; $start.CreateNoWindow=$true; $start.RedirectStandardOutput=$true
+            $process=[Diagnostics.Process]::Start($start)
+            try {
+              if (-not $process.WaitForExit(20000)) { $process.Kill(); throw 'Brand startup verification timed out' }
+              if ($process.ExitCode -ne 0) { throw 'Signed PC failed to start' }
+              $identity = $process.StandardOutput.ReadToEnd() | ConvertFrom-Json
+            } finally { $process.Dispose() }
+            if ($identity.capability -ne 'IYW_INSTALLED_BRAND_V1' -or $identity.productKey -ne 'iyw-claw' -or $identity.brandId -ne $brand -or $identity.displayName -ne $name -or !$identity.hasLogo) { throw 'Installed brand mismatch' }
+            $identities += $identity
+          }
+          if ($digests[0] -ne $digests[1]) { throw 'Brands must use identical PC bytes' }
+          if ($identities[0].identifier -eq $identities[1].identifier -or $identities[0].userDirectory -eq $identities[1].userDirectory) { throw 'Brand namespaces must differ' }

@@ -29,6 +29,13 @@ pub fn scheme() -> &'static str { &current().scheme }
 pub fn credential_service() -> &'static str { &current().credential_service }
 pub fn release_id() -> &'static str { &current().release_id }
 pub fn promotion_channel() -> &'static str { &current().promotion_channel }
+pub fn describe() -> serde_json::Value {
+    serde_json::json!({
+        "capability": "IYW_INSTALLED_BRAND_V1", "productKey": PRODUCT,
+        "brandId": id(), "displayName": name(), "identifier": identifier(),
+        "urlScheme": scheme(), "userDirectory": user_directory_name(), "hasLogo": current().logo.is_some(),
+    })
+}
 pub fn default_web_port() -> u16 { if id() == "iyw" { 3080 } else { 0 } }
 
 pub fn user_directory_name() -> String {
