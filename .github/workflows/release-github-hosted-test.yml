@@ -35,6 +35,10 @@ on:
         required: false
         default: false
         type: boolean
+      installer_run_id_for_candidate:
+        description: Successful signed brand-installer run for the common PC candidate
+        required: false
+        type: string
       candidate_repair_run:
         description: Repair only Linux for a prior signed candidate run
         required: false
@@ -136,6 +140,12 @@ jobs:
       - name: Restore frontend compiler cache
         if: hashFiles('.github/actions/frontend-cache/action.yml') != ''
         uses: ./.github/actions/frontend-cache
+
+      - name: Check candidate frontend types
+        if: inputs.signed_candidate
+        run: |
+          pnpm exec next typegen
+          pnpm exec tsc --noEmit --incremental false
 
       - name: Compile frontend
         run: pnpm build
@@ -296,6 +306,7 @@ jobs:
       version: ${{ inputs.version }}
       source_ref: ${{ needs.prepare-frontend.outputs.source_sha }}
       frontend_artifact: github-hosted-test-frontend-${{ inputs.version }}
+      installer_run_id: ${{ inputs.installer_run_id_for_candidate }}
     secrets: inherit
 
   repair-candidate:

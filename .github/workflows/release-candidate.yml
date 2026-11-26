@@ -11,6 +11,9 @@ on:
       frontend_artifact:
         required: true
         type: string
+      installer_run_id:
+        required: false
+        type: string
 jobs:
   draft:
     runs-on: ubuntu-22.04
@@ -58,6 +61,7 @@ jobs:
     uses: ./.github/workflows/release-windows-staged.yml
     with:
       target: ${{ matrix.target }}
+      installer_run_id: ${{ inputs.installer_run_id }}
       source_ref: ${{ inputs.source_ref }}
       release_id: ${{ needs.draft.outputs.release_id }}
       release_tag: v${{ inputs.version }}

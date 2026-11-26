@@ -5,6 +5,9 @@ on:
       parallel_worker:
         default: false
         type: boolean
+      installer_run_id:
+        required: false
+        type: string
       target:
         required: true
         type: string
@@ -284,9 +287,24 @@ jobs:
           ARCHIVE: ${{ steps.download.outputs.archive }}
         run: Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:IYW_CLAW_STAGING_DIR
       - name: Prepare signed unified installer
+        if: inputs.installer_run_id == ''
         env:
           GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
         run: ./.release-tools/.github/scripts/release/prepare-direct-installer.ps1 -Tag v0.2.11
+      - name: Download signed common candidate installer
+        if: inputs.installer_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-installer-windows-iyw
+          run-id: ${{ inputs.installer_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/brand-candidate-installer-${{ github.run_id }}
+      - name: Verify common candidate installer
+        if: inputs.installer_run_id != ''
+        shell: pwsh
+        env:
+          CANDIDATE_INSTALLER_DIRECTORY: ${{ runner.temp }}/brand-candidate-installer-${{ github.run_id }}
+        run: ./.release-tools/.github/scripts/release/prepare-brand-installer.ps1 -Directory $env:CANDIDATE_INSTALLER_DIRECTORY
       - name: Sign, bundle, verify and upload
         if: ${{ inputs.target != 'x86_64-pc-windows-msvc' }}
         env:
