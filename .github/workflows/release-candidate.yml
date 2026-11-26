@@ -17,6 +17,10 @@ on:
       frontend_run_id:
         required: false
         type: string
+      windows_only:
+        required: false
+        type: boolean
+        default: false
 jobs:
   draft:
     runs-on: ubuntu-22.04
@@ -54,6 +58,7 @@ jobs:
             const release = matches[0] || (await github.rest.repos.createRelease({...context.repo,tag_name:tag,target_commitish:process.env.SOURCE,name:`iyw-claw ${tag}`,draft:true,prerelease:true,body:`Signed build candidate from ${process.env.SOURCE}. Not published to Fusion.`})).data;
             core.setOutput('id', String(release.id));
   desktop:
+    if: ${{ !inputs.windows_only }}
     needs: draft
     uses: ./.github/workflows/release-tauri.yml
     with:
@@ -90,11 +95,13 @@ jobs:
       verify_environment: false
       verify_branding: true
   verify-macos:
+    if: ${{ !inputs.windows_only }}
     needs: desktop
     uses: ./.github/workflows/release-macos-verification.yml
     with:
       source_ref: ${{ inputs.source_ref }}
   finish:
+    if: ${{ !cancelled() && needs.draft.result == 'success' && needs.verify-windows.result == 'success' && (needs.verify-macos.result == 'success' || inputs.windows_only) }}
     needs: [draft, verify-windows, verify-macos]
     runs-on: ubuntu-22.04
     steps:

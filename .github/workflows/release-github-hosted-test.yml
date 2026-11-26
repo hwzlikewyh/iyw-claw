@@ -39,6 +39,11 @@ on:
         description: Successful signed brand-installer run for the common PC candidate
         required: false
         type: string
+      candidate_windows_only:
+        description: Repair Windows while other platforms keep their verified artifacts
+        required: false
+        type: boolean
+        default: false
       candidate_repair_run:
         description: Repair only Linux for a prior signed candidate run
         required: false
@@ -52,7 +57,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: github-hosted-packaging-test-${{ inputs.version }}-${{ inputs.platforms }}-${{ inputs.candidate_repair_run || 'primary' }}
+  group: github-hosted-packaging-test-${{ inputs.version }}-${{ inputs.platforms }}-${{ inputs.candidate_repair_run || 'primary' }}-${{ inputs.candidate_windows_only && 'windows' || 'all' }}
   cancel-in-progress: false
 
 env:
@@ -308,6 +313,7 @@ jobs:
       frontend_artifact: github-hosted-test-frontend-${{ inputs.version }}
       frontend_run_id: ${{ inputs.frontend_run_id }}
       installer_run_id: ${{ inputs.installer_run_id_for_candidate }}
+      windows_only: ${{ inputs.candidate_windows_only }}
     secrets: inherit
 
   repair-candidate:
