@@ -42,9 +42,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
       - name: Validate source and prepare brand metadata
         shell: pwsh
         env:
@@ -73,7 +70,7 @@ jobs:
           $file = "$env:PACKAGE_DIRECTORY/$env:ARTIFACT_PREFIX-windows.exe"
           node signing-tools/src-tauri/scripts/sign-staged-windows.mjs $file
           if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed' }
-          python installer/scripts/package.py finalize-windows
+          uv run --python 3.12 --no-project python installer/scripts/package.py finalize-windows
           if ($LASTEXITCODE -ne 0) { throw 'Signed packaging failed' }
           ./installer/scripts/verify-windows-package.ps1 -PackageRoot $env:PACKAGE_DIRECTORY -ArtifactPrefix $env:ARTIFACT_PREFIX -ExpectedThumbprint $env:IYW_CLAW_SIGN_THUMBPRINT
       - name: Sign common installer for automatic updates
