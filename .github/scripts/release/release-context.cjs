@@ -82,7 +82,15 @@ async function assertDraftContext({
     throw new Error(
       `Release #${releaseId} must be the draft for ${tag}; received=${releaseDetails(release)}`
     )
-  const tagCommit = await resolveCommitSha(github, repository, tag)
+  let tagCommit
+  try {
+    tagCommit = await resolveCommitSha(github, repository, tag)
+  } catch (error) {
+    // 测试草稿固定到提交，不创建会触发正式发布流水线的版本标签。
+    if (error.status !== 404 || !release.prerelease || release.target_commitish !== sourceRef)
+      throw error
+    tagCommit = sourceRef
+  }
   if (tagCommit !== sourceRef)
     throw new Error(
       `Release source mismatch: ${tag}=${tagCommit}, build=${sourceRef}`
