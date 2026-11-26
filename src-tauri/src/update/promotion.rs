@@ -5,18 +5,23 @@ use serde::Deserialize;
 
 use super::preferences::{self, UpdateChannel, UpdatePreferences};
 
-pub(super) fn accepts_channel(settings: &UpdatePreferences, channel: &str, release: Option<&str>) -> bool {
+pub(super) fn accepts_channel(
+    settings: &UpdatePreferences,
+    channel: &str,
+    release: Option<&str>,
+) -> bool {
     settings.channel.as_str() == channel
         || (settings.channel == UpdateChannel::Beta && channel == "stable")
-        || (settings.channel_source == "installer" && channel == "beta"
-            && release.is_some() && settings.promoted_release_id.as_deref() == release)
+        || (settings.channel_source == "installer"
+            && channel == "beta"
+            && release.is_some()
+            && settings.promoted_release_id.as_deref() == release)
 }
 
 #[derive(Deserialize)]
 struct Candidate {
     #[serde(alias = "releaseId")]
     release_id: String,
-    version: String,
     channel: UpdateChannel,
 }
 
@@ -31,19 +36,22 @@ pub async fn synchronize(
     preferences: UpdatePreferences,
 ) -> UpdatePreferences {
     let id = crate::brand::release_id();
-    if id.is_empty() || preferences.channel_source != "installer"
-        || preferences.promoted_release_id.as_deref() == Some(id) {
+    if id.is_empty()
+        || preferences.channel_source != "installer"
+        || preferences.promoted_release_id.as_deref() == Some(id)
+    {
         return preferences;
     }
     match fetch_stable(&preferences).await {
         Ok(Some(candidate)) if candidate.channel == UpdateChannel::Stable => {
-            let newer = semver::Version::parse(&candidate.version).ok()
-                .zip(semver::Version::parse(env!("CARGO_PKG_VERSION")).ok())
-                .is_some_and(|(stable, current)| stable > current);
-            if candidate.release_id != id && !newer { return preferences; }
+            if candidate.release_id != id {
+                return preferences;
+            }
             let channel = if crate::brand::promotion_channel() == "beta" {
                 UpdateChannel::Beta
-            } else { UpdateChannel::Stable };
+            } else {
+                UpdateChannel::Stable
+            };
             match apply_promotion(conn, id, channel).await {
                 Ok(updated) => return updated,
                 Err(error) => tracing::warn!(release_id = id, %error, "保存测试版晋级状态失败"),
@@ -55,18 +63,41 @@ pub async fn synchronize(
     preferences
 }
 
-async fn fetch_stable(preferences: &UpdatePreferences) -> Result<Option<Candidate>, reqwest::Error> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
-    let arch = if cfg!(target_arch = "x86") { "i686" } else { std::env::consts::ARCH };
+async fn fetch_stable(
+    preferences: &UpdatePreferences,
+) -> Result<Option<Candidate>, reqwest::Error> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let arch = if cfg!(target_arch = "x86") {
+        "i686"
+    } else {
+        std::env::consts::ARCH
+    };
     // 复用现有版本查询，不需要新增品牌或候选接口。
-    let response: Envelope = client.get(format!(
-        "{}/app-updates/v1/check/{}/{arch}/0.0.0",
-        super::release::configured_base_url(), crate::distribution_platform::TARGET))
-        .query(&[("product", crate::brand::PRODUCT), ("runtime", "desktop"),
-            ("channel", "stable"), ("reason", "manual")])
+    let response: Envelope = client
+        .get(format!(
+            "{}/app-updates/v1/check/{}/{arch}/0.0.0",
+            super::release::configured_base_url(),
+            crate::distribution_platform::TARGET
+        ))
+        .query(&[
+            ("product", crate::brand::PRODUCT),
+            ("runtime", "desktop"),
+            ("channel", "stable"),
+            ("reason", "manual"),
+        ])
         .header("X-IYW-Installation-ID", &preferences.installation_id)
-        .send().await?.error_for_status()?.json().await?;
-    Ok(if response.code == 1 { response.data } else { None })
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(if response.code == 1 {
+        response.data
+    } else {
+        None
+    })
 }
 
 async fn apply_promotion(
