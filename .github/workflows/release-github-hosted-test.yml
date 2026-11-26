@@ -296,7 +296,7 @@ jobs:
         run: sccache --show-stats
 
   signed-candidate:
-    if: inputs.signed_candidate && inputs.candidate_repair_run == ''
+    if: ${{ !cancelled() && inputs.signed_candidate && inputs.candidate_repair_run == '' && (needs.prepare-frontend.result == 'success' || (needs.prepare-frontend.result == 'skipped' && inputs.frontend_run_id != '')) }}
     needs: prepare-frontend
     permissions:
       contents: write
@@ -304,8 +304,9 @@ jobs:
     uses: ./.github/workflows/release-candidate.yml
     with:
       version: ${{ inputs.version }}
-      source_ref: ${{ needs.prepare-frontend.outputs.source_sha }}
+      source_ref: ${{ needs.prepare-frontend.outputs.source_sha || inputs.source_ref }}
       frontend_artifact: github-hosted-test-frontend-${{ inputs.version }}
+      frontend_run_id: ${{ inputs.frontend_run_id }}
       installer_run_id: ${{ inputs.installer_run_id_for_candidate }}
     secrets: inherit
 

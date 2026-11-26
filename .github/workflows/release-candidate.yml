@@ -14,6 +14,9 @@ on:
       installer_run_id:
         required: false
         type: string
+      frontend_run_id:
+        required: false
+        type: string
 jobs:
   draft:
     runs-on: ubuntu-22.04
@@ -28,10 +31,20 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           SOURCE: ${{ inputs.source_ref }}
+          FRONTEND_RUN: ${{ inputs.frontend_run_id }}
+          FRONTEND_ARTIFACT: ${{ inputs.frontend_artifact }}
         with:
           script: |
             const fs = require('node:fs');
             const version = process.env.VERSION;
+            if (process.env.FRONTEND_RUN) {
+              if (!/^[1-9][0-9]*$/.test(process.env.FRONTEND_RUN)) throw new Error('Invalid frontend run');
+              const run_id = Number(process.env.FRONTEND_RUN);
+              const run = (await github.rest.actions.getWorkflowRun({...context.repo,run_id})).data;
+              if (run.head_sha !== process.env.SOURCE) throw new Error('Frontend belongs to another source');
+              const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,{...context.repo,run_id});
+              if (artifacts.filter(item => item.name === process.env.FRONTEND_ARTIFACT && !item.expired).length !== 1) throw new Error('Compiled frontend artifact is unavailable');
+            }
             if (JSON.parse(fs.readFileSync('package.json')).version !== version) throw new Error('Source version mismatch');
             if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error('Use the final version so verified bytes can be promoted unchanged');
             const tag = `v${version}`;
@@ -50,6 +63,7 @@ jobs:
       release_body: Signed build candidate
       prerelease: true
       frontend_artifact: ${{ inputs.frontend_artifact }}
+      frontend_run_id: ${{ inputs.frontend_run_id }}
       build_matrix: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Linux arm64","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}'
     secrets: inherit
   windows:
@@ -66,6 +80,7 @@ jobs:
       release_id: ${{ needs.draft.outputs.release_id }}
       release_tag: v${{ inputs.version }}
       frontend_artifact: ${{ inputs.frontend_artifact }}
+      frontend_run_id: ${{ inputs.frontend_run_id }}
     secrets: inherit
   verify-windows:
     needs: windows
