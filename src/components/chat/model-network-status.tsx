@@ -137,7 +137,7 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
       severe={severe}
       attempts={
         gatewayRetry
-          ? retryReason
+          ? (retryReason ?? null)
           : retrying && !networkError && attempt != null && attempt > 0
             ? t("modelNetwork.attempts", { count: attempt })
             : null
