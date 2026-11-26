@@ -1,0 +1,63 @@
+{
+  "id": "edgeone-pages",
+  "name": "EdgeOne Makers",
+  "env": {},
+  "packages": [
+    {
+      "name": "edgeone",
+      "spec": "edgeone@1.7.7",
+      "integrity": "sha512-ENnYPalZTpwlCV/IoqoLO1qGprILIF22DtfmKNX7DyuZ1CiCXhrc6lxVTe6VEj0w2WjlLUvJnisZSj0ykyb2vg=="
+    },
+    {
+      "name": "edgeone-pages-mcp-fullstack",
+      "spec": "edgeone-pages-mcp-fullstack@0.0.41",
+      "integrity": "sha512-GlRfPQ32dG3c93x2D/A7J/17KrJvLIMO688ysx3HzD56FnAgtdww42dFeZnRoBAnCzkRpyEqPHroAjBzyqFD/g=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "edgeone",
+        "args": [
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "edgeone",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [],
+  "resources": [],
+  "status": {
+    "program": "edgeone",
+    "args": [
+      "whoami"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.6.30",
+    "pattern": null,
+    "command": {
+      "program": "edgeone",
+      "args": [
+        "-v"
+      ]
+    }
+  },
+  "mcp": {
+    "program": "edgeone-makers-mcp",
+    "args": [
+      "--region",
+      "china"
+    ],
+    "package": "edgeone-pages-mcp-fullstack"
+  }
+}

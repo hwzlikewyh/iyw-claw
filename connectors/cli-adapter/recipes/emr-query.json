@@ -1,0 +1,67 @@
+{
+  "id": "emr-query",
+  "name": "弹性MapReduce",
+  "env": {},
+  "packages": [],
+  "python": [
+    "tccli==3.1.209.1"
+  ],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "tccli",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "tccli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "tccli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "status": {
+    "program": "tccli",
+    "args": [
+      "emr",
+      "DescribeInstancesList",
+      "--region",
+      "ap-guangzhou",
+      "--version",
+      "2019-01-03",
+      "--cli-unfold-argument",
+      "--DisplayStrategy",
+      "clusterList",
+      "--Limit",
+      "1"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "3.1.56.1",
+    "pattern": "(\\d+\\.\\d+\\.\\d+(?:\\.\\d+)?)",
+    "command": {
+      "program": "tccli",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

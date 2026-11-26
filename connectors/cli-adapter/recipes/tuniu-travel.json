@@ -1,0 +1,69 @@
+{
+  "id": "tuniu-travel",
+  "name": "途牛旅行",
+  "env": {
+    "TUNIU_DISCOVERY_ENABLED": "true",
+    "TUNIU_AUTH_TYPE": "oauth"
+  },
+  "packages": [
+    {
+      "name": "tuniu-cli",
+      "spec": "tuniu-cli@1.1.4",
+      "integrity": "sha512-WHLnZAFpGchWDAflWiHxcaSQfasuqQcBKAE/phfqIw+Cw5B/bM9ZrgU27e8/KxDVskTZqfFALcSsYbjnwFK5dQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "tuniu",
+        "args": [
+          "auth",
+          "login",
+          "--daemon"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "tuniu",
+      "args": [
+        "auth",
+        "logout",
+        "--daemon"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "tuniu",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "TUNIU_AUTH_OK",
+  "status": {
+    "program": "tuniu",
+    "args": [
+      "auth",
+      "status",
+      "--daemon"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.1.1",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "tuniu",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

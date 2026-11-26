@@ -259,8 +259,14 @@ pub(crate) async fn execute(
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
     let mut child = process.spawn().map_err(|error| {
-        tracing::warn!(connector=%id, kind=?error.kind(), "[MCP] CLI 检查程序启动失败");
-        AppCommandError::task_execution_failed("CLI 程序无法启动，请检查运行时安装与发布者配置")
+        tracing::warn!(connector=%id, program=%command.command, kind=?error.kind(), error=%error, "[MCP] CLI 检查程序启动失败");
+        let message = if error.kind() == std::io::ErrorKind::NotFound {
+            format!("找不到 CLI 程序 {} 或其工作目录，请检查连接器运行时安装与发布者配置", command.command)
+        } else {
+            format!("CLI 程序 {} 无法启动，请检查运行时安装与发布者配置", command.command)
+        };
+        AppCommandError::task_execution_failed(message)
+            .with_detail(format!("{}: {error}", command.command))
     })?;
     match tokio::time::timeout(CHECK_TIMEOUT, child.wait()).await {
         Ok(Ok(status)) => Ok(status.success()),

@@ -1,0 +1,64 @@
+{
+  "id": "tmeet",
+  "name": "腾讯会议",
+  "env": {},
+  "packages": [
+    {
+      "name": "@tencentcloud/tmeet",
+      "spec": "@tencentcloud/tmeet@1.1.1",
+      "integrity": "sha512-BrJIXvY0zfBsr4vKCyaYjCzkZ3Oku5T+/ShCbNPhp1QueyKxOMIfoNUu+bGxKgja+BjJPmregXQ42g0GaDGdnw=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "tmeet",
+        "args": [
+          "auth",
+          "login",
+          "--no-browser"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "tmeet",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "tmeet",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Logged in",
+  "status": {
+    "program": "tmeet",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.18",
+    "pattern": null,
+    "command": {
+      "program": "tmeet",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

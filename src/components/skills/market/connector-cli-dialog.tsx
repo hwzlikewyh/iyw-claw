@@ -65,6 +65,7 @@ export function ConnectorCLIContent({
             isVisible
             spawnProcess={state.spawn}
             onProcessExited={() => void state.verify()}
+            onProcessError={state.fail}
           />
         </div>
       ) : null}

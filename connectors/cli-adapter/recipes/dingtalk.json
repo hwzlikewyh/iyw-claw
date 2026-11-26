@@ -1,0 +1,85 @@
+{
+  "id": "dingtalk",
+  "name": "钉钉",
+  "env": {
+    "DWS_NO_SKILLS": "1"
+  },
+  "packages": [],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/dws.exe",
+        "args": [
+          "auth",
+          "login",
+          "-y"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "{{RUNTIME_DIR}}/bin/dws.exe",
+      "args": [
+        "auth",
+        "reset"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用官方 CLI",
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/dws.exe",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/dingtalk/LICENSE",
+      "path": "LICENSE",
+      "sha256": "1d951e8ca1019e1ad6fc14b8450df1b7ba788b9f242002873ca79df70ee376fd"
+    },
+    {
+      "source": "assets/dingtalk/NOTICE",
+      "path": "NOTICE",
+      "sha256": "b7d8a7d7c3c61cb0d4d78fa422fb81028c76d0e7ff1a23b1be68f058a9920d80"
+    },
+    {
+      "source": "assets/dingtalk/dws.exe",
+      "path": "bin/dws.exe",
+      "sha256": "9ca6360916cdaf7531505a46adf6205f047bf03175e8679aea863815563203e9"
+    }
+  ],
+  "statusMatch": "\"authenticated\"\\s*:\\s*true",
+  "statusMatchJson": {
+    "authenticated": "true"
+  },
+  "status": {
+    "program": "{{RUNTIME_DIR}}/bin/dws.exe",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.62",
+    "pattern": null,
+    "command": {
+      "program": "{{RUNTIME_DIR}}/bin/dws.exe",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "runtimeFiles": [
+    {
+      "path": "bin/dws.exe",
+      "sha256": "9ca6360916cdaf7531505a46adf6205f047bf03175e8679aea863815563203e9"
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "id": "feishu",
+  "name": "飞书",
+  "env": {
+    "LARKSUITE_CLI_CONFIG_DIR": "{{AUTH_DIR}}/.lark-cli"
+  },
+  "packages": [
+    {
+      "name": "@larksuite/cli",
+      "spec": "@larksuite/cli@1.0.100",
+      "integrity": "sha512-QsgCZoTL65zUwul/zkgTbPkaCXOGMJn2dqt7qPOB8TAGYbvMsaQinXwnJQXpW3pJR1qJnAFT8TFIoJjmD6EWXQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "lark-cli",
+        "args": [
+          "config",
+          "init",
+          "--new",
+          "--lang",
+          "en"
+        ]
+      },
+      "skipIf": {
+        "program": "lark-cli",
+        "args": [
+          "config",
+          "show"
+        ]
+      }
+    },
+    {
+      "command": {
+        "program": "lark-cli",
+        "args": [
+          "auth",
+          "login",
+          "--recommend"
+        ]
+      },
+      "successCodes": [
+        0,
+        3
+      ]
+    }
+  ],
+  "logout": [
+    {
+      "program": "lark-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "lark-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "identity": "user"
+  },
+  "status": {
+    "program": "lark-cli",
+    "args": [
+      "auth",
+      "status",
+      "--json"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.96",
+    "pattern": null,
+    "command": {
+      "program": "lark-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "statusJsonRoot": "data",
+  "statusRejectJson": {
+    "verified": false
+  }
+}

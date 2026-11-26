@@ -1,0 +1,64 @@
+{
+  "id": "awesun",
+  "name": "向日葵远程控制",
+  "env": {},
+  "packages": [
+    {
+      "name": "@aweray/awesun-cli",
+      "spec": "@aweray/awesun-cli@1.0.9",
+      "integrity": "sha512-jDElOV9xVOIzo/qREsLMYFgHC7KTVaTNvqVRxw2N9JbddjgTKPoOsRd/ZtvacGcm9QSVC6pM/byMANVXDd2efA=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "awesun-cli",
+        "args": [
+          "login",
+          "--qrcode",
+          "--url"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "awesun-cli",
+      "args": [
+        "logout",
+        "--clean"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "awesun-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Logged in as",
+  "status": {
+    "program": "awesun-cli",
+    "args": [
+      "login",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.1",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "awesun-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

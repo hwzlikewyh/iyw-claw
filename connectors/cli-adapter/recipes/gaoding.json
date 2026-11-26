@@ -1,0 +1,60 @@
+{
+  "id": "gaoding",
+  "name": "稿定",
+  "env": {
+    "GD_CLI_INSTALL_OWNER": "workbuddy"
+  },
+  "packages": [
+    {
+      "name": "@gaoding/cli",
+      "spec": "@gaoding/cli@1.1.0",
+      "integrity": "sha512-FJwIMeWpBAv0SILO9czIvgyKPnXrhaJ7ap187p4s2Owlv+pQyQsVQqd9av9Q88A3qcFkGgNp+07rlqqdtloR0Q=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "gd-cli",
+        "args": [
+          "auth",
+          "login",
+          "--no-browser"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "gd-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "gd-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "logged_in": true,
+    "credential.valid": true
+  },
+  "status": {
+    "program": "gd-cli",
+    "args": [
+      "auth",
+      "status",
+      "--json"
+    ]
+  }
+}

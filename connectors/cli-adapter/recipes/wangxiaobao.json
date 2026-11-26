@@ -1,0 +1,63 @@
+{
+  "id": "wangxiaobao",
+  "name": "旺小宝",
+  "env": {},
+  "packages": [
+    {
+      "name": "@puyinkai/xiaobao-cli",
+      "spec": "@puyinkai/xiaobao-cli@0.8.0",
+      "integrity": "sha512-q4gBE3HbTXlypSxIrz119Mmj3AmjMhXOx6w6b7eluzjNw1CngKKqOtuEpv0GGC7KPGHyNpp4nVvbJIzlakcASA=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "xiaobao-cli",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "xiaobao-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "xiaobao-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Logged in as",
+  "status": {
+    "program": "xiaobao-cli",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.5.0",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "xiaobao-cli",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

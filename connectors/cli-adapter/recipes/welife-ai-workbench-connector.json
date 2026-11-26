@@ -1,0 +1,77 @@
+{
+  "id": "welife-ai-workbench-connector",
+  "name": "微生活 AI 工作台",
+  "env": {
+    "WELIFE_HOME": "{{ARTIFACT_DIR}}/vendor"
+  },
+  "packages": [],
+  "python": [],
+  "install": [
+    {
+      "program": "node",
+      "args": [
+        "{{ARTIFACT_DIR}}/vendor/client.cjs",
+        "--version"
+      ]
+    }
+  ],
+  "login": [
+    {
+      "command": {
+        "program": "node",
+        "args": [
+          "{{ARTIFACT_DIR}}/vendor/client.cjs",
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "node",
+      "args": [
+        "{{ARTIFACT_DIR}}/vendor/client.cjs",
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [],
+  "resources": [
+    {
+      "source": "workbuddy/welife-ai-workbench-connector/client.cjs",
+      "path": "vendor/client.cjs",
+      "sha256": "7c9a586290b7e07215b8e9718a4c14cf24598b340813fff6b9a70cb01d763c35"
+    }
+  ],
+  "statusMatchJson": {
+    "status": "authorized"
+  },
+  "status": {
+    "program": "node",
+    "args": [
+      "{{ARTIFACT_DIR}}/vendor/client.cjs",
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "2.1.3",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "node",
+      "args": [
+        "{{ARTIFACT_DIR}}/vendor/client.cjs",
+        "--version"
+      ]
+    }
+  },
+  "mcp": {
+    "program": "node",
+    "args": [
+      "{{ARTIFACT_DIR}}/vendor/client.cjs",
+      "mcp"
+    ]
+  }
+}

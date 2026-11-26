@@ -1,0 +1,66 @@
+{
+  "id": "woscli",
+  "name": "微盟 WOS CLI",
+  "env": {},
+  "packages": [],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/woscli.exe",
+        "args": [
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "{{RUNTIME_DIR}}/bin/woscli.exe",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用官方 CLI",
+      "command": {
+        "program": "{{RUNTIME_DIR}}/bin/woscli.exe",
+        "args": []
+      }
+    }
+  ],
+  "resources": [
+    {
+      "source": "assets/woscli/woscli.exe",
+      "path": "bin/woscli.exe",
+      "sha256": "4ba4d93d6618b159f0d1db5e7b2cf986e9ede1b2177d81b74e21a54764cc7dcd"
+    }
+  ],
+  "statusMatch": "已授权",
+  "status": {
+    "program": "{{RUNTIME_DIR}}/bin/woscli.exe",
+    "args": [
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.0",
+    "pattern": "woscli version v?(\\d+\\.\\d+\\.\\d+|v_\\d+_\\d+-[0-9]+-g[0-9a-f]+(?:-dirty)?)",
+    "command": {
+      "program": "{{RUNTIME_DIR}}/bin/woscli.exe",
+      "args": [
+        "--version"
+      ]
+    }
+  },
+  "runtimeFiles": [
+    {
+      "path": "bin/woscli.exe",
+      "sha256": "4ba4d93d6618b159f0d1db5e7b2cf986e9ede1b2177d81b74e21a54764cc7dcd"
+    }
+  ]
+}

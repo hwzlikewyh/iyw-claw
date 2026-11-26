@@ -1,0 +1,69 @@
+{
+  "id": "lovrabet-cli",
+  "name": "Lovrabet CLI",
+  "env": {},
+  "packages": [
+    {
+      "name": "@lovrabet/lovrabet-cli",
+      "spec": "@lovrabet/lovrabet-cli@2.4.1",
+      "integrity": "sha512-xQ0LucK8AOnyUSwHAkTHhhcfqEBGit7pvnt5cRbjoK/+IBblCy5cMApCj4s7b5eUS61F7RkmN/SyEhxsmJSbLg=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "lovrabet",
+        "args": [
+          "auth",
+          "device",
+          "--url-only",
+          "--source",
+          "workbuddy"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "lovrabet",
+      "args": [
+        "auth",
+        "logout",
+        "--global"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "lovrabet",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Status: valid",
+  "status": {
+    "program": "lovrabet",
+    "args": [
+      "auth",
+      "status",
+      "--global",
+      "--check"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "2.3.3",
+    "pattern": null,
+    "command": {
+      "program": "lovrabet",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "id": "ihr-cli",
+  "name": "i人事AI·HR专家",
+  "env": {},
+  "packages": [
+    {
+      "name": "@ihr360cli/ihr-cli",
+      "spec": "@ihr360cli/ihr-cli@1.0.48",
+      "integrity": "sha512-MgQutWNeIXxaIXShraPhhBEA5G/Gf7mVu0kaG8UD6buy0OBOh9bxTjUaqgQLIp39WmwZ8MmOHon+ORp1Xw3hWg=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "ihr-cli",
+        "args": [
+          "auth",
+          "login",
+          "--open-browser",
+          "--source",
+          "workbuddy-connector",
+          "--env",
+          "prod",
+          "--create-timeout",
+          "8s",
+          "--timeout",
+          "5m"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "ihr-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "ihr-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "^READY\\s*$",
+  "status": {
+    "program": "ihr-cli",
+    "args": [
+      "auth",
+      "status",
+      "--readiness-only",
+      "--strict-exit",
+      "--env",
+      "prod"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.28",
+    "pattern": "\\\"version\\\"\\s*:\\s*\\\"(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?)\\\"",
+    "command": {
+      "program": "ihr-cli",
+      "args": [
+        "version"
+      ]
+    }
+  }
+}

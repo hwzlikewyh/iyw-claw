@@ -8,10 +8,7 @@ import {
   checkConnector,
   type ConnectorCheck,
 } from "@/lib/connector-auth"
-import { extractAppCommandError } from "@/lib/app-error"
-
-const message = (cause: unknown) =>
-  extractAppCommandError(cause)?.message || String(cause)
+import { toErrorMessage } from "@/lib/app-error"
 
 function useLifetime(terminal: string | null, transport: Transport) {
   const lease = useRef({
@@ -67,7 +64,7 @@ function useVerification({
         onChecked(value)
       }
     } catch (cause) {
-      if (lease.current.alive) setError(message(cause))
+      if (lease.current.alive) setError(toErrorMessage(cause))
     } finally {
       lease.current.running = false
       if (lease.current.alive) setChecking(false)
@@ -77,7 +74,7 @@ function useVerification({
     setView(null)
     setError("")
   }
-  const fail = (cause: unknown) => setError(message(cause))
+  const fail = (cause: unknown) => setError(toErrorMessage(cause))
   return { checking, view, error, verify, clear, fail }
 }
 

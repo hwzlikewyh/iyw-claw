@@ -1,0 +1,65 @@
+{
+  "id": "beisen-cli",
+  "name": "北森AI · HR专家",
+  "env": {},
+  "packages": [
+    {
+      "name": "beisen-cli",
+      "spec": "beisen-cli@1.0.10",
+      "integrity": "sha512-w3LmMQj4SLWZSXersMNkJcs3TGjQU6JEOXZsCxITC3XzQE+CdfVlXLEjqisBgN00AhlV4/6psd/HPPoVjp+dqw=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "beisen-cli",
+        "args": [
+          "auth",
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "beisen-cli",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "beisen-cli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatchJson": {
+    "status": "valid"
+  },
+  "status": {
+    "program": "beisen-cli",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "1.0.8",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "beisen-cli",
+      "args": [
+        "version"
+      ]
+    }
+  }
+}

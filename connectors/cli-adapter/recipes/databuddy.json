@@ -1,0 +1,74 @@
+{
+  "id": "databuddy",
+  "name": "DataBuddy",
+  "env": {
+    "WEDATA_HOST": "workbuddy",
+    "WEDATA_CLI_INVOKER": "databuddycli"
+  },
+  "packages": [
+    {
+      "name": "databuddycli",
+      "spec": "databuddycli@0.0.13",
+      "integrity": "sha512-5adnzOmOfZzW2z+LSTXyNhOqLoPjL10wfWLZERnSn6fFvX8BzL8WdWVLc+OMtwktqApfo2KFSUPnakepwhozhg=="
+    }
+  ],
+  "python": [],
+  "install": [
+    {
+      "program": "databuddycli",
+      "args": [
+        "init",
+        "--host",
+        "workbuddy",
+        "--tag",
+        "latest"
+      ]
+    }
+  ],
+  "login": [
+    {
+      "command": {
+        "program": "wedatacli",
+        "args": [
+          "login"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "wedatacli",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "wedatacli",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "Logged in",
+  "status": {
+    "program": "wedatacli",
+    "args": [
+      "auth-status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.0.2",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "wedatacli",
+      "args": [
+        "version"
+      ]
+    }
+  }
+}

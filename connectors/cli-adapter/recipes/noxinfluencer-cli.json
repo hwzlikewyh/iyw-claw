@@ -1,0 +1,68 @@
+{
+  "id": "noxinfluencer-cli",
+  "name": "NoxInfluencer 红人数据与营销运营",
+  "env": {},
+  "packages": [
+    {
+      "name": "@noxinfluencer/cli",
+      "spec": "@noxinfluencer/cli@0.5.5",
+      "integrity": "sha512-mW8zXCC/SUQqy0jKVtWBBdk/tW1L4lWmPqvLgMBJmSu+hMruFO8rbVXkdShcaLwfv/4pXBuZMgKIna9/pNNOsw=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "noxinfluencer",
+        "args": [
+          "login",
+          "--no-browser",
+          "--timeout",
+          "300"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "noxinfluencer",
+      "args": [
+        "auth",
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "noxinfluencer",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "\"authenticated\"\\s*:\\s*true",
+  "statusMatchJson": {
+    "authenticated": "true"
+  },
+  "status": {
+    "program": "noxinfluencer",
+    "args": [
+      "auth",
+      "status"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.5.5",
+    "pattern": "(\\d+\\.\\d+\\.\\d+)",
+    "command": {
+      "program": "noxinfluencer",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}

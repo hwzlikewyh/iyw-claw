@@ -1,0 +1,61 @@
+{
+  "id": "guansd",
+  "name": "观思动-AI开发部署企业应用",
+  "env": {},
+  "packages": [
+    {
+      "name": "guansd",
+      "spec": "guansd@0.9.6",
+      "integrity": "sha512-5UutAMsooyBdf0348s6Ji+wiTxxFXalCZUQgNKmTZ3Dv5la2mZVvoGhad7ppWYu/7+yYVqJ1rxyuk8um3MJXyQ=="
+    }
+  ],
+  "python": [],
+  "install": [],
+  "login": [
+    {
+      "command": {
+        "program": "guansd",
+        "args": [
+          "login",
+          "--browser"
+        ]
+      }
+    }
+  ],
+  "logout": [
+    {
+      "program": "guansd",
+      "args": [
+        "logout"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connector_cli",
+      "description": "使用服务方官方命令行能力",
+      "command": {
+        "program": "guansd",
+        "args": []
+      }
+    }
+  ],
+  "resources": [],
+  "statusMatch": "可管理应用",
+  "status": {
+    "program": "guansd",
+    "args": [
+      "whoami"
+    ]
+  },
+  "versionCheck": {
+    "minimum": "0.5.0",
+    "pattern": null,
+    "command": {
+      "program": "guansd",
+      "args": [
+        "--version"
+      ]
+    }
+  }
+}
