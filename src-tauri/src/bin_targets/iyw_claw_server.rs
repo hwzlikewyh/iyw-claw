@@ -587,6 +587,7 @@ async fn async_main() -> ExitCode {
         match iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService::start(
             listener,
             state.db.conn.clone(),
+            state.connection_manager.clone_ref(),
         )
         .await
         {

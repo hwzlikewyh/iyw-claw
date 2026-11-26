@@ -101,6 +101,7 @@ impl BuiltinMcpService {
     pub async fn start(
         listener: Arc<DelegationListener>,
         db: sea_orm::DatabaseConnection,
+        connections: crate::acp::manager::ConnectionManager,
     ) -> io::Result<Arc<Self>> {
         super::capability::CapabilityCatalog::load()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -115,7 +116,7 @@ impl BuiltinMcpService {
         crate::web::socket_inherit::mark_listener_non_inheritable(&tcp)?;
         let authority = tcp.local_addr()?.to_string();
         let endpoint: Arc<str> = format!("http://{authority}/mcp").into();
-        let model_gateway = crate::acp::model_gateway::ModelGateway::start().await?;
+        let model_gateway = crate::acp::model_gateway::ModelGateway::start(connections).await?;
         let shutdown = CancellationToken::new();
         let (router, client) = build_runtime(
             listener,

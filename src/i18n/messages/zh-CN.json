@@ -4064,6 +4064,9 @@
           "continuePrompt": "继续完成当前任务。"
         },
         "modelNetwork": {
+          "reconnectWait": "第 {attempt}/{max} 次重连",
+          "retryIn": "{seconds} 秒后重试",
+          "reconnectNow": "正在第 {attempt}/{max} 次重连…",
           "retrying": "已收到你的消息，正在自动重试模型请求。",
           "attempts": "第 {count} 次重试",
           "disconnected": "本轮模型回复未完成。你可以在当前对话中重试。",

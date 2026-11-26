@@ -1,9 +1,11 @@
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use futures_util::StreamExt;
-use tokio::io::AsyncWriteExt;
+use futures_util::{stream, StreamExt};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::sync::Mutex;
 use tokio_util::io::ReaderStream;
 
 use super::error::GatewayError;
@@ -101,23 +103,13 @@ impl Spool {
         }
     }
 
-    pub fn into_body(self) -> Result<reqwest::Body, GatewayError> {
+    pub fn into_upload(self) -> UploadBody {
         match self {
-            Self::Memory(bytes, budget) => Ok(reqwest::Body::wrap_stream(
-                futures_util::stream::unfold((Some(bytes), budget), |(bytes, budget)| async move {
-                    bytes.map(|bytes| (Ok::<_, std::io::Error>(bytes), (None, budget)))
-                }),
-            )),
-            Self::File(mut file, _, budget) => {
-                file.seek(SeekFrom::Start(0))?;
-                let stream = ReaderStream::new(tokio::fs::File::from_std(file));
-                Ok(reqwest::Body::wrap_stream(futures_util::stream::unfold(
-                    (stream, budget),
-                    |(mut stream, budget)| async move {
-                        stream.next().await.map(|chunk| (chunk, (stream, budget)))
-                    },
-                )))
-            }
+            Self::Memory(bytes, budget) => UploadBody::Memory(bytes, budget),
+            Self::File(file, _, budget) => UploadBody::File(
+                Arc::new(Mutex::new(tokio::fs::File::from_std(file))),
+                budget,
+            ),
         }
     }
 
@@ -133,6 +125,34 @@ impl Spool {
         let budget = Arc::new(SpoolBudget::default());
         budget.reserve(bytes.len() as u64)?;
         Ok(Self::Memory(bytes, budget))
+    }
+}
+
+pub(super) enum UploadBody {
+    Memory(Bytes, Arc<SpoolBudget>),
+    File(Arc<Mutex<tokio::fs::File>>, Arc<SpoolBudget>),
+}
+
+impl UploadBody {
+    pub async fn open(&self) -> Result<reqwest::Body, GatewayError> {
+        let (chunks, budget) = match self {
+            Self::Memory(bytes, budget) => {
+                (stream::iter([Ok(bytes.clone())]).left_stream(), budget)
+            }
+            Self::File(file, budget) => {
+                // 上游可能在上传结束前返回错误。前一次上传释放文件后才允许回绕。
+                let mut file = file.clone().lock_owned().await;
+                file.rewind().await?;
+                (ReaderStream::new(Pin::new(file)).right_stream(), budget)
+            }
+        };
+        let guarded = stream::unfold(
+            (chunks, budget.clone()),
+            |(mut chunks, budget)| async move {
+                chunks.next().await.map(|chunk| (chunk, (chunks, budget)))
+            },
+        );
+        Ok(reqwest::Body::wrap_stream(guarded))
     }
 }
 

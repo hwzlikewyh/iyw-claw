@@ -1,11 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { AlertTriangle, ChevronDown, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
 import { useSessionActivity } from "@/hooks/use-session-activity"
+import { useVisibleNow } from "@/hooks/use-visible-now"
+import type { ObservedSessionActivity } from "@/lib/session-activity"
 import { classifyAgentRuntimeError } from "@/lib/agent-runtime-error"
 import {
   clearModelNetworkDiagnosis,
@@ -15,6 +17,7 @@ import {
 } from "@/lib/model-network-diagnostics"
 import { cn } from "@/lib/utils"
 
+const MILLISECONDS_PER_SECOND = 1_000
 const SEVERE_RETRY_ATTEMPTS = 2
 const NETWORK_ERROR_KINDS = new Set([
   "networkError",
@@ -71,9 +74,22 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
       error,
       NETWORK_ERROR_KEYS.map((key) => t(key))
     )
+  const gatewayRetry =
+    retrying &&
+    activity &&
+    retry?.retry_at &&
+    attempt &&
+    retry.retry_max_attempts
+      ? {
+          activity,
+          retryAt: retry.retry_at,
+          progress: { attempt, max: retry.retry_max_attempts },
+        }
+      : null
   const retryReason = retry?.retry_reason
   const networkIssue =
     networkError ||
+    Boolean(gatewayRetry) ||
     (retrying && (!retryReason || NETWORK_RETRY_REASONS.has(retryReason)))
   const diagnosisScope = useMemo(
     () => ({ contextKey, networkIssue }),
@@ -114,13 +130,17 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
 
   return (
     <ModelNetworkBanner
-      message={message}
-      networkError={networkError}
+      message={
+        gatewayRetry ? <GatewayRetryMessage {...gatewayRetry} /> : message
+      }
+      networkError={networkError && !gatewayRetry}
       severe={severe}
       attempts={
-        retrying && !networkError && attempt != null && attempt > 0
-          ? t("modelNetwork.attempts", { count: attempt })
-          : null
+        gatewayRetry
+          ? retryReason
+          : retrying && !networkError && attempt != null && attempt > 0
+            ? t("modelNetwork.attempts", { count: attempt })
+            : null
       }
       diagnosis={
         networkIssue && diagnosisState.scope === diagnosisScope
@@ -132,6 +152,32 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
   )
 }
 
+function GatewayRetryMessage({
+  activity,
+  retryAt,
+  progress,
+}: {
+  activity: ObservedSessionActivity
+  retryAt: string
+  progress: { attempt: number; max: number }
+}) {
+  const t = useTranslations("Folder.chat.acpConnections.modelNetwork")
+  const now = useVisibleNow(true)
+  const elapsed = Math.max(0, now - activity.receivedAt)
+  const remaining =
+    Date.parse(retryAt) - Date.parse(activity.snapshot.sampled_at) - elapsed
+  const seconds = Math.ceil(remaining / MILLISECONDS_PER_SECOND)
+  if (seconds <= 0) return t("reconnectNow", progress)
+  return (
+    <>
+      {t("reconnectWait", progress)}
+      <span role="timer" aria-live="off" className="ms-2">
+        {t("retryIn", { seconds })}
+      </span>
+    </>
+  )
+}
+
 function ModelNetworkBanner({
   message,
   networkError,
@@ -140,7 +186,7 @@ function ModelNetworkBanner({
   diagnosis,
   diagnosisLoading,
 }: {
-  message: string
+  message: ReactNode
   networkError: boolean
   severe: boolean
   attempts: string | null

@@ -20,5 +20,5 @@ pub(super) const REFERENCE_REUSE: Duration = Duration::from_secs(300);
 pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const PREPARE_TIMEOUT: Duration = Duration::from_secs(90);
 pub(super) const RESOURCE_RETRY_DELAY: Duration = Duration::from_millis(200);
-pub(super) const HEADER_TIMEOUT: Duration = Duration::from_secs(900);
+pub(super) const HEADER_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 pub(super) const URL_REUSE: Duration = Duration::from_secs(45 * 60);

@@ -19,6 +19,8 @@ pub struct RetryProgress {
     pub max_attempts: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl RuntimeObservation {

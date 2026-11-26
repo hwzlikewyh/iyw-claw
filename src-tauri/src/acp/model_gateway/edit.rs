@@ -51,7 +51,7 @@ pub(super) async fn prepare(
         .acquire()
         .await
         .map_err(|_| GatewayError::unavailable("Image queue closed"))?;
-    let mut request = Request::new(Body::new(body.into_body()?));
+    let mut request = Request::new(Body::new(body.into_upload().open().await?));
     *request.headers_mut() = headers.clone();
     DefaultBodyLimit::max(limits::MAX_BODY_BYTES as usize).apply(&mut request);
     let multipart = Multipart::from_request(request, &())

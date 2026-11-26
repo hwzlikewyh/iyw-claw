@@ -13,7 +13,7 @@ use tracing::Instrument;
 use super::{
     error::GatewayError,
     headers,
-    limits::HEADER_TIMEOUT,
+    retry::CloudRequest,
     rewrite::{self, Output},
     spool::Spool,
     target, Runtime,
@@ -105,6 +105,8 @@ async fn forward_http(
     ),
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
+    let retry_turn =
+        super::retry_progress::RetryTurn::bind(&runtime.connections, &parts.headers).await;
     let deadline = tokio::time::Instant::now() + super::limits::PREPARE_TIMEOUT;
     let body = tokio::time::timeout_at(deadline, Spool::receive(body))
         .await
@@ -140,17 +142,16 @@ async fn forward_http(
         Output::Prepared(asset) => return Ok(prepared_response(asset, original_bytes, started)),
     };
     let final_bytes = body.len();
-    let diagnostic = super::diagnostics::CloudAttempt::new(&target);
-    let request = runtime
-        .client
-        .request(parts.method, target)
-        .headers(headers::filtered(&parts.headers))
-        .header("token", &token)
-        .header("x-iyw-native-vision", "true")
-        .header("accept-encoding", "identity")
-        .header("content-length", final_bytes)
-        .body(body.into_body()?);
-    let response = send_cloud(request, &diagnostic).await?;
+    let request = CloudRequest {
+        client: &runtime.client,
+        method: parts.method,
+        target,
+        headers: headers::filtered(&parts.headers),
+        token: &token,
+        content_length: final_bytes,
+        retry_turn,
+    };
+    let response = request.send(body.into_upload(), &path).await?;
     if let Some(key) = count_key {
         runtime.token_counts.observe(key, &response);
     }
@@ -160,24 +161,6 @@ async fn forward_http(
         response.status().as_u16(),
     );
     Ok(stream_response(response, permit, runtime.shutdown.clone()))
-}
-
-async fn send_cloud(
-    request: reqwest::RequestBuilder,
-    diagnostic: &super::diagnostics::CloudAttempt,
-) -> Result<reqwest::Response, GatewayError> {
-    let response = tokio::time::timeout(HEADER_TIMEOUT, request.send())
-        .await
-        .map_err(|_| {
-            diagnostic.timed_out();
-            GatewayError::unavailable("Cloud model response headers timed out")
-        })?
-        .map_err(|error| {
-            diagnostic.failed(&error);
-            GatewayError::cloud(error)
-        })?;
-    diagnostic.responded(response.status().as_u16());
-    Ok(response)
 }
 
 async fn prepare_body(

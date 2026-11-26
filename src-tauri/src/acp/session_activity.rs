@@ -36,6 +36,8 @@ pub struct SessionActivitySnapshot {
     pub retry_attempt: Option<u32>,
     pub retry_max_attempts: Option<u32>,
     pub retry_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_at: Option<DateTime<Utc>>,
     pub processes: Vec<ProcessObservation>,
     pub sampled_at: DateTime<Utc>,
 }
@@ -144,6 +146,7 @@ impl SessionActivity {
         self.snapshot.retry_attempt = None;
         self.snapshot.retry_max_attempts = None;
         self.snapshot.retry_reason = None;
+        self.snapshot.retry_at = None;
     }
 
     fn mark_processes_unknown(&mut self) {
@@ -177,12 +180,14 @@ impl SessionActivity {
                         .unwrap_or_else(|| {
                             self.snapshot
                                 .retry_attempt
+                                .filter(|_| self.snapshot.retry_at.is_none())
                                 .unwrap_or_default()
                                 .saturating_add(1)
                         }),
                 );
                 self.snapshot.retry_max_attempts = progress.max_attempts;
                 self.snapshot.retry_reason = progress.reason.clone();
+                self.snapshot.retry_at = progress.retry_at;
             }
             RuntimeObservation::TerminalPoll {
                 item_id,

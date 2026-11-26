@@ -4064,6 +4064,9 @@
           "continuePrompt": "Continue completing the current task."
         },
         "modelNetwork": {
+          "reconnectWait": "Reconnect attempt {attempt}/{max}",
+          "retryIn": "in {seconds, plural, one {# second} other {# seconds}}",
+          "reconnectNow": "Reconnecting (attempt {attempt}/{max})…",
           "retrying": "Your message was received. Retrying the model request automatically.",
           "attempts": "Retry {count}",
           "disconnected": "The model didn’t finish this reply. You can try again in this conversation.",

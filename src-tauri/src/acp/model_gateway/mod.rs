@@ -1,4 +1,5 @@
 //! 主进程模型出口：只准备媒体并同协议转发，计费与候选选择由 Fusion 完成。
+use super::manager::ConnectionManager;
 use std::{
     io,
     net::Ipv4Addr,
@@ -25,6 +26,8 @@ mod json_scan;
 mod json_string;
 mod limits;
 mod media;
+mod retry;
+mod retry_progress;
 mod rewrite;
 mod spool;
 mod spool_budget;
@@ -67,6 +70,7 @@ pub(crate) struct ModelGateway {
 }
 
 pub(super) struct Runtime {
+    connections: ConnectionManager,
     client: reqwest::Client,
     upstream: String,
     authority: String,
@@ -83,7 +87,7 @@ pub(super) struct Runtime {
 }
 
 impl ModelGateway {
-    pub async fn start() -> io::Result<Self> {
+    pub async fn start(connections: ConnectionManager) -> io::Result<Self> {
         let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         crate::web::socket_inherit::mark_listener_non_inheritable(&tcp)?;
         let authority = tcp.local_addr()?.to_string();
@@ -100,9 +104,9 @@ impl ModelGateway {
         );
         let shutdown = CancellationToken::new();
         let runtime = Arc::new(Runtime::new(
-            authority.clone(),
-            prefix.clone(),
+            (authority.clone(), prefix.clone()),
             shutdown.clone(),
+            connections,
         )?);
         let base = format!("http://{authority}{prefix}");
         *active_base()
@@ -154,7 +158,11 @@ impl Drop for ModelGateway {
 }
 
 impl Runtime {
-    fn new(authority: String, prefix: String, shutdown: CancellationToken) -> io::Result<Self> {
+    fn new(
+        (authority, prefix): (String, String),
+        shutdown: CancellationToken,
+        connections: ConnectionManager,
+    ) -> io::Result<Self> {
         let client = reqwest::Client::builder()
             // 模型出口固定直连，避免继承系统或环境变量中的失效代理。
             .no_proxy()
@@ -166,6 +174,7 @@ impl Runtime {
             .build()
             .map_err(io::Error::other)?;
         Ok(Self {
+            connections,
             upstream: crate::acp::provider_overlay::cloud_model_gateway_base_url(),
             client,
             authority,

@@ -1742,6 +1742,7 @@ export interface SessionActivitySnapshot {
   retry_attempt: number | null
   retry_max_attempts: number | null
   retry_reason: string | null
+  retry_at?: string | null
   processes: ProcessObservation[]
   sampled_at: string
 }
