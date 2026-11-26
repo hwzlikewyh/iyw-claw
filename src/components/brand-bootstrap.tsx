@@ -13,7 +13,7 @@ export function BrandBootstrap({ children }: { children: ReactNode }) {
   useEffect(() => {
     const update = () => {
       if (!document.title.includes(APP_NAME)) {
-        document.title = document.title.replaceAll("原助理", APP_NAME)
+        document.title = document.title.split("原助理").join(APP_NAME)
       }
       if (APP_LOGO !== "/icon.svg") {
         document

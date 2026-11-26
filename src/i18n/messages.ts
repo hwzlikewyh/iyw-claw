@@ -4,7 +4,7 @@ import type { AppLocale } from "@/lib/types"
 import { APP_NAME } from "@/lib/brand"
 
 function replaceBrand(value: unknown): unknown {
-  if (typeof value === "string") return value.replaceAll("原助理", APP_NAME)
+  if (typeof value === "string") return value.split("原助理").join(APP_NAME)
   if (Array.isArray(value)) return value.map(replaceBrand)
   if (value && typeof value === "object") {
     return Object.fromEntries(
