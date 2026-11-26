@@ -15,10 +15,10 @@ pub fn helper_data_dir() -> Option<PathBuf> {
         } else {
             home.join(".local").join("share")
         };
-        Some(base.join("app.iywclaw").join("computer-helper"))
+        Some(base.join(crate::brand::identifier()).join("computer-helper"))
     }
     #[cfg(windows)]
     {
-        dirs::data_local_dir().map(|d| d.join("app.iywclaw").join("computer-helper"))
+        dirs::data_local_dir().map(|d| d.join(crate::brand::identifier()).join("computer-helper"))
     }
 }

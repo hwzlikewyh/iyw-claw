@@ -9,6 +9,7 @@ pub use acp::{
 pub use network::proxy::init_proxy_from_db;
 mod app_error;
 pub mod app_state;
+pub mod brand;
 pub mod automation;
 pub mod browser;
 pub mod chat_channel;
@@ -223,6 +224,10 @@ mod tauri_app {
 
     #[cfg_attr(mobile, tauri::mobile_entry_point)]
     pub fn run() {
+        if let Err(error) = crate::brand::initialize() {
+            crate::logging::emergency::write_event("brand_configuration", "error", "startup", Some(error));
+            return;
+        }
         crate::logging::emergency::install_panic_hook();
 
         // Resolve the installed product root before logging so the first
@@ -327,12 +332,13 @@ mod tauri_app {
             }
         }));
 
+        let builder = builder.plugin(crate::brand::plugin());
         let builder = builder.plugin(tauri_plugin_deep_link::init());
         let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
-        let builder = builder.plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--from-autostart"]),
-        ));
+        let autostart = tauri_plugin_autostart::Builder::new().arg("--from-autostart");
+        let autostart = if crate::brand::id() == "iyw" { autostart }
+            else { autostart.app_name(crate::brand::credential_service()) };
+        let builder = builder.plugin(autostart.build());
 
         let build_stage = crate::logging::emergency::StartupStage::new("tauri-build");
         let builder = builder
@@ -1254,7 +1260,7 @@ mod tauri_app {
                             "resolved initial main window visibility"
                         );
                         let builder = tauri::WebviewWindowBuilder::new(app, "main", url)
-                            .title("iyw-claw")
+                            .title(crate::brand::name())
                             .inner_size(1260.0, 860.0)
                             .min_inner_size(400.0, 600.0)
                             .visible(!hide_for_autostart);
@@ -2148,7 +2154,7 @@ mod tauri_app {
                 web::update_web_service_config,
                 web::probe_web_service_port,
             ])
-            .build(tauri::generate_context!());
+            .build(crate::brand::configure(tauri::generate_context!()));
         let app = match app {
             Ok(app) => {
                 build_stage.complete();

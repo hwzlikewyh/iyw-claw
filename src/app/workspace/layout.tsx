@@ -92,13 +92,16 @@ import { IywAccountProvider } from "@/contexts/iyw-account-context"
 import { StartupLoginGate } from "@/components/account/startup-login-gate"
 import { StartupCodexGate } from "@/components/account/startup-codex-gate"
 import { groupOfTab } from "@/stores/tab-store"
+import { APP_NAME } from "@/lib/brand"
 import type { LayoutNode } from "@/lib/tab-group-layout"
 
 function WorkspaceDocumentTitle() {
   const { activeFolder } = useActiveFolder()
 
   useEffect(() => {
-    document.title = activeFolder ? `${activeFolder.name} - 原助理` : "原助理"
+    document.title = activeFolder
+      ? `${activeFolder.name} - ${APP_NAME}`
+      : APP_NAME
   }, [activeFolder])
 
   return null

@@ -15,7 +15,7 @@ pub(super) fn cache_path(app: &tauri::AppHandle, update: &Update) -> Result<Path
         &update.version,
         &update.target,
         &update.signature,
-        extensions.channel,
+        crate::brand::PRODUCT,
         extensions.release_id,
     ))
     .map_err(|error| error.to_string())?;

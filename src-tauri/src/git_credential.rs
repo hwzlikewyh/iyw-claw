@@ -277,15 +277,15 @@ fn resolve_app_data_dir() -> Option<std::path::PathBuf> {
     // On Windows: %APPDATA%/app.iywclaw
     #[cfg(target_os = "macos")]
     {
-        dirs::data_dir().map(|d| d.join("app.iywclaw"))
+        dirs::data_dir().map(|d| d.join(crate::brand::identifier()))
     }
     #[cfg(target_os = "linux")]
     {
-        dirs::data_dir().map(|d| d.join("app.iywclaw"))
+        dirs::data_dir().map(|d| d.join(crate::brand::identifier()))
     }
     #[cfg(target_os = "windows")]
     {
-        dirs::data_dir().map(|d| d.join("app.iywclaw"))
+        dirs::data_dir().map(|d| d.join(crate::brand::identifier()))
     }
 }
 

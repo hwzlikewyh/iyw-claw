@@ -67,7 +67,7 @@ async fn run(task: &mut Task, identity: &offer::Identity, mode: InstallMode) -> 
     let settings = preferences::load(&task.conn)
         .await
         .map_err(|error| error.to_string())?;
-    if settings.channel.as_str() != identity.channel {
+    if !super::promotion::accepts_channel(&settings, &identity.channel, identity.release_id.as_deref()) {
         return Err("Update channel changed".into());
     }
     let mut update = desktop::checked_update(task, identity, &settings).await?;

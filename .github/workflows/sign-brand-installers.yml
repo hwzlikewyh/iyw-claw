@@ -1,0 +1,93 @@
+name: Sign shared-PC brand installers
+on:
+  workflow_call:
+    inputs:
+      installer_ref:
+        required: true
+        type: string
+      installer_run_id:
+        required: true
+        type: string
+jobs:
+  sign:
+    runs-on: [self-hosted, Windows, X64, iyw-signing]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        brand: [iyw, yun]
+    concurrency:
+      group: windows-signing-${{ github.repository }}
+      queue: max
+      cancel-in-progress: false
+    env:
+      IYW_CLAW_SIGN_MODE: signtool
+      IYW_CLAW_SIGN_REQUIRED: "1"
+      IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+      IYW_CLAW_SAFENET_PIN: ${{ secrets.IYW_CLAW_SAFENET_PIN }}
+      INSTALLER_SOURCE: ${{ inputs.installer_ref }}
+      INSTALLER_RUN: ${{ inputs.installer_run_id }}
+      BRAND: ${{ matrix.brand }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: signing-tools
+          sparse-checkout: src-tauri/scripts
+      - uses: actions/checkout@v4
+        with:
+          repository: hwzlikewyh/iyw-claw-installer
+          token: ${{ secrets.INSTALLER_REPO_TOKEN }}
+          ref: ${{ inputs.installer_ref }}
+          path: installer
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate source and prepare brand metadata
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+        run: |
+          if ($env:INSTALLER_SOURCE -notmatch '^[a-f0-9]{40}$' -or $env:INSTALLER_RUN -notmatch '^[1-9][0-9]*$') { throw 'Invalid immutable input' }
+          $run = gh api "repos/hwzlikewyh/iyw-claw-installer/actions/runs/$env:INSTALLER_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $env:INSTALLER_SOURCE -or $run.conclusion -ne 'success') { throw 'Installer run must succeed on the exact source' }
+          $brand = Get-Content "installer/brands/$env:BRAND/brand.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+          "IYW_BRAND_ID=$($brand.brandId)" >> $env:GITHUB_ENV
+          "IYW_BRAND_NAME=$($brand.displayName)" >> $env:GITHUB_ENV
+          $prefix = if ($env:BRAND -eq 'iyw') { 'YuanAssistant-Setup' } else { "$env:BRAND-Setup" }
+          $directory = if ($env:BRAND -eq 'iyw') { 'installer/packages' } else { "installer/packages/$env:BRAND" }
+          "ARTIFACT_PREFIX=$prefix" >> $env:GITHUB_ENV
+          "PACKAGE_DIRECTORY=$directory" >> $env:GITHUB_ENV
+      - uses: actions/download-artifact@v4
+        with:
+          repository: hwzlikewyh/iyw-claw-installer
+          github-token: ${{ secrets.INSTALLER_REPO_TOKEN }}
+          run-id: ${{ inputs.installer_run_id }}
+          name: windows-signing-input-${{ matrix.brand }}
+          path: ${{ env.PACKAGE_DIRECTORY }}
+      - name: Sign, rebuild ZIP and verify publisher
+        shell: pwsh
+        run: |
+          $file = "$env:PACKAGE_DIRECTORY/$env:ARTIFACT_PREFIX-windows.exe"
+          node signing-tools/src-tauri/scripts/sign-staged-windows.mjs $file
+          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed' }
+          python installer/scripts/package.py finalize-windows
+          if ($LASTEXITCODE -ne 0) { throw 'Signed packaging failed' }
+          ./installer/scripts/verify-windows-package.ps1 -PackageRoot $env:PACKAGE_DIRECTORY -ArtifactPrefix $env:ARTIFACT_PREFIX -ExpectedThumbprint $env:IYW_CLAW_SIGN_THUMBPRINT
+      - name: Sign common installer for automatic updates
+        if: matrix.brand == 'iyw'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npx --yes @tauri-apps/cli@2.11.4 signer sign "$env:PACKAGE_DIRECTORY/$env:ARTIFACT_PREFIX-windows.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Updater signing failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-installer-windows-${{ matrix.brand }}
+          path: ${{ env.PACKAGE_DIRECTORY }}/*
+          if-no-files-found: error
+          retention-days: 14

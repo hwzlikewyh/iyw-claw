@@ -5,6 +5,11 @@
 mod native_share_receiver;
 
 fn main() {
+    if let Err(error) = iyw_claw_lib::brand::initialize() {
+        iyw_claw_lib::logging::emergency::write_event("brand_configuration", "error", "startup", Some(error));
+        return;
+    }
+    iyw_claw_lib::brand::prepare_environment();
     if iyw_claw_lib::office_embedded::dispatch_early() {
         return;
     }
@@ -15,7 +20,7 @@ fn main() {
         return;
     }
     #[cfg(all(windows, not(target_vendor = "win7")))]
-    if native_share_receiver::dispatch_early() {
+    if iyw_claw_lib::brand::id() == "iyw" && native_share_receiver::dispatch_early() {
         return;
     }
     iyw_claw_lib::logging::emergency::install_panic_hook();

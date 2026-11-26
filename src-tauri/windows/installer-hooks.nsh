@@ -20,6 +20,7 @@ Var IywClawPermissionError
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
 !include "${__FILEDIR__}\installer-test-mode.nsh"
+!include "${__FILEDIR__}\installer-brand.nsh"
 !include "${__FILEDIR__}\installer-desktop-shortcut.nsh"
 !ifdef IYW_CLAW_TEMP_BUNDLEID
   !undef BUNDLEID
@@ -139,6 +140,7 @@ Function IywClawResolveInstallRoot
     Abort
 
   iyw_root_allowed:
+    Call IywClawReadBrand
     Call IywClawCheckInstallPermissions
     CreateDirectory "$IywClawRoot"
     ClearErrors
@@ -167,6 +169,12 @@ Function IywClawResolveInstallRoot
 FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
+  !undef PRODUCTNAME
+  !define PRODUCTNAME "$IywClawBrandName"
+  !undef UNINSTKEY
+  !define UNINSTKEY "$IywClawBrandUninstallKey"
+  !undef MANUPRODUCTKEY
+  !define MANUPRODUCTKEY "$IywClawInstallRegistryKey"
   StrCpy $IywClawApplicationPhaseStarted "1"
   Push "正在检查安装目录、权限和可用空间..."
   Call IywClawSetInstallActivity
@@ -185,6 +193,8 @@ FunctionEnd
   Call IywClawAcquireInstallLock
   Call IywClawValidateElevationIdentity
   Call IywClawResolveInstallRoot
+  StrCpy $IywClawBrandNoShortcut $NoShortcutMode
+  StrCpy $NoShortcutMode "1"
   StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_validated
   Call IywClawValidateTestRoot
   Pop $R0
@@ -291,6 +301,10 @@ FunctionEnd
   ; isolated below root\app.
   WriteRegStr SHCTX "$IywClawInstallRegistryKey" "" "$IywClawRoot"
   Call IywClawEnsureDesktopShortcut
+  WriteRegStr SHCTX "$IywClawBrandUninstallKey" "DisplayIcon" "$IywClawBrandIcon"
+  WriteRegStr SHCTX "Software\Classes\$IywClawBrandScheme" "" "URL:$IywClawBrandName"
+  WriteRegStr SHCTX "Software\Classes\$IywClawBrandScheme" "URL Protocol" ""
+  WriteRegStr SHCTX "Software\Classes\$IywClawBrandScheme\shell\open\command" "" '$\"$IywClawAppDir\iyw-claw.exe$\" $\"%1$\"'
   Call IywClawRegisterNativeShare
 
   ${If} $UpdateMode = 1
@@ -302,6 +316,10 @@ FunctionEnd
 
 !macro NSIS_HOOK_PREUNINSTALL
   Call un.IywClawConfigureInstallerMode
+  StrCpy $IywClawRoot "$INSTDIR"
+  IfFileExists "$IywClawRoot\config\branding.json" +2
+    ${GetParent} "$INSTDIR" $IywClawRoot
+  Call un.IywClawReadBrand
   StrCmp $IywClawInstallerTestMode "invalid" iyw_invalid_uninstall_test_mode 0
   StrCmp $IywClawInstallerTestMode "1" 0 iyw_uninstall_test_root_validated
   ReadRegStr $IywClawRoot SHCTX "$IywClawInstallRegistryKey" "InstallRoot"

@@ -15,6 +15,11 @@ struct ShareConfig {
 }
 
 pub fn inbox(app: &AppHandle) -> Result<Inbox> {
+    if crate::brand::id() != "iyw" {
+        let root = app.path().app_local_data_dir()
+            .map_err(|_| iyw_share_core::invalid("无法定位当前品牌的分享目录"))?;
+        return Ok(Inbox::new(root.join("share-inbox")));
+    }
     #[cfg(target_os = "macos")]
     {
         let path = resources(app)?.join("config.json");

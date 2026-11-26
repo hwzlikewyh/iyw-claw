@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { StartupFailureActions } from "./startup-runtime-status"
+import { APP_LOGO } from "@/lib/brand"
 
 const SETUP_STAGES = ["prepare", "initialize", "finish"] as const
 
@@ -90,7 +91,7 @@ function InitializationBrand() {
     <header className="flex items-center justify-between gap-4 border-b px-7 py-5">
       <div className="flex min-w-0 items-center gap-3">
         <Image
-          src="/icon-128x128.png"
+          src={APP_LOGO}
           alt=""
           width={36}
           height={36}

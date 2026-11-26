@@ -1,5 +1,7 @@
 "use client"
 
+import { APP_NAME } from "@/lib/brand"
+
 import { useEffect, useRef, useState, type RefObject } from "react"
 import { createPortal } from "react-dom"
 import { toPng } from "html-to-image"
@@ -94,7 +96,9 @@ function ImageCanvas({
         className="bg-background px-4 py-6 text-foreground"
         style={{ width: IMAGE_WIDTH }}
       >
-        <p className="px-4 text-xs text-muted-foreground">原助理 · 会话分享</p>
+        <p className="px-4 text-xs text-muted-foreground">
+          {APP_NAME} · 会话分享
+        </p>
         <h1 className="px-4 py-2 text-xl font-semibold">{state.title}</h1>
         <ShareThread
           snapshot={state.snapshot}

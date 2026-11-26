@@ -6,7 +6,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 static PENDING: Mutex<Option<String>> = Mutex::new(None);
 
 fn share_fragment(url: &tauri::Url) -> Option<String> {
-    if url.scheme() != "iyw-assistant" || url.host_str() != Some("share") ||
+    if url.scheme() != crate::brand::scheme() || url.host_str() != Some("share") ||
         !matches!(url.path(), "" | "/") || url.query().is_some() {
         return None;
     }

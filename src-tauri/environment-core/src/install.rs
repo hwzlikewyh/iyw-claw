@@ -109,7 +109,7 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
         installation_id: installation_id(&layout)?,
         client_version: app_version.to_string(),
         pc_version: app_version.to_string(),
-        channel: "stable",
+        channel: crate::paths::release_channel(),
         runtime: "desktop",
         target: target.clone(),
         arch: arch.clone(),

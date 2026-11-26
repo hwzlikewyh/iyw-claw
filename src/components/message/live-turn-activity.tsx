@@ -1,5 +1,7 @@
 "use client"
 
+import { APP_NAME } from "@/lib/brand"
+
 import { useMemo } from "react"
 import { useTranslations } from "next-intl"
 import type { ToolCallInfo } from "@/contexts/acp-connections-context"
@@ -223,7 +225,7 @@ export function useTurnActivity(
     tool.name
   )
   return {
-    phase: retry.label ?? t(phase, { model: "原助理", tool: tool.name }),
+    phase: retry.label ?? t(phase, { model: APP_NAME, tool: tool.name }),
     detail: feedback.detail ?? detail,
     elapsed: feedback.elapsed,
     icon,

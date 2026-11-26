@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/lib/brand"
 import type {
   ContentBlock,
   DbConversationSummary,
@@ -469,7 +470,7 @@ ${blocksToHtml(turn.blocks, labels)}
 <div class="container">
 ${header}
 <main>${messages}</main>
-<div class="footer">原助理</div>
+<div class="footer">${escapeHtml(APP_NAME)}</div>
 </div>
 </body>
 </html>`
@@ -502,7 +503,7 @@ export function formatConversationMarkdown(
   }
 
   parts.push("---")
-  parts.push("*原助理*")
+  parts.push(`*${APP_NAME}*`)
 
   return parts.join("\n")
 }

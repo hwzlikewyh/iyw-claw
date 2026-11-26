@@ -24,6 +24,9 @@ async fn verify_capability(path: &Path, update: &Update) -> Result<(), String> {
     if !output.status.success() || value["protocol"] != 2 {
         return Err("Installer protocol mismatch".into());
     }
+    if crate::brand::id() != "iyw" && value["runtime_branding"] != 1 {
+        return Err("更新向导版本过旧，无法保留当前品牌配置，请更新安装向导".into());
+    }
     let supported = if super::direct_payload::selected(update) {
         value["payload"] == "app_payload_zip"
             && value["target"] == "windows"
@@ -60,7 +63,9 @@ async fn recheck(task: &Task, update: &Update, silent: bool) -> Result<(), Strin
     let settings = preferences::load(&task.conn)
         .await
         .map_err(|e| e.to_string())?;
-    if settings.channel.as_str() != "stable" {
+    let ext = release::extensions(update).map_err(|error| error.to_string())?;
+    let channel = ext.channel.ok_or("Missing release channel")?.as_str();
+    if !super::promotion::accepts_channel(&settings, channel, ext.release_id.as_deref()) {
         return Err("Update channel changed".into());
     }
     if silent
@@ -102,7 +107,7 @@ fn arguments(command: &mut Command, task: &Task, update: &Update) -> Result<(), 
             "--update-package-kind",
             package_kind,
             "--update-channel",
-            "stable",
+            ext.channel.ok_or("Missing release channel")?.as_str(),
         ])
         .arg("--update-size")
         .arg(ext.size.ok_or("Missing payload size")?.to_string())

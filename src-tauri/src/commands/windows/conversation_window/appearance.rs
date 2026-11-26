@@ -16,7 +16,7 @@ pub(crate) fn build_window(
 ) -> Result<(), AppCommandError> {
     let (route, remote_id) = route_context;
     let builder = WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(route.into()))
-        .title("原助理")
+        .title(crate::brand::name())
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .min_inner_size(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         .visible(false)

@@ -318,7 +318,7 @@ fn home_dir_or_default() -> PathBuf {
 
 pub(crate) fn central_experts_dir() -> PathBuf {
     home_dir_or_default()
-        .join(CENTRAL_DIR_NAME)
+        .join(crate::brand::user_directory_name())
         .join(CENTRAL_SKILLS_SUBDIR)
 }
 

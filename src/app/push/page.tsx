@@ -1,5 +1,7 @@
 "use client"
 
+import { APP_NAME } from "@/lib/brand"
+
 import { Suspense, useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useTranslations } from "next-intl"
@@ -81,7 +83,7 @@ function PushPageInner() {
   const pageTitle = folder ? `${t("title")} · ${folder.name}` : t("title")
 
   useEffect(() => {
-    document.title = `${pageTitle} - 原助理`
+    document.title = `${pageTitle} - ${APP_NAME}`
   }, [pageTitle])
 
   return (

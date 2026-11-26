@@ -3,6 +3,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+pub fn release_channel() -> &'static str {
+    if std::env::var("IYW_CLAW_RELEASE_CHANNEL").is_ok_and(|value| value == "beta") { "beta" } else { "stable" }
+}
+
 pub fn require_space(path: &Path, required: u64) -> Result<()> {
     let available = fs2::available_space(path)
         .with_context(|| format!("read available disk space: {}", path.display()))?;
@@ -26,9 +30,12 @@ pub struct Layout {
 
 impl Layout {
     pub fn resolve() -> Result<Self> {
-        let root = dirs::home_dir()
+        let directory = ".iyw-claw";
+        let default_root = dirs::home_dir()
             .context("operating-system user home is unavailable")?
-            .join(".iyw-claw");
+            .join(directory);
+        let root = std::env::var_os("IYW_CLAW_BRAND_HOME")
+            .filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or(default_root);
         #[cfg(debug_assertions)]
         let root = std::env::var_os("IYW_CLAW_ENVIRONMENT_TEST_ROOT")
             .map(PathBuf::from)

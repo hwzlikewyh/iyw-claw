@@ -158,7 +158,7 @@ pub fn validate_checked_update(
         .unwrap_or(expected.channel.as_str());
     if update.version != expected.version
         || extensions.release_id.as_deref() != expected.release_id.as_deref()
-        || channel != expected.channel
+        || (channel != expected.channel && !(expected.channel == "beta" && channel == "stable"))
     {
         return Err("The available update changed before installation; check again".to_string());
     }

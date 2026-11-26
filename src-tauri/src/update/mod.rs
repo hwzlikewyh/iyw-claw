@@ -39,6 +39,7 @@ pub mod digest;
 pub mod install;
 pub mod offer;
 pub mod preferences;
+pub mod promotion;
 pub mod release;
 pub mod runtime;
 pub mod scheduler;

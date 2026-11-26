@@ -33,7 +33,8 @@ def _request(url: str) -> bytes:
 
 def _iyw_claw_skills_dir() -> str:
     """Return the per-user iyw-claw central Skill store."""
-    return os.path.join(os.path.expanduser("~"), ".iyw-claw", "skills")
+    root = os.environ.get("IYW_CLAW_BRAND_HOME") or os.path.join(os.path.expanduser("~"), ".iyw-claw")
+    return os.path.join(root, "skills")
 
 
 def _installed_skills() -> set[str]:

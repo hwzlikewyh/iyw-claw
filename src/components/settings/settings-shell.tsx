@@ -1,5 +1,7 @@
 "use client"
 
+import { APP_NAME } from "@/lib/brand"
+
 import {
   useCallback,
   useEffect,
@@ -270,7 +272,7 @@ export function SettingsShell({
 
   useEffect(() => {
     if (!updateDocumentTitle) return
-    document.title = `${t("title")} - 原助理`
+    document.title = `${t("title")} - ${APP_NAME}`
   }, [t, updateDocumentTitle])
 
   const navigateTo = useCallback(

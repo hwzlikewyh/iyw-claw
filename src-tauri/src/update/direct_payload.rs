@@ -60,8 +60,8 @@ fn select_nsis(mut update: Update, ext: &ReleaseExtensions) -> Result<Update, St
             .release_id
             .as_deref()
             .ok_or("Installer update has no release ID")?;
-        if ext.channel.map(|c| c.as_str()) != Some("stable") {
-            return Err("Installer update requires stable environment bindings".into());
+        if ext.channel.is_none() {
+            return Err("Installer update requires a release channel".into());
         }
         validate(installer, release_id, "bootstrapper")?;
         update.raw_json["unified_installer_selected"] = true.into();
@@ -84,8 +84,8 @@ pub(super) fn select(mut update: Update, ext: &ReleaseExtensions) -> Result<Upda
         .release_id
         .as_deref()
         .ok_or("Direct update has no release ID")?;
-    if ext.channel.map(|c| c.as_str()) != Some("stable") {
-        return Err("Direct payload requires stable environment bindings".into());
+    if ext.channel.is_none() {
+        return Err("Direct payload requires a release channel".into());
     }
     validate(payload, release_id, "app_payload_zip")?;
     validate(

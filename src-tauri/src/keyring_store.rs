@@ -1,5 +1,5 @@
 #[cfg(feature = "tauri-runtime")]
-const SERVICE_NAME: &str = "iyw-claw";
+fn service_name() -> &'static str { crate::brand::credential_service() }
 
 fn token_key(account_id: &str) -> String {
     format!("github-token:{}", account_id)
@@ -30,7 +30,7 @@ pub fn initialize_legacy_server_channel_target_crypto(tokens: Vec<String>) {
 
 #[cfg(feature = "tauri-runtime")]
 pub fn set_token(account_id: &str, token: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, &token_key(account_id))
+    let entry = keyring::Entry::new(service_name(), &token_key(account_id))
         .map_err(|e| format!("keyring init error: {e}"))?;
     entry
         .set_password(token)
@@ -39,13 +39,13 @@ pub fn set_token(account_id: &str, token: &str) -> Result<(), String> {
 
 #[cfg(feature = "tauri-runtime")]
 pub fn get_token(account_id: &str) -> Option<String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, &token_key(account_id)).ok()?;
+    let entry = keyring::Entry::new(service_name(), &token_key(account_id)).ok()?;
     entry.get_password().ok()
 }
 
 #[cfg(feature = "tauri-runtime")]
 pub fn delete_token(account_id: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, &token_key(account_id))
+    let entry = keyring::Entry::new(service_name(), &token_key(account_id))
         .map_err(|e| format!("keyring init error: {e}"))?;
     match entry.delete_credential() {
         Ok(()) => Ok(()),
@@ -74,7 +74,7 @@ pub fn delete_token(account_id: &str) -> Result<(), String> {
 
 #[cfg(feature = "tauri-runtime")]
 pub fn set_channel_token(channel_id: i32, token: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, &channel_token_key(channel_id))
+    let entry = keyring::Entry::new(service_name(), &channel_token_key(channel_id))
         .map_err(|e| format!("keyring init error: {e}"))?;
     entry
         .set_password(token)
@@ -88,7 +88,7 @@ pub fn get_channel_token(channel_id: i32) -> Option<String> {
 
 #[cfg(feature = "tauri-runtime")]
 pub fn try_get_channel_token(channel_id: i32) -> Result<Option<String>, String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, &channel_token_key(channel_id))
+    let entry = keyring::Entry::new(service_name(), &channel_token_key(channel_id))
         .map_err(|e| format!("keyring init error: {e}"))?;
     match entry.get_password() {
         Ok(token) => Ok(Some(token)),
@@ -99,7 +99,7 @@ pub fn try_get_channel_token(channel_id: i32) -> Result<Option<String>, String> 
 
 #[cfg(feature = "tauri-runtime")]
 pub fn delete_channel_token(channel_id: i32) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, &channel_token_key(channel_id))
+    let entry = keyring::Entry::new(service_name(), &channel_token_key(channel_id))
         .map_err(|e| format!("keyring init error: {e}"))?;
     match entry.delete_credential() {
         Ok(()) => Ok(()),
@@ -133,7 +133,7 @@ pub fn delete_channel_token(channel_id: i32) -> Result<(), String> {
 
 #[cfg(feature = "tauri-runtime")]
 pub fn set_chat_router_token(token: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, chat_router_token_key())
+    let entry = keyring::Entry::new(service_name(), chat_router_token_key())
         .map_err(|e| format!("keyring init error: {e}"))?;
     entry
         .set_password(token)
@@ -142,13 +142,13 @@ pub fn set_chat_router_token(token: &str) -> Result<(), String> {
 
 #[cfg(feature = "tauri-runtime")]
 pub fn get_chat_router_token() -> Option<String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, chat_router_token_key()).ok()?;
+    let entry = keyring::Entry::new(service_name(), chat_router_token_key()).ok()?;
     entry.get_password().ok()
 }
 
 #[cfg(feature = "tauri-runtime")]
 pub fn delete_chat_router_token() -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, chat_router_token_key())
+    let entry = keyring::Entry::new(service_name(), chat_router_token_key())
         .map_err(|e| format!("keyring init error: {e}"))?;
     match entry.delete_credential() {
         Ok(()) => Ok(()),
@@ -162,7 +162,7 @@ pub fn delete_chat_router_token() -> Result<(), String> {
 #[cfg(feature = "tauri-runtime")]
 fn set_secure_value(key: &str, value: &str) -> Result<(), String> {
     let entry =
-        keyring::Entry::new(SERVICE_NAME, key).map_err(|e| format!("keyring init error: {e}"))?;
+        keyring::Entry::new(service_name(), key).map_err(|e| format!("keyring init error: {e}"))?;
     entry
         .set_password(value)
         .map_err(|e| format!("keyring set error: {e}"))
@@ -170,7 +170,7 @@ fn set_secure_value(key: &str, value: &str) -> Result<(), String> {
 
 #[cfg(feature = "tauri-runtime")]
 fn get_secure_value(key: &str) -> Option<String> {
-    keyring::Entry::new(SERVICE_NAME, key)
+    keyring::Entry::new(service_name(), key)
         .ok()?
         .get_password()
         .ok()
@@ -179,7 +179,7 @@ fn get_secure_value(key: &str) -> Option<String> {
 #[cfg(feature = "tauri-runtime")]
 fn delete_secure_value(key: &str) -> Result<(), String> {
     let entry =
-        keyring::Entry::new(SERVICE_NAME, key).map_err(|e| format!("keyring init error: {e}"))?;
+        keyring::Entry::new(service_name(), key).map_err(|e| format!("keyring init error: {e}"))?;
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("keyring delete error: {e}")),

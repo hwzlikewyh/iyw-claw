@@ -11,6 +11,7 @@ import {
 } from "@/lib/conversation-share/client"
 import type { ShareLocation, ShareRecord } from "@/lib/conversation-share/types"
 import { ShareThread } from "./share-thread"
+import { APP_NAME, APP_SCHEME } from "@/lib/brand"
 
 export function SharedConversationPage() {
   const [share, setShare] = useState<ShareRecord | null>(null)
@@ -58,7 +59,7 @@ export function SharedConversationPage() {
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">
-              原助理 · 只读会话分享
+              {APP_NAME} · 只读会话分享
             </p>
             <h1 className="truncate text-lg font-semibold">
               {share?.title || "会话分享"}
@@ -140,7 +141,7 @@ async function shareConversationURL(title: string) {
 function OpenAssistant({ location }: { location: ShareLocation }) {
   const [attempted, setAttempted] = useState(false)
   const open = () => {
-    const link = new URL("iyw-assistant://share")
+    const link = new URL(`${APP_SCHEME}://share`)
     link.hash = new URLSearchParams({
       token: location.token,
       api: location.apiBase,
@@ -152,11 +153,12 @@ function OpenAssistant({ location }: { location: ShareLocation }) {
     <div className="space-y-1 text-right">
       <Button onClick={open}>
         <ExternalLink className="mr-2 size-4" />
-        一键打开原助理
+        一键打开{APP_NAME}
       </Button>
       {attempted && (
         <p role="status" className="max-w-64 text-xs text-muted-foreground">
-          如未打开，请确认已安装新版原助理并允许浏览器唤起；仍可在此网页阅读。
+          如未打开，请确认已安装新版{APP_NAME}
+          并允许浏览器唤起；仍可在此网页阅读。
         </p>
       )}
     </div>

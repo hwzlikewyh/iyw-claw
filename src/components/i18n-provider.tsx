@@ -11,7 +11,11 @@ import {
   useSyncExternalStore,
 } from "react"
 import { NextIntlClientProvider, type AbstractIntlMessages } from "next-intl"
-import { getFallbackMessages, getMessagesForLocale } from "@/i18n/messages"
+import {
+  brandMessages,
+  getFallbackMessages,
+  getMessagesForLocale,
+} from "@/i18n/messages"
 import {
   fromIntlLocale,
   getSystemLocaleCandidates,
@@ -107,7 +111,7 @@ export function AppI18nProvider({
     })
   const [languageSettingsLoaded, setLanguageSettingsLoaded] = useState(false)
   const [messages, setMessages] = useState<AbstractIntlMessages>(
-    initialMessages ?? getFallbackMessages()
+    initialMessages ? brandMessages(initialMessages) : getFallbackMessages()
   )
   const [messagesLocale, setMessagesLocale] = useState<AppLocale>(
     initialMessages ? initialAppLocale : "en"

@@ -96,7 +96,7 @@ impl ProfileSourceRoots {
             AgentType::DeepSeek => self.home.join(".dsh"),
             AgentType::Cursor | AgentType::Custom(_) => self
                 .home
-                .join(".iyw-claw")
+                .join(crate::brand::user_directory_name())
                 .join("agents")
                 .join(crate::acp::registry::registry_id_for(agent_type)),
         }

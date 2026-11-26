@@ -134,8 +134,9 @@ pub fn endpoint(preferences: &UpdatePreferences, reason: CheckReason) -> String 
         "{{target}}"
     };
     format!(
-        "{}/app-updates/v1/tauri/check/{target}/{{{{arch}}}}/{{{{current_version}}}}?product=iyw-claw&runtime=desktop&channel={}&reason={}",
+        "{}/app-updates/v1/tauri/check/{target}/{{{{arch}}}}/{{{{current_version}}}}?product={}&runtime=desktop&channel={}&reason={}",
         configured_base_url(),
+        crate::brand::PRODUCT,
         preferences.channel.as_str(),
         reason.as_str()
     )
@@ -233,7 +234,8 @@ fn validated_extensions(
         .map_err(AppCommandError::configuration_invalid)?;
     if extensions
         .channel
-        .is_some_and(|value| value != preferences.channel)
+        .is_some_and(|value| !super::promotion::accepts_channel(
+            preferences, value.as_str(), extensions.release_id.as_deref()))
     {
         return Err(AppCommandError::configuration_invalid(
             "Application update channel does not match the request",

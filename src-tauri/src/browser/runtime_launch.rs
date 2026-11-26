@@ -143,7 +143,7 @@ async fn prepare_download_path(
 ) -> Result<PathBuf, BrowserError> {
     let path = dirs::download_dir()
         .unwrap_or_else(|| data_root.join("browser/downloads"))
-        .join("原助理");
+        .join(crate::brand::name());
     if let Err(error) = create_dir(&path).await {
         remove_runtime_dir(runtime_dir).await;
         return Err(error);

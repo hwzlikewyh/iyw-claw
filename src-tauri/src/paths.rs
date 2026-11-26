@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-const APP_DIR_NAME: &str = ".iyw-claw";
 const UPLOADS_DIR_NAME: &str = "uploads";
 const LOGS_DIR_NAME: &str = "logs";
 const ACP_TRANSCRIPTS_DIR_NAME: &str = "acp-transcripts";
@@ -60,9 +59,10 @@ pub fn iyw_claw_home_dir() -> PathBuf {
 /// may run outside an iyw-claw process, where app-scoped environment overrides
 /// are unavailable.
 pub fn iyw_claw_user_dir() -> PathBuf {
+    let directory = crate::brand::user_directory_name();
     dirs::home_dir()
-        .map(|h| h.join(APP_DIR_NAME))
-        .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME))
+        .map(|h| h.join(&directory))
+        .unwrap_or_else(|| PathBuf::from(directory))
 }
 
 pub fn resolve_desktop_user_memory_root(
@@ -73,7 +73,7 @@ pub fn resolve_desktop_user_memory_root(
         return resolved_user_memory_root(path, UserMemoryRootSource::Override);
     }
     let home = user_home.ok_or(UserMemoryPathError::HomeUnavailable)?;
-    resolved_user_memory_root(&home.join(APP_DIR_NAME), UserMemoryRootSource::DesktopHome)
+    resolved_user_memory_root(&home.join(crate::brand::user_directory_name()), UserMemoryRootSource::DesktopHome)
 }
 
 pub fn resolve_server_user_memory_root(
@@ -156,8 +156,8 @@ pub fn iyw_claw_uploads_root() -> PathBuf {
         return PathBuf::from(data).join(UPLOADS_DIR_NAME);
     }
     dirs::home_dir()
-        .map(|h| h.join(APP_DIR_NAME).join(UPLOADS_DIR_NAME))
-        .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME).join(UPLOADS_DIR_NAME))
+        .map(|h| h.join(crate::brand::user_directory_name()).join(UPLOADS_DIR_NAME))
+        .unwrap_or_else(|| PathBuf::from(crate::brand::user_directory_name()).join(UPLOADS_DIR_NAME))
 }
 
 /// Root directory for application diagnostic logs (rotating files written by
@@ -184,8 +184,8 @@ pub fn iyw_claw_logs_root() -> PathBuf {
         return PathBuf::from(data).join(LOGS_DIR_NAME);
     }
     dirs::home_dir()
-        .map(|h| h.join(APP_DIR_NAME).join(LOGS_DIR_NAME))
-        .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME).join(LOGS_DIR_NAME))
+        .map(|h| h.join(crate::brand::user_directory_name()).join(LOGS_DIR_NAME))
+        .unwrap_or_else(|| PathBuf::from(crate::brand::user_directory_name()).join(LOGS_DIR_NAME))
 }
 
 /// Host-owned ACP history used when an Agent has no dedicated parser.
@@ -211,7 +211,7 @@ pub fn iyw_claw_task_artifacts_root() -> PathBuf {
 /// Root used by codex-acp for optional adapter-side diagnostics. These files
 /// are iyw-claw-owned and follow the same retention policy as application logs.
 pub fn codex_acp_logs_root() -> Option<PathBuf> {
-    dirs::cache_dir().map(|root| root.join("app.iywclaw").join("acp-logs").join("codex-acp"))
+    dirs::cache_dir().map(|root| root.join(crate::brand::identifier()).join("acp-logs").join("codex-acp"))
 }
 
 /// Single source of truth for "where does the database live, and where

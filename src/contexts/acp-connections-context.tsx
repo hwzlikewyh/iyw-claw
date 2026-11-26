@@ -1,5 +1,7 @@
 "use client"
 
+import { APP_NAME } from "@/lib/brand"
+
 import {
   awaitAcpPreparation,
   consumeAcpPreparation,
@@ -3990,7 +3992,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               ? getAgentDisplayName(connection.agentType)
               : "Agent"
             const folderName = folderNameRef.current
-            const title = folderName ? `${folderName} - 原助理` : "原助理"
+            const title = folderName ? `${folderName} - ${APP_NAME}` : APP_NAME
             for (const settled of e.settled) {
               const body =
                 settled.summary ??
@@ -4039,7 +4041,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             if (nc) {
               const agentLabel = getAgentDisplayName(nc.agentType)
               const fn = folderNameRef.current
-              const title = fn ? `${fn} - 原助理` : "原助理"
+              const title = fn ? `${fn} - ${APP_NAME}` : APP_NAME
               sendSystemNotification(
                 title,
                 `${agentLabel}: ${tChat("permissionDialog.subtitle")}`
@@ -4252,7 +4254,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             ) {
               const agentLabel = getAgentDisplayName(nc.agentType)
               const fn = folderNameRef.current
-              const title = fn ? `${fn} - 原助理` : "原助理"
+              const title = fn ? `${fn} - ${APP_NAME}` : APP_NAME
               sendSystemNotification(
                 title,
                 t("notificationTurnComplete", { agent: agentLabel })
@@ -4398,7 +4400,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // Send OS notification for agent errors
           if (nc) {
             const fn = folderNameRef.current
-            const title = fn ? `${fn} - 原助理` : "原助理"
+            const title = fn ? `${fn} - ${APP_NAME}` : APP_NAME
             sendSystemNotification(
               title,
               t("notificationError", {

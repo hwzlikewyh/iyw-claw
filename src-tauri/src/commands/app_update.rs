@@ -51,6 +51,7 @@ pub(crate) async fn check_desktop_update_core(
     reason: CheckReason,
 ) -> Result<AppUpdateCheckResult, AppCommandError> {
     let preferences = preferences::load(conn).await?;
+    let preferences = crate::update::promotion::synchronize(conn, preferences).await;
     let checked_channel = preferences.channel;
     let emitter = EventEmitter::Tauri(app.clone());
     let (started, _) = update_state::try_begin_check(state, &emitter);

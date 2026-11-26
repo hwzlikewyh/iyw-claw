@@ -1,5 +1,7 @@
 "use client"
 
+import { APP_NAME } from "@/lib/brand"
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   DatabaseBackup,
@@ -241,7 +243,9 @@ export function BackupSettings() {
       const { open } = await import("@tauri-apps/plugin-dialog")
       const picked = await open({
         multiple: false,
-        filters: [{ name: "原助理 备份", extensions: ["iyw-clawbak", "zip"] }],
+        filters: [
+          { name: `${APP_NAME} 备份`, extensions: ["iyw-clawbak", "zip"] },
+        ],
       })
       if (typeof picked !== "string") return
       const name = picked.split(/[\\/]/).pop() ?? picked

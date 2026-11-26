@@ -9,7 +9,6 @@ const APP_DIR_NAME: &str = "app";
 const DATA_DIR_ENV: &str = "IYW_CLAW_DATA_DIR";
 const HOME_DIR_ENV: &str = "IYW_CLAW_HOME";
 const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
-const USER_MEMORY_APP_DIR_NAME: &str = ".iyw-claw";
 pub const INSTALL_ROOT_ENV: &str = "IYW_CLAW_INSTALL_ROOT";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,13 +99,14 @@ pub fn resolve_data_root(
 }
 
 pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
+    crate::brand::prepare_environment();
     let legacy_home = std::env::var_os(HOME_DIR_ENV)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .map(absolutize);
     let user_memory_root = crate::paths::desktop_user_memory_root();
     let default_user_memory_root = dirs::home_dir()
-        .map(|home| home.join(USER_MEMORY_APP_DIR_NAME))
+        .map(|home| home.join(crate::brand::user_directory_name()))
         .map(absolutize);
     let install_root = std::env::current_exe()
         .ok()

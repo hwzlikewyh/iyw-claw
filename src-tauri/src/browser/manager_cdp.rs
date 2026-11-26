@@ -187,7 +187,7 @@ impl BrowserSessionManager {
         let root = if self.is_native_browser().await {
             dirs::download_dir()
                 .unwrap_or_else(|| crate::paths::iyw_claw_user_dir().join("browser/downloads"))
-                .join("原助理")
+                .join(crate::brand::name())
         } else {
             self.runtime
                 .as_ref()

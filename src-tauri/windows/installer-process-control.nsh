@@ -154,7 +154,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   ; configured storage root. Include those roots so their Node entry scripts
   ; are scoped to this user's iyw-claw installation during an update.
   FileWriteUTF16LE $R0 `  $$runtimeRoots = @()$\r$\n`
-  FileWriteUTF16LE $R0 `  $$userRoot = [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile), '.iyw-claw')$\r$\n`
+  FileWriteUTF16LE $R0 `  $$userRoot = if ($$env:IYW_CLAW_BRAND_HOME) { $$env:IYW_CLAW_BRAND_HOME } else { [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile), '.iyw-claw') }$\r$\n`
   FileWriteUTF16LE $R0 `  $$runtimeRoots += $$userRoot$\r$\n`
   FileWriteUTF16LE $R0 `  foreach ($$envName in @('IYW_CLAW_HOME', 'IYW_CLAW_DATA_DIR', 'IYW_CLAW_AGENT_STORAGE_DIR')) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$envValue = [Environment]::GetEnvironmentVariable($$envName)$\r$\n`

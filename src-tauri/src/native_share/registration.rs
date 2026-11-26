@@ -12,6 +12,10 @@ pub struct ShareStatus {
 }
 
 pub fn status(app: &AppHandle) -> Result<ShareStatus> {
+    // 签名包中的系统分享身份固定；其他安装实例保留独立的手动导入收件箱。
+    if crate::brand::id() != "iyw" {
+        return Ok(ShareStatus { platform: std::env::consts::OS, installed: false, can_register: false });
+    }
     #[cfg(target_os = "windows")]
     {
         let root = resources(app)?;
@@ -52,6 +56,9 @@ pub fn status(app: &AppHandle) -> Result<ShareStatus> {
 }
 
 pub async fn register(app: &AppHandle) -> Result<()> {
+    if crate::brand::id() != "iyw" {
+        return Err(invalid("当前安装使用独立的分享收件箱，请使用手动导入"));
+    }
     #[cfg(target_os = "windows")]
     {
         super::registration_windows::register(&resources(app)?).await

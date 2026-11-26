@@ -5,7 +5,7 @@ use super::*;
 /// iyw-claw's own bundle identifier (`tauri.conf.json`), matched on any process
 /// so a second iyw-claw — a development build next to the installed one — is as
 /// out of reach as this one.
-pub const IYW_CLAW_BUNDLE_ID: &str = "app.iywclaw";
+pub const IYW_CLAW_BUNDLE_ID: &str = crate::brand::PACKAGE_IDENTIFIER;
 
 /// The file names iyw-claw's executable goes by, matched on any process's path
 /// for the same reason, where an application has no bundle identifier to

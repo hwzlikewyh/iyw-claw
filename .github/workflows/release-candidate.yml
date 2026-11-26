@@ -30,7 +30,7 @@ jobs:
             const fs = require('node:fs');
             const version = process.env.VERSION;
             if (JSON.parse(fs.readFileSync('package.json')).version !== version) throw new Error('Source version mismatch');
-            if (!/^\d+\.\d+\.\d+-[a-zA-Z0-9.-]+$/.test(version)) throw new Error('Candidate must have a prerelease version');
+            if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error('Use the final version so verified bytes can be promoted unchanged');
             const tag = `v${version}`;
             const releases = await github.paginate(github.rest.repos.listReleases, {...context.repo, per_page:100});
             const matches = releases.filter(release => release.tag_name === tag);
@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+        target: [x86_64-pc-windows-msvc]
     uses: ./.github/workflows/release-windows-staged.yml
     with:
       target: ${{ matrix.target }}
@@ -68,6 +68,7 @@ jobs:
     uses: ./.github/workflows/release-windows-verification.yml
     with:
       source_ref: ${{ inputs.source_ref }}
+      verify_environment: false
   verify-macos:
     needs: desktop
     uses: ./.github/workflows/release-macos-verification.yml

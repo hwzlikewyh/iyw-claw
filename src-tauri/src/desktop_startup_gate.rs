@@ -7,7 +7,7 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
 
-const STARTUP_GATE_NAME: &str = "Local\\app.iywclaw-startup-gate-v1";
+
 const STARTUP_GATE_WAIT_MS: u32 = 60_000;
 
 pub struct DesktopStartupGate {
@@ -24,7 +24,7 @@ impl Drop for DesktopStartupGate {
 }
 
 pub fn acquire() -> Result<DesktopStartupGate, String> {
-    let name = wide_null(STARTUP_GATE_NAME);
+    let name = wide_null(&format!("Local\\{}-startup-gate-v1", crate::brand::identifier()));
     let started = Instant::now();
     let handle = unsafe { CreateMutexW(ptr::null(), true.into(), name.as_ptr()) };
     if handle.is_null() {

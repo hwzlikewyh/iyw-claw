@@ -1,9 +1,10 @@
 import Image from "next/image"
+import { APP_LOGO } from "@/lib/brand"
 
 export function AppIcon({ className }: { className?: string }) {
   return (
     <Image
-      src="/icon.svg"
+      src={APP_LOGO}
       alt=""
       width={512}
       height={512}

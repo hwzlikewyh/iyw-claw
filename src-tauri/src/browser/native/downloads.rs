@@ -51,7 +51,7 @@ pub(super) fn attach<'a>(
 fn prepare(app: &AppHandle, source: (&str, &str), destination: &mut PathBuf) -> Result<(), String> {
     let root = dirs::download_dir()
         .unwrap_or_else(|| crate::paths::iyw_claw_user_dir().join("browser/downloads"))
-        .join("原助理");
+        .join(crate::brand::name());
     std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     let filename = destination
         .file_name()

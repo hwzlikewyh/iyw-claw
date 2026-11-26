@@ -1,4 +1,5 @@
 Function IywClawRegisterNativeShare
+  StrCmp $IywClawBrandId "iyw" 0 native_share_install_done
   StrCmp $IywClawInstallerTestMode "1" native_share_install_done 0
   IfFileExists "$IywClawAppDir\native-share\IywAssistant.ShareTarget.msix" 0 native_share_install_done
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$IywClawAppDir\native-share\register.ps1"'
@@ -11,6 +12,7 @@ Function IywClawRegisterNativeShare
 FunctionEnd
 
 Function un.IywClawUnregisterNativeShare
+  StrCmp $IywClawBrandId "iyw" 0 native_share_uninstall_done
   StrCmp $IywClawInstallerTestMode "1" native_share_uninstall_done 0
   IfFileExists "$INSTDIR\native-share\register.ps1" 0 native_share_uninstall_done
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$INSTDIR\native-share\register.ps1" -Unregister'
@@ -22,6 +24,7 @@ Function un.IywClawUnregisterNativeShare
 FunctionEnd
 
 Function un.IywClawPurgeNativeShare
+  StrCmp $IywClawBrandId "iyw" 0 native_share_purge_done
   StrCmp $IywClawInstallerTestMode "1" native_share_purge_done 0
   IfFileExists "$INSTDIR\native-share\register.ps1" 0 native_share_purge_done
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$INSTDIR\native-share\register.ps1" -PurgeInbox'

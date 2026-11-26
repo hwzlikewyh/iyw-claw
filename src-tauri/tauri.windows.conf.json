@@ -1,4 +1,7 @@
 {
+  "plugins": {
+    "deep-link": { "desktop": { "schemes": [] } }
+  },
   "bundle": {
     "externalBin": ["binaries/iyw-environment"],
     "resources": {

@@ -1,5 +1,7 @@
 "use client"
 
+import { APP_NAME } from "@/lib/brand"
+
 import { AgentIcon } from "@/components/agent-icon"
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import type {
@@ -29,7 +31,7 @@ export function ShareThread({ snapshot, files, fileURL }: ThreadProps) {
                     agentType={snapshot.agentType}
                     className="size-6 rounded-full bg-muted p-0.5"
                   />
-                  <span>原助理</span>
+                  <span>{APP_NAME}</span>
                 </div>
               )}
               {message.blocks.map((block, index) =>

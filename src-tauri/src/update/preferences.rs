@@ -28,6 +28,8 @@ impl UpdateChannel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UpdatePreferences {
+    pub channel_source: String,
+    pub promoted_release_id: Option<String>,
     pub auto_check: bool,
     pub silent_auto_update: bool,
     pub channel: UpdateChannel,
@@ -44,9 +46,15 @@ pub struct UpdatePreferences {
 impl Default for UpdatePreferences {
     fn default() -> Self {
         Self {
+            channel_source: "installer".to_string(),
+            promoted_release_id: None,
             auto_check: true,
             silent_auto_update: true,
-            channel: UpdateChannel::Stable,
+            channel: if crate::brand::release_id().is_empty() {
+                UpdateChannel::Stable
+            } else {
+                UpdateChannel::Beta
+            },
             installation_id: String::new(),
             last_checked_at: None,
             last_successful_check_at: None,
@@ -161,13 +169,22 @@ async fn load_unlocked(
         .await
         .map_err(AppCommandError::from)?;
     let mut preferences = match raw {
-        Some(value) => serde_json::from_str(&value).map_err(|error| {
-            AppCommandError::configuration_invalid("Failed to parse update preferences")
-                .with_detail(error.to_string())
-        })?,
+        Some(value) => {
+            let mut saved: UpdatePreferences = serde_json::from_str(&value).map_err(|error| {
+                AppCommandError::configuration_invalid("Failed to parse update preferences")
+                    .with_detail(error.to_string())
+            })?;
+            let raw: serde_json::Value = serde_json::from_str(&value).unwrap_or_default();
+            if raw.get("channelSource").is_none() {
+                saved.channel_source = "user".to_string();
+            }
+            saved
+        }
         None => UpdatePreferences::default(),
     };
     let dirty = preferences.ensure_installation_id();
+    #[cfg(feature = "tauri-runtime")]
+    std::env::set_var("IYW_CLAW_RELEASE_CHANNEL", preferences.channel.as_str());
     Ok((preferences, dirty))
 }
 
@@ -197,7 +214,7 @@ async fn save_unlocked(
         .map_err(AppCommandError::from)
 }
 
-async fn update_preferences(
+pub(super) async fn update_preferences(
     conn: &DatabaseConnection,
     apply: impl FnOnce(&mut UpdatePreferences) -> Result<(), AppCommandError>,
 ) -> Result<UpdatePreferences, AppCommandError> {
@@ -205,6 +222,8 @@ async fn update_preferences(
     let (mut preferences, _) = load_unlocked(conn).await?;
     apply(&mut preferences)?;
     save_unlocked(conn, &preferences).await?;
+    #[cfg(feature = "tauri-runtime")]
+    std::env::set_var("IYW_CLAW_RELEASE_CHANNEL", preferences.channel.as_str());
     Ok(preferences)
 }
 
@@ -218,9 +237,13 @@ pub async fn patch(
         }
         if let Some(value) = update.silent_auto_update {
             preferences.silent_auto_update = value;
-            tracing::info!(enabled = value, "[app-update] silent auto-update preference saved");
+            tracing::info!(
+                enabled = value,
+                "[app-update] silent auto-update preference saved"
+            );
         }
         if let Some(value) = update.channel {
+            preferences.channel_source = "user".to_string();
             if preferences.channel != value {
                 preferences.channel = value;
                 preferences.skipped_version = None;

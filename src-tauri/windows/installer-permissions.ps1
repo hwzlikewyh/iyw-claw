@@ -116,7 +116,7 @@ function Test-InstallAccess {
     $root = Resolve-InstallRoot
     $result.Root = $root
     $profileRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
-    $environmentRoot = Join-Path $profileRoot '.iyw-claw'
+    $environmentRoot = if ($env:IYW_CLAW_BRAND_HOME) { $env:IYW_CLAW_BRAND_HOME } else { Join-Path $profileRoot '.iyw-claw' }
     $directories = @($root, (Join-Path $root 'app'), (Join-Path $root 'staging'), (Join-Path $root 'logs'))
     foreach ($relative in @('runtime', 'runtime\cache\downloads', 'inventory', 'staging\environment', 'quarantine\environment', 'logs\environment')) {
         $directories += Join-Path $environmentRoot $relative

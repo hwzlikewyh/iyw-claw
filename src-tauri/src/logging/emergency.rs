@@ -70,10 +70,10 @@ fn candidate_dirs() -> Vec<PathBuf> {
         candidates.push(PathBuf::from(value).join("logs"));
     }
     if let Some(home) = dirs::home_dir() {
-        candidates.push(home.join(".iyw-claw").join("logs"));
+        candidates.push(home.join(crate::brand::user_directory_name()).join("logs"));
     }
     if let Some(local) = dirs::data_local_dir() {
-        candidates.push(local.join("app.iywclaw").join("logs"));
+        candidates.push(local.join(crate::brand::identifier()).join("logs"));
     }
     candidates.push(std::env::temp_dir().join("iyw-claw").join("logs"));
     candidates

@@ -115,7 +115,7 @@ async fn checked_silent_update(task: &Task, identity: &Identity) -> Result<Updat
         .as_ref()
         .filter(|(expected, _, silent)| expected == identity && *silent)
         .map(|(_, update, _)| update.clone());
-    if let Some(update) = prepared {
+    if let Some(update) = prepared.filter(|_| identity.channel != "beta") {
         return Ok(update);
     }
     let mut preferences = preferences::load(&task.conn)
@@ -176,7 +176,7 @@ pub(super) async fn checked_update(
         .as_ref()
         .filter(|(expected, _, _)| expected == identity)
         .map(|(_, update, _)| update.clone());
-    if let Some(update) = prepared {
+    if let Some(update) = prepared.filter(|_| identity.channel != "beta") {
         return Ok(update);
     }
     let request = DesktopUpdateRequest {

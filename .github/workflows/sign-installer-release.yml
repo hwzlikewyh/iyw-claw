@@ -12,6 +12,10 @@ on:
         required: true
         default: v0.2.3
         type: string
+      installer_run_id:
+        description: Sign brand artifacts from this successful run; does not publish a release
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,7 +25,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  sign-candidates:
+    if: inputs.installer_run_id != ''
+    uses: ./.github/workflows/sign-brand-installers.yml
+    with:
+      installer_ref: ${{ inputs.installer_ref }}
+      installer_run_id: ${{ inputs.installer_run_id }}
+    secrets: inherit
   build-sign-upload:
+    if: inputs.installer_run_id == ''
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 60
     concurrency:

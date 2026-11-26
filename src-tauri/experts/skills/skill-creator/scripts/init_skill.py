@@ -17,6 +17,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+import os
 
 from generate_openai_yaml import write_openai_yaml
 
@@ -26,7 +27,8 @@ ALLOWED_RESOURCES = {"scripts", "references", "assets"}
 
 def iyw_claw_skills_dir() -> Path:
     """Return the per-user iyw-claw central Skill store."""
-    return Path.home() / ".iyw-claw" / "skills"
+    root = Path(os.environ["IYW_CLAW_BRAND_HOME"]) if os.environ.get("IYW_CLAW_BRAND_HOME") else Path.home() / ".iyw-claw"
+    return root / "skills"
 
 SKILL_TEMPLATE = """---
 name: {skill_name}

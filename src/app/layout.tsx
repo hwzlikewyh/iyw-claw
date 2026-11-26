@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next"
+import { APP_NAME, APP_LOGO } from "@/lib/brand"
+import { BrandBootstrap } from "@/components/brand-bootstrap"
 import { Suspense } from "react"
 import "katex/dist/katex.min.css"
 import "./globals.css"
@@ -29,12 +31,12 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "原助理",
+  title: APP_NAME,
   description: "AI Coding Agent Conversation Manager",
   icons: {
     icon: [
       { url: "/icon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: APP_LOGO },
     ],
     apple: { url: "/icon-128x128.png", sizes: "128x128", type: "image/png" },
   },
@@ -62,43 +64,45 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: APPEARANCE_INIT_SCRIPT }} />
         {/* Suppress benign ResizeObserver loop warnings (W3C spec §3.3) */}
         <script>{`window.addEventListener("error",function(e){if(e.message&&e.message.indexOf("ResizeObserver")!==-1){e.stopImmediatePropagation();e.preventDefault()}});window.onerror=function(m){if(typeof m==="string"&&m.indexOf("ResizeObserver")!==-1)return true}`}</script>
-        <NextIntlClientProvider
-          locale={initialLocale}
-          messages={initialMessages}
-        >
-          <PublicShareBoundary content={children}>
-            <AppI18nProvider
-              initialLocale={initialLocale}
-              initialMessages={initialMessages}
-            >
-              <ThemeProvider
-                attribute="class"
-                defaultTheme="system"
-                enableSystem
-                disableTransitionOnChange
+        <BrandBootstrap>
+          <NextIntlClientProvider
+            locale={initialLocale}
+            messages={initialMessages}
+          >
+            <PublicShareBoundary content={children}>
+              <AppI18nProvider
+                initialLocale={initialLocale}
+                initialMessages={initialMessages}
               >
-                <AppearanceProvider>
-                  <ConversationDisplayProvider>
-                    <OverlayScrollbarsInit />
-                    <ClipboardFallbackInit />
-                    <WebConnectionGuard />
-                    <WindowResizeGrips />
-                    <DevtoolsShortcut />
-                    <TauriContextMenuPolicy />
-                    <MainCloseDialog />
-                    <Suspense fallback={null}>
-                      <DesktopRouteRestoreTracker />
-                    </Suspense>
-                    {/* Global tooltip context: ui/tooltip's Tooltip is a bare Radix Root,
+                <ThemeProvider
+                  attribute="class"
+                  defaultTheme="system"
+                  enableSystem
+                  disableTransitionOnChange
+                >
+                  <AppearanceProvider>
+                    <ConversationDisplayProvider>
+                      <OverlayScrollbarsInit />
+                      <ClipboardFallbackInit />
+                      <WebConnectionGuard />
+                      <WindowResizeGrips />
+                      <DevtoolsShortcut />
+                      <TauriContextMenuPolicy />
+                      <MainCloseDialog />
+                      <Suspense fallback={null}>
+                        <DesktopRouteRestoreTracker />
+                      </Suspense>
+                      {/* Global tooltip context: ui/tooltip's Tooltip is a bare Radix Root,
                       so every usage needs a Provider ancestor. Nested providers in
                       subtrees still override delayDuration locally. */}
-                    <TooltipProvider>{children}</TooltipProvider>
-                  </ConversationDisplayProvider>
-                </AppearanceProvider>
-              </ThemeProvider>
-            </AppI18nProvider>
-          </PublicShareBoundary>
-        </NextIntlClientProvider>
+                      <TooltipProvider>{children}</TooltipProvider>
+                    </ConversationDisplayProvider>
+                  </AppearanceProvider>
+                </ThemeProvider>
+              </AppI18nProvider>
+            </PublicShareBoundary>
+          </NextIntlClientProvider>
+        </BrandBootstrap>
       </body>
     </html>
   )

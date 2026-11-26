@@ -13,7 +13,7 @@ pub fn verify(layout: &Layout, state: &PreparedState, installation_id: String) -
         installation_id,
         client_version: state.pc_version.clone(),
         pc_version: state.pc_version.clone(),
-        channel: "stable",
+        channel: crate::paths::release_channel(),
         runtime: "desktop",
         target: state.target.clone(),
         arch: state.arch.clone(),

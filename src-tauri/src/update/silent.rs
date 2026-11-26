@@ -96,7 +96,7 @@ async fn eligibility(task: &Task, identity: &Identity) -> Result<Option<&'static
     if !preferences.auto_check {
         return Ok(Some("automatic_checks_disabled"));
     }
-    if preferences.channel.as_str() != identity.channel {
+    if !super::promotion::accepts_channel(&preferences, &identity.channel, identity.release_id.as_deref()) {
         return Ok(Some("channel_changed"));
     }
     let snapshot = state::snapshot(&task.handle);

@@ -195,7 +195,7 @@ async fn resolve_web_service_port(
     let port = saved
         .as_deref()
         .and_then(|s| s.trim().parse::<u16>().ok())
-        .unwrap_or(DEFAULT_WEB_SERVICE_PORT);
+        .unwrap_or_else(crate::brand::default_web_port);
     Ok(port)
 }
 
@@ -273,7 +273,7 @@ pub async fn update_web_service_config_core(
     config: WebServiceConfig,
 ) -> Result<WebServiceConfig, AppCommandError> {
     let token = config.token.unwrap_or_default().trim().to_string();
-    let port = config.port.unwrap_or(DEFAULT_WEB_SERVICE_PORT);
+    let port = config.port.unwrap_or_else(crate::brand::default_web_port);
     let auto_start = if config.auto_start { "true" } else { "false" }.to_string();
     let port_str = port.to_string();
 

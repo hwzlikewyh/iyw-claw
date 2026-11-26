@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/lib/brand"
 import {
   getActiveRemoteConnectionId,
   getShellTransport,
@@ -4633,8 +4634,8 @@ export async function exportBackupDesktop(
   const ext = encrypted ? "iyw-clawbak" : "iyw-claw.zip"
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")
   const destPath = await save({
-    defaultPath: `原助理-backup-${stamp}.${ext}`,
-    filters: [{ name: "原助理 备份", extensions: [ext] }],
+    defaultPath: `${APP_NAME}-backup-${stamp}.${ext}`,
+    filters: [{ name: `${APP_NAME} 备份`, extensions: [ext] }],
   })
   if (!destPath) return null
   return getTransport().call<BackupManifest>("backup_create", {

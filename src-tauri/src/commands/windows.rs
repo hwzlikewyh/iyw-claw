@@ -1118,6 +1118,7 @@ fn tray_menu_item(
     text: &str,
     enabled: bool,
 ) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+    let text = text.replace("原助理", crate::brand::name());
     tauri::menu::MenuItem::with_id(app, id, text, enabled, None::<&str>)
 }
 
@@ -1194,7 +1195,7 @@ pub fn install_tray_icon(
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     let menu = build_tray_menu(app, locale, recent_projects)?;
-    let tooltip = tray_labels_for(locale).status;
+    let tooltip = tray_labels_for(locale).status.replace("原助理", crate::brand::name());
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
         .tooltip(tooltip)

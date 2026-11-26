@@ -97,7 +97,7 @@ pub async fn create_chat_channel_core(
 pub fn channel_workspace_root(channel_id: i32) -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".iyw-claw")
+        .join(crate::brand::user_directory_name())
         .join("channel-workspaces")
         .join(channel_id.to_string())
 }
