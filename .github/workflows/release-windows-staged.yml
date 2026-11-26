@@ -192,7 +192,11 @@ jobs:
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          pnpm tauri:build:win7 --compile-only --no-sign
+          if ($env:TAURI_TARGET_TRIPLE -like '*-win7-*') {
+            pnpm tauri:build:win7 --compile-only --no-sign
+          } else {
+            pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+          }
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Package verified signing input
         run: |
