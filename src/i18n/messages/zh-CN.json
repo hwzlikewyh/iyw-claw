@@ -4066,7 +4066,50 @@
         "modelNetwork": {
           "retrying": "已收到你的消息，正在自动重试模型请求。",
           "attempts": "第 {count} 次重试",
-          "disconnected": "本轮模型回复未完成。你可以在当前对话中重试。"
+          "disconnected": "本轮模型回复未完成。你可以在当前对话中重试。",
+          "checking": "正在检测本机与服务连接…",
+          "details": "诊断详情",
+          "target": {
+            "internet": "本机到测速节点",
+            "app_server": "本机到应用服务端",
+            "server_outbound": "应用服务端网络"
+          },
+          "status": {
+            "healthy": "正常",
+            "slow": "响应较慢",
+            "failed": "检测失败",
+            "unknown": "无法确认"
+          },
+          "latency": "{value} 毫秒",
+          "failure": {
+            "dns": "域名解析失败，当前网络的 DNS 服务可能不可用。",
+            "timeout": "连接等待超时，网络可能拥塞或连接不稳定。",
+            "tls": "安全连接建立失败，请检查系统时间和本机安全软件。",
+            "refused": "连接被拒绝，目标服务或代理可能未运行。",
+            "reset": "连接被中断，请检查网络线路或代理连接。",
+            "unavailable": "未能完成网络检测，暂时无法确定具体原因。"
+          },
+          "action": {
+            "internet": "请检查 Wi-Fi/网线、路由器及本机 VPN 或代理连接后重试。",
+            "app_server": "请检查本机网络、Wi-Fi/网线和代理软件是否正常。",
+            "server_outbound": "服务端或模型服务可能暂时不可用，请稍后重试。"
+          },
+          "applicationProxy": "原助理应用代理",
+          "proxy": {
+            "enabled": "已开启。如果本机检测失败，请确认代理软件正在运行且代理设置正确。",
+            "disabled": "应用代理开关已关闭。系统代理或 VPN/TUN 状态无法确认。",
+            "unknown": "当前无法读取应用代理设置；系统代理或 VPN/TUN 状态也无法确认。"
+          },
+          "summary": {
+            "localNetworkAndProxy": "本机到测速节点的检测失败，且原助理应用代理已开启。请先确认代理软件正在运行、代理设置正确，再检查 Wi-Fi/网线和路由器。",
+            "localNetwork": "本机到测速节点连接失败。请检查 Wi-Fi/网线、路由器和本机 VPN/代理后重试。",
+            "clientOrServer": "本机未能连接应用服务端，目前无法区分本机网络和服务端连接问题。请检查 Wi-Fi/网线及代理后重试。",
+            "remoteConnection": "本机可访问测速节点，但无法连接应用服务端。请检查远程地址或本机代理，再稍后重试。",
+            "server": "本机侧网络检测已完成，问题可能在应用服务端或模型服务，请稍后重试。",
+            "slow": "本机网络可达但响应较慢，可能影响模型连接；请检查当前网络或代理线路。",
+            "unknown": "暂时无法确定具体原因。请检查本机网络后重试。",
+            "reachable": "本机网络检测正常，当前波动可能发生在应用服务端或模型服务。"
+          }
         },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",

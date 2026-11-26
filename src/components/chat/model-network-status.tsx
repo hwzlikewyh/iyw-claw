@@ -1,11 +1,18 @@
 "use client"
 
-import { AlertTriangle, Loader2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { AlertTriangle, ChevronDown, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
 import { useSessionActivity } from "@/hooks/use-session-activity"
 import { classifyAgentRuntimeError } from "@/lib/agent-runtime-error"
+import {
+  clearModelNetworkDiagnosis,
+  getModelNetworkDiagnosis,
+  type ModelNetworkDiagnosis,
+  type NetworkProbeStatus,
+} from "@/lib/model-network-diagnostics"
 import { cn } from "@/lib/utils"
 
 const SEVERE_RETRY_ATTEMPTS = 2
@@ -20,13 +27,23 @@ const NETWORK_ERROR_KEYS = [
   "backendErrors.serviceUnavailable",
   "backendErrors.modelStreamInterrupted",
 ] as const
+const NETWORK_RETRY_REASONS = new Set([
+  "networkError",
+  "serverError",
+  "streamDisconnected",
+])
+const NON_NETWORK_FAILURE_RE =
+  /insufficient_points|insufficient[ _-]+(?:balance|quota|credit|funds)|(?:balance|quota|credit)[ _-]+(?:insufficient|exhausted)|credit balance (?:is )?too low|payment[ _-]+required|billing|余额不足|额度不足|配额不足|欠费/i
 
 function isModelNetworkError(
   error: string | null,
   messages: string[]
 ): boolean {
   if (!error) return false
-  if (/max_output_tokens|max_tokens|context_length_exceeded/i.test(error)) {
+  if (
+    /max_output_tokens|max_tokens|context_length_exceeded/i.test(error) ||
+    NON_NETWORK_FAILURE_RE.test(error)
+  ) {
     return false
   }
   const kind =
@@ -54,6 +71,39 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
       error,
       NETWORK_ERROR_KEYS.map((key) => t(key))
     )
+  const retryReason = retry?.retry_reason
+  const networkIssue =
+    networkError ||
+    (retrying && (!retryReason || NETWORK_RETRY_REASONS.has(retryReason)))
+  const diagnosisScope = useMemo(
+    () => ({ contextKey, networkIssue }),
+    [contextKey, networkIssue]
+  )
+
+  const [diagnosisState, setDiagnosisState] = useState<{
+    scope: typeof diagnosisScope
+    diagnosis: ModelNetworkDiagnosis | null
+  }>({ scope: diagnosisScope, diagnosis: null })
+
+  useEffect(() => {
+    let cancelled = false
+    if (!networkIssue) {
+      clearModelNetworkDiagnosis(contextKey)
+      return
+    }
+
+    getModelNetworkDiagnosis(contextKey)
+      .then((diagnosis) => {
+        if (!cancelled) setDiagnosisState({ scope: diagnosisScope, diagnosis })
+      })
+      .catch(() => {
+        if (!cancelled)
+          setDiagnosisState({ scope: diagnosisScope, diagnosis: null })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [contextKey, diagnosisScope, networkIssue])
 
   if (!retrying && !networkError) return null
 
@@ -72,6 +122,12 @@ export function ModelNetworkStatus({ contextKey }: { contextKey: string }) {
           ? t("modelNetwork.attempts", { count: attempt })
           : null
       }
+      diagnosis={
+        networkIssue && diagnosisState.scope === diagnosisScope
+          ? diagnosisState.diagnosis
+          : null
+      }
+      diagnosisLoading={networkIssue && diagnosisState.scope !== diagnosisScope}
     />
   )
 }
@@ -81,12 +137,17 @@ function ModelNetworkBanner({
   networkError,
   severe,
   attempts,
+  diagnosis,
+  diagnosisLoading,
 }: {
   message: string
   networkError: boolean
   severe: boolean
   attempts: string | null
+  diagnosis: ModelNetworkDiagnosis | null
+  diagnosisLoading: boolean
 }) {
+  const t = useTranslations("Folder.chat.acpConnections.modelNetwork")
   const Icon = networkError || severe ? AlertTriangle : Loader2
   return (
     <div
@@ -112,6 +173,86 @@ function ModelNetworkBanner({
           {attempts && <span className="ms-2 opacity-80">{attempts}</span>}
         </p>
       </div>
+      {diagnosisLoading ? <p className="mt-2">{t("checking")}</p> : null}
+      {diagnosis ? <NetworkDiagnosisDetails diagnosis={diagnosis} /> : null}
     </div>
   )
+}
+
+function NetworkDiagnosisDetails({
+  diagnosis,
+}: {
+  diagnosis: ModelNetworkDiagnosis
+}) {
+  const t = useTranslations("Folder.chat.acpConnections.modelNetwork")
+  return (
+    <details className="mt-2 border-t border-current/15 pt-2">
+      <summary className="flex cursor-pointer list-none items-center gap-1 font-medium">
+        <ChevronDown aria-hidden="true" className="size-3.5" />
+        {t("details")}
+      </summary>
+      <div className="mt-2 space-y-2 ps-5 leading-relaxed">
+        <ProbeDetail status={diagnosis.client} />
+        {diagnosis.appServer && <ProbeDetail status={diagnosis.appServer} />}
+        {diagnosis.server && <ProbeDetail status={diagnosis.server} />}
+        <p>
+          <span className="font-medium">{t("applicationProxy")}</span>{" "}
+          {t(`proxy.${diagnosis.applicationProxy}`)}
+        </p>
+        <p className="text-muted-foreground">
+          {t(summarizeDiagnosis(diagnosis))}
+        </p>
+      </div>
+    </details>
+  )
+}
+
+function ProbeDetail({ status }: { status: NetworkProbeStatus }) {
+  const t = useTranslations("Folder.chat.acpConnections.modelNetwork")
+  const value = t(`status.${status.status}`)
+  const latency =
+    status.elapsedMs === undefined
+      ? ""
+      : t("latency", { value: status.elapsedMs })
+  const failure = status.failure ? t(`failure.${status.failure}`) : ""
+  return (
+    <p>
+      <span className="font-medium">{t(`target.${status.target}`)}</span>{" "}
+      {value}
+      {latency ? ` (${latency})` : ""}
+      {failure ? `: ${failure}` : ""}
+      {status.status === "failed" ? ` ${t(`action.${status.target}`)}` : ""}
+    </p>
+  )
+}
+
+function summarizeDiagnosis(diagnosis: ModelNetworkDiagnosis) {
+  if (
+    diagnosis.client.target === "app_server" &&
+    diagnosis.client.status === "failed"
+  ) {
+    return "summary.clientOrServer" as const
+  }
+  if (
+    diagnosis.appServer?.status === "failed" &&
+    diagnosis.client.status !== "failed" &&
+    diagnosis.client.status !== "unknown"
+  ) {
+    return "summary.remoteConnection" as const
+  }
+  if (
+    diagnosis.client.status === "failed" &&
+    diagnosis.applicationProxy === "enabled"
+  ) {
+    return "summary.localNetworkAndProxy" as const
+  }
+  if (diagnosis.client.status === "failed") {
+    return "summary.localNetwork" as const
+  }
+  if (diagnosis.server?.status === "failed") {
+    return "summary.server" as const
+  }
+  if (diagnosis.client.status === "slow") return "summary.slow" as const
+  if (diagnosis.client.status === "unknown") return "summary.unknown" as const
+  return "summary.reachable" as const
 }

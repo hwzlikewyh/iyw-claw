@@ -4066,7 +4066,50 @@
         "modelNetwork": {
           "retrying": "Your message was received. Retrying the model request automatically.",
           "attempts": "Retry {count}",
-          "disconnected": "The model didn’t finish this reply. You can try again in this conversation."
+          "disconnected": "The model didn’t finish this reply. You can try again in this conversation.",
+          "checking": "Checking this computer and service connections…",
+          "details": "Diagnostic details",
+          "target": {
+            "internet": "This computer to the test endpoint",
+            "app_server": "This computer to the app server",
+            "server_outbound": "App server network"
+          },
+          "status": {
+            "healthy": "Reachable",
+            "slow": "Slow response",
+            "failed": "Check failed",
+            "unknown": "Unknown"
+          },
+          "latency": "{value} ms",
+          "failure": {
+            "dns": "Name lookup failed. DNS on the current network may be unavailable.",
+            "timeout": "The connection timed out. The network may be congested or unstable.",
+            "tls": "A secure connection could not be established. Check the system clock and local security software.",
+            "refused": "The connection was refused. The destination service or proxy may not be running.",
+            "reset": "The connection was interrupted. Check the network path or proxy connection.",
+            "unavailable": "The network check did not complete, so the exact cause is unknown."
+          },
+          "action": {
+            "internet": "Check Wi-Fi or Ethernet, the router, and this computer’s VPN or proxy connection, then retry.",
+            "app_server": "Check this computer’s network, Wi-Fi or Ethernet, and proxy software.",
+            "server_outbound": "The app server or model service may be temporarily unavailable. Try again later."
+          },
+          "applicationProxy": "原助理 app proxy",
+          "proxy": {
+            "enabled": "Enabled. If this computer’s check failed, make sure the proxy software is running and its settings are correct.",
+            "disabled": "The app proxy switch is off. System proxy and VPN/TUN status could not be confirmed.",
+            "unknown": "The app proxy setting could not be read. System proxy and VPN/TUN status could not be confirmed either."
+          },
+          "summary": {
+            "localNetworkAndProxy": "This computer could not reach the test endpoint, and the 原助理 app proxy is enabled. First check that the proxy software is running and configured correctly, then check Wi-Fi or Ethernet and the router.",
+            "localNetwork": "This computer could not reach the test endpoint. Check Wi-Fi or Ethernet, the router, and this computer’s VPN or proxy, then retry.",
+            "clientOrServer": "This computer could not connect to the app server, so the local network and server connection cannot be distinguished. Check Wi-Fi or Ethernet and the proxy, then retry.",
+            "remoteConnection": "This computer can reach the test endpoint but not the app server. Check the remote address or this computer’s proxy, then try again later.",
+            "server": "This computer’s network check completed. The issue may be with the app server or model service. Try again later.",
+            "slow": "This computer is reachable, but responses are slow and may affect model connections. Check the current network or proxy route.",
+            "unknown": "The exact cause is unknown. Check this computer’s network and retry.",
+            "reachable": "This computer’s network check passed. The interruption may be at the app server or model service."
+          }
         },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",
