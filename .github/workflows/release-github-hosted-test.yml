@@ -59,6 +59,10 @@ on:
         description: macOS is compiled and verified by the installer repository Developer ID workflow
         type: boolean
         default: false
+      verify_candidate_environment:
+        description: Verify the candidate's bound runtime components after extracting its signed AppImage
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -350,6 +354,7 @@ jobs:
       source_ref: ${{ inputs.source_ref }}
       release_id: ${{ inputs.candidate_release_id }}
       signing_run: ${{ inputs.installer_run_id }}
+      verify_environment: ${{ inputs.verify_candidate_environment }}
     secrets: inherit
 
   online-brands:

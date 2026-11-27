@@ -6,6 +6,7 @@ on:
       source_ref: {required: true, type: string}
       release_id: {required: true, type: string}
       signing_run: {required: false, type: string}
+      verify_environment: {default: false, type: boolean}
 env:
   VERSION: ${{ inputs.version }}
   SOURCE_REF: ${{ inputs.source_ref }}
@@ -56,6 +57,23 @@ jobs:
             "$root/app/AppRun" --installation-brand | jq -e --arg id "$brand" --arg name "$name" --arg dir "$directory" \
               '.brandId==$id and .displayName==$name and .userDirectory==$dir and .hasLogo and .productKey=="iyw-claw"'
             mv "$root/app" squashfs-root
+          done
+      - name: Verify real bound Linux runtime installation and reuse
+        if: inputs.verify_environment
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/squashfs-root/usr/bin/iyw-environment"
+          for brand in iyw yun; do
+            export IYW_CLAW_BRAND_HOME="$RUNNER_TEMP/environment-$brand"
+            log="$RUNNER_TEMP/environment-$brand.log"
+            "$helper" repair --app-version "$VERSION" --components node,git,uv >"$log" 2>&1 || {
+              sed -E 's#https?://[^ ]+#<redacted-url>#g' "$log" | tail -30
+              exit 1
+            }
+            "$helper" diagnose --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"]=="healthy"'
+            "$helper" repair --app-version "$VERSION" --components node,git,uv >"$log" 2>&1
+            python3 -c 'import json,os,pathlib; p=pathlib.Path(os.environ["IYW_CLAW_BRAND_HOME"])/"inventory/environment-current.json"; d=json.loads(p.read_text()); assert {"node","git","uv"} <= {x["componentId"] for x in d["components"]}'
           done
   macos:
     if: inputs.signing_run != ''
