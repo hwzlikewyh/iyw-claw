@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           [[ "$SIGNING_RUN" =~ ^[0-9]+$ ]]
           gh api "repos/hwzlikewyh/iyw-claw-installer/actions/runs/$SIGNING_RUN" | jq -e \
-            '.path==".github/workflows/sign-macos.yml" and .event=="workflow_dispatch" and .conclusion=="success" and .head_sha=="692263e49d69ab0848e41486779ca74680a561d2" and .head_repository.full_name=="hwzlikewyh/iyw-claw-installer"'
+            '.path==".github/workflows/sign-macos.yml" and .event=="workflow_dispatch" and .conclusion=="success" and .head_sha=="c22b6dfe5d3cc3a70b9995f78ac2284ae5c99162" and .head_repository.full_name=="hwzlikewyh/iyw-claw-installer"'
       - uses: actions/download-artifact@v4
         with:
           repository: hwzlikewyh/iyw-claw-installer
