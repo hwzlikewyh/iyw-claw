@@ -17,7 +17,7 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, windows_x86, environment, environment_only, installer_only]
+        options: [all, windows_x86, environment, environment_only, installer_only, unix_candidate]
       installer_run_id:
         description: "Verify the real Windows installer from a prior hosted packaging run"
         required: false
@@ -114,7 +114,7 @@ jobs:
       version: ${{ inputs.version }}
 
   prepare-frontend:
-    if: inputs.platforms != 'environment_only' && inputs.platforms != 'installer_only' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
+    if: inputs.platforms != 'environment_only' && inputs.platforms != 'installer_only' && inputs.platforms != 'unix_candidate' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
     outputs:
@@ -327,4 +327,17 @@ jobs:
       source_ref: ${{ inputs.source_ref }}
       prior_run: ${{ inputs.candidate_repair_run }}
       release_id: ${{ inputs.candidate_release_id }}
+    secrets: inherit
+
+  unix-candidate:
+    if: inputs.platforms == 'unix_candidate'
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/verify-unix-candidate.yml
+    with:
+      version: ${{ inputs.version }}
+      source_ref: ${{ inputs.source_ref }}
+      release_id: ${{ inputs.candidate_release_id }}
+      signing_run: ${{ inputs.installer_run_id }}
     secrets: inherit

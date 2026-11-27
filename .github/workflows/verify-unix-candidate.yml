@@ -1,0 +1,114 @@
+name: Verify installed Unix candidate
+on:
+  workflow_call:
+    inputs:
+      version: {required: true, type: string}
+      source_ref: {required: true, type: string}
+      release_id: {required: true, type: string}
+      signing_run: {required: false, type: string}
+env:
+  VERSION: ${{ inputs.version }}
+  SOURCE_REF: ${{ inputs.source_ref }}
+  RELEASE_ID: ${{ inputs.release_id }}
+  GH_TOKEN: ${{ github.token }}
+jobs:
+  linux:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-22.04, arch: amd64}
+          - {runner: ubuntu-22.04-arm, arch: arm64}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - name: Verify signed AppImage installed with both brand configurations
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/release/unix-candidate.mjs linux
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1
+          package="$RUNNER_TEMP/iyw-claw_${VERSION}_${ARCH}.AppImage"
+          chmod +x "$package"
+          cd "$RUNNER_TEMP"
+          "$package" --appimage-extract > /dev/null
+          for brand in iyw yun; do
+            root="$RUNNER_TEMP/installed-$brand"
+            mkdir -p "$root/config"
+            mv squashfs-root "$root/app"
+            cp "$GITHUB_WORKSPACE/src-tauri/icons/128x128.png" "$root/config/logo.png"
+            name=原助理
+            directory=.iyw-claw
+            if [[ "$brand" == yun ]]; then name=云助理; directory=.iyw-claw-yun; fi
+            jq -n --arg id "$brand" --arg name "$name" '{brandId:$id,displayName:$name,logoFile:"logo.png"}' > "$root/config/branding.json"
+            "$root/app/AppRun" --installation-brand | jq -e --arg id "$brand" --arg name "$name" --arg dir "$directory" \
+              '.brandId==$id and .displayName==$name and .userDirectory==$dir and .hasLogo and .productKey=="iyw-claw"'
+            mv "$root/app" squashfs-root
+          done
+  macos:
+    if: inputs.signing_run != ''
+    permissions:
+      contents: write
+    runs-on: macos-15
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x64, target: x86_64-apple-darwin}
+          - {arch: aarch64, target: aarch64-apple-darwin}
+    env:
+      ARCH: ${{ matrix.arch }}
+      SIGNING_RUN: ${{ inputs.signing_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - name: Check signing run provenance
+        run: |
+          set -euo pipefail
+          [[ "$SIGNING_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/hwzlikewyh/iyw-claw-installer/actions/runs/$SIGNING_RUN" | jq -e \
+            '.path==".github/workflows/sign-macos.yml" and .event=="workflow_dispatch" and .conclusion=="success" and .head_sha=="e1d7f024d608ee80997f1345816d1ea84830d4ed" and .head_repository.full_name=="hwzlikewyh/iyw-claw-installer"'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: hwzlikewyh/iyw-claw-installer
+          run-id: ${{ inputs.signing_run }}
+          name: signed-desktop-${{ matrix.target }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/signed
+      - name: Verify the exact signed application archive and DMG
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/signed"
+          test "$(cat source.txt)" = "$SOURCE_REF"
+          base="iyw-claw_${VERSION}_${ARCH}"
+          mkdir expanded
+          tar -xzf "$base.app.tar.gz" -C expanded
+          apps=(expanded/*.app)
+          test "${#apps[@]}" = 1
+          arch_name=arm64
+          [[ "$ARCH" != x64 ]] || arch_name=x86_64
+          lipo -verify_arch "$arch_name" "${apps[0]}/Contents/MacOS/iyw-claw"
+          requirement='identifier "app.iywclaw" and anchor apple generic and certificate leaf[subject.OU] = "393H57RCN6"'
+          codesign --verify --deep --strict -R "$requirement" "${apps[0]}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${apps[0]}/Contents/Info.plist")" = "$VERSION"
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/verified-dmg" "$base.dmg"
+          trap 'hdiutil detach "$RUNNER_TEMP/verified-dmg"' EXIT
+          mounted=("$RUNNER_TEMP/verified-dmg"/*.app)
+          codesign --verify --deep --strict -R "$requirement" "${mounted[0]}"
+          cmp "${apps[0]}/Contents/MacOS/iyw-claw" "${mounted[0]}/Contents/MacOS/iyw-claw"
+      - name: Sign verified archive for the updater
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx --yes @tauri-apps/cli@2.11.4 signer sign "$RUNNER_TEMP/signed/iyw-claw_${VERSION}_${ARCH}.app.tar.gz"
+      - name: Verify updater signature and attach files to the candidate draft
+        run: node .github/scripts/release/unix-candidate.mjs macos
