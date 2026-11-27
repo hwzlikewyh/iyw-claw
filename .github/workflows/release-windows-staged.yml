@@ -8,6 +8,10 @@ on:
       installer_run_id:
         required: false
         type: string
+      staging_name:
+        description: Reuse a compiled unsigned archive already on this candidate draft
+        required: false
+        type: string
       target:
         required: true
         type: string
@@ -36,6 +40,7 @@ env:
   FRONTEND_RUN_ID: ${{ inputs.frontend_run_id }}
 jobs:
   build:
+    if: inputs.staging_name == ''
     runs-on: windows-2022
     timeout-minutes: 150
     permissions:
@@ -214,8 +219,32 @@ jobs:
         if: always()
         uses: ./.github/actions/save-sccache
 
+  reuse:
+    if: inputs.staging_name != ''
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      asset_id: ${{ steps.archive.outputs.asset_id }}
+      sha256: ${{ steps.archive.outputs.sha256 }}
+    steps:
+      - uses: actions/github-script@v7
+        id: archive
+        env:
+          NAME: ${{ inputs.staging_name }}
+        with:
+          script: |
+            const release=(await github.rest.repos.getRelease({...context.repo,release_id:Number(process.env.RELEASE_ID)})).data;
+            if(!release.draft || !release.prerelease || release.target_commitish !== process.env.SOURCE_REF || release.tag_name !== process.env.RELEASE_TAG) throw new Error('Expected candidate draft for the exact source');
+            const name=process.env.NAME;
+            if(!/^iyw-staging-[1-9][0-9]*-[1-9][0-9]*-x86_64-pc-windows-msvc\.zip$/.test(name) || process.env.TAURI_TARGET_TRIPLE !== 'x86_64-pc-windows-msvc') throw new Error('Invalid candidate staging archive');
+            const asset=release.assets.find(item => item.name===name && item.state==='uploaded');
+            if(!asset || !/^sha256:[a-f0-9]{64}$/.test(asset.digest)) throw new Error('Staging archive is unavailable');
+            core.setOutput('asset_id',asset.id);
+            core.setOutput('sha256',asset.digest.slice(7));
   sign:
-    needs: build
+    needs: [build, reuse]
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.reuse.result == 'success') }}
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     concurrency:
       group: windows-signing-${{ github.repository }}
@@ -227,8 +256,8 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ github.token }}
-      STAGING_ASSET_ID: ${{ needs.build.outputs.asset_id }}
-      STAGING_SHA256: ${{ needs.build.outputs.sha256 }}
+      STAGING_ASSET_ID: ${{ needs.build.outputs.asset_id || needs.reuse.outputs.asset_id }}
+      STAGING_SHA256: ${{ needs.build.outputs.sha256 || needs.reuse.outputs.sha256 }}
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
@@ -240,12 +269,12 @@ jobs:
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
       # GitHub checkout and asset hosts require the runner's existing proxy.
-      NO_PROXY: localhost,127.0.0.1,api.github.com
+      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: http.version
       GIT_CONFIG_VALUE_0: HTTP/1.1
       GIT_TERMINAL_PROMPT: "0"
-      IYW_CLAW_SIGN_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGN_TIMESTAMP_URL }}
+      IYW_CLAW_SIGN_TIMESTAMP_URL: ${{ inputs.staging_name != '' && 'http://timestamp.sectigo.com' || vars.WINDOWS_SIGN_TIMESTAMP_URL }}
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
       IYW_CLAW_SKIP_SIDECAR: "1"
     steps:
@@ -331,7 +360,7 @@ jobs:
           path: |
             src-tauri/target/${{ inputs.target }}/release/iyw-claw.exe
             src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*_${{ env.RELEASE_VERSION }}_${{ startsWith(inputs.target, 'i686-') && 'x86' || 'x64' }}-setup.exe
-            src-tauri/target/${{ inputs.target }}/release/bundle/direct/*
+            src-tauri/target/${{ inputs.target }}/release/bundle/direct/iyw-claw_${{ env.RELEASE_VERSION }}_*
             src-tauri/resources/xinghe-worker/*
             src-tauri/binaries/iyw-environment-${{ inputs.target }}.exe
           compression-level: 1

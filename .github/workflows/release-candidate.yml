@@ -14,6 +14,9 @@ on:
       installer_run_id:
         required: false
         type: string
+      staging_name:
+        required: false
+        type: string
       frontend_run_id:
         required: false
         type: string
@@ -81,6 +84,7 @@ jobs:
     with:
       target: ${{ matrix.target }}
       installer_run_id: ${{ inputs.installer_run_id }}
+      staging_name: ${{ inputs.staging_name }}
       source_ref: ${{ inputs.source_ref }}
       release_id: ${{ needs.draft.outputs.release_id }}
       release_tag: v${{ inputs.version }}
