@@ -45,6 +45,7 @@ jobs:
     env:
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
+      IYW_CLAW_SIGN_TIMESTAMP_URL: http://timestamp.sectigo.com
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
       IYW_CLAW_SAFENET_PIN: ${{ secrets.IYW_CLAW_SAFENET_PIN }}
       INSTALLER_SOURCE: ${{ inputs.installer_ref }}
