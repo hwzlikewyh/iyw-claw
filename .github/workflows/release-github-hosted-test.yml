@@ -358,3 +358,6 @@ jobs:
     with:
       signed_windows_run: ${{ inputs.installer_run_id }}
       target: ${{ inputs.installer_artifact_name }}
+      version: ${{ inputs.version }}
+      release_id: ${{ inputs.candidate_release_id }}
+      installer_build_run: ${{ inputs.installer_run_id_for_candidate }}

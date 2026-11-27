@@ -9,8 +9,8 @@ import sys
 import tempfile
 import time
 
-VERSION = "0.1.374"
-RELEASE = "384624258478997504"
+VERSION = os.environ["ACCEPTANCE_VERSION"]
+RELEASE = os.environ["ACCEPTANCE_RELEASE_ID"]
 HOME = Path.home()
 TEMP = Path(os.environ["RUNNER_TEMP"])
 INPUT = Path(os.environ["ACCEPTANCE_INPUT"])
