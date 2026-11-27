@@ -16,6 +16,10 @@ mod macos;
 const MAX_EXPANDED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 
+#[cfg(test)]
+#[path = "archive_tests.rs"]
+mod tests;
+
 pub fn unpack(archive: &Path, destination: &Path, kind: &str, file_name: &str) -> Result<()> {
     create_directory(destination)?;
     match kind {
@@ -222,11 +226,11 @@ fn create_links(links: Vec<(std::path::PathBuf, std::path::PathBuf)>) -> Result<
 }
 
 fn reject_unsafe_path(path: &Path) -> Result<()> {
-    // macOS 的 Git TAR 使用 ./ 根目录及前缀；其他平台保持原有校验。
+    // Unix 的 Git TAR 使用 ./ 根目录及前缀，仍拒绝父目录与绝对路径。
     if path.as_os_str().is_empty()
         || path.components().any(|part| match part {
             Component::Normal(_) => false,
-            Component::CurDir => !cfg!(target_os = "macos"),
+            Component::CurDir => !cfg!(unix),
             _ => true,
         })
         || path.to_string_lossy().contains(':')
