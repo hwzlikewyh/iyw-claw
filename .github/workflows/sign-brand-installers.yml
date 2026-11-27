@@ -51,6 +51,9 @@ jobs:
       INSTALLER_SOURCE: ${{ inputs.installer_ref }}
       INSTALLER_RUN: ${{ inputs.installer_run_id }}
       BRAND: ${{ matrix.brand }}
+      HTTP_PROXY: http://127.0.0.1:7890
+      HTTPS_PROXY: http://127.0.0.1:7890
+      NO_PROXY: localhost,127.0.0.1,api.github.com
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,6 +84,16 @@ jobs:
           "ARTIFACT_PREFIX=$prefix" >> $env:GITHUB_ENV
           "PACKAGE_DIRECTORY=$directory" >> $env:GITHUB_ENV
       - uses: actions/download-artifact@v4
+        id: download
+        continue-on-error: true
+        with:
+          repository: hwzlikewyh/iyw-claw-installer
+          github-token: ${{ secrets.INSTALLER_REPO_TOKEN }}
+          run-id: ${{ inputs.installer_run_id }}
+          name: windows-signing-input-${{ matrix.brand }}
+          path: ${{ env.PACKAGE_DIRECTORY }}
+      - uses: actions/download-artifact@v4
+        if: steps.download.outcome == 'failure'
         with:
           repository: hwzlikewyh/iyw-claw-installer
           github-token: ${{ secrets.INSTALLER_REPO_TOKEN }}
@@ -106,8 +119,18 @@ jobs:
           npx --yes @tauri-apps/cli@2.11.4 signer sign "$env:PACKAGE_DIRECTORY/$env:ARTIFACT_PREFIX-windows.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Updater signing failed' }
       - uses: actions/upload-artifact@v4
+        id: upload
+        continue-on-error: true
         with:
           name: signed-installer-windows-${{ matrix.brand }}
           path: ${{ env.PACKAGE_DIRECTORY }}/*
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: steps.upload.outcome == 'failure'
+        with:
+          name: signed-installer-windows-${{ matrix.brand }}
+          path: ${{ env.PACKAGE_DIRECTORY }}/*
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
