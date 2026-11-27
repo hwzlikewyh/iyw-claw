@@ -1,7 +1,5 @@
 //! 桌面更新先预下载并缓存，由用户操作或受保护的后台空闲流程安装。
 
-use std::sync::Mutex;
-
 use sea_orm::DatabaseConnection;
 use tauri_plugin_updater::Update;
 
@@ -12,9 +10,6 @@ use super::offer::{self, Identity};
 use super::preferences;
 use super::release::{self, AppUpdateInfo, CheckReason, DesktopUpdateRequest};
 use super::state::{self, AppUpdateStateHandle};
-
-// 只保存 SDK 的安装上下文，完整更新包留在磁盘，不常驻内存。
-static PREPARED_UPDATE: Mutex<Option<(Identity, Update, bool)>> = Mutex::new(None);
 
 pub struct Task {
     pub(super) app: tauri::AppHandle,
@@ -116,15 +111,7 @@ async fn restart_after_silent_install(task: &Task) -> Result<(), String> {
 }
 
 async fn checked_silent_update(task: &Task, identity: &Identity) -> Result<Update, String> {
-    let prepared = PREPARED_UPDATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-        .filter(|(expected, _, silent)| expected == identity && *silent)
-        .map(|(_, update, _)| update.clone());
-    if let Some(update) = prepared.filter(|_| identity.channel != "beta") {
-        return Ok(update);
-    }
+    // 安装前重新查询已保存的渠道范围，已下载文件由磁盘缓存复用。
     let mut preferences = preferences::load(&task.conn)
         .await
         .map_err(|error| error.to_string())?;
@@ -140,14 +127,10 @@ async fn checked_silent_update(task: &Task, identity: &Identity) -> Result<Updat
         .ok_or("Prepared release is no longer available; check for updates again")?;
     let extensions = release::extensions(&update).map_err(|error| error.to_string())?;
     offer::validate_checked_update(&update, &extensions, identity)?;
-    *PREPARED_UPDATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) =
-        Some((identity.clone(), update.clone(), true));
     Ok(update)
 }
 
-pub fn prefetch(task: Task, checked: (AppUpdateInfo, Update), silent: bool) {
+pub fn prefetch(task: Task, checked: (AppUpdateInfo, Update), _silent: bool) {
     let (info, mut update) = checked;
     let identity = Identity {
         version: info.version,
@@ -161,9 +144,6 @@ pub fn prefetch(task: Task, checked: (AppUpdateInfo, Update), silent: bool) {
         tracing::info!(version = %identity.version, "[app-update] preparing update in background");
         match load_or_download(&task, &mut update).await {
             Ok(_) => {
-                *PREPARED_UPDATE
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner()) = Some((identity, update, silent));
                 offer::set_downloaded(&task.handle, &task.emitter());
                 tracing::info!("[app-update] download ready; waiting for user to install");
             }
@@ -177,15 +157,6 @@ pub(super) async fn checked_update(
     identity: &Identity,
     preferences: &preferences::UpdatePreferences,
 ) -> Result<Update, String> {
-    let prepared = PREPARED_UPDATE
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-        .filter(|(expected, _, _)| expected == identity)
-        .map(|(_, update, _)| update.clone());
-    if let Some(update) = prepared.filter(|_| identity.channel != "beta") {
-        return Ok(update);
-    }
     let request = DesktopUpdateRequest {
         app: &task.app,
         preferences,
