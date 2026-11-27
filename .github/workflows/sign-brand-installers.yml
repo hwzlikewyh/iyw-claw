@@ -53,7 +53,7 @@ jobs:
       BRAND: ${{ matrix.brand }}
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
-      NO_PROXY: localhost,127.0.0.1,api.github.com
+      NO_PROXY: localhost,127.0.0.1,api.github.com,.actions.githubusercontent.com,.blob.core.windows.net
     steps:
       - uses: actions/checkout@v4
         with:
@@ -118,6 +118,14 @@ jobs:
         run: |
           npx --yes @tauri-apps/cli@2.11.4 signer sign "$env:PACKAGE_DIRECTORY/$env:ARTIFACT_PREFIX-windows.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Updater signing failed' }
+      - name: Retain verified signed packages for interrupted transfer recovery
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TOOL_CACHE "brand-installers/$env:INSTALLER_SOURCE/$env:BRAND"
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          Get-ChildItem -LiteralPath $env:PACKAGE_DIRECTORY -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $directory -Force
+          }
       - uses: actions/upload-artifact@v4
         id: upload
         continue-on-error: true
