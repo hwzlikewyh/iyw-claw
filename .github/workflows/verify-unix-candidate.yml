@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           [[ "$SIGNING_RUN" =~ ^[0-9]+$ ]]
           gh api "repos/hwzlikewyh/iyw-claw-installer/actions/runs/$SIGNING_RUN" | jq -e \
-            '.path==".github/workflows/sign-macos.yml" and .event=="workflow_dispatch" and .conclusion=="success" and .head_sha=="e1d7f024d608ee80997f1345816d1ea84830d4ed" and .head_repository.full_name=="hwzlikewyh/iyw-claw-installer"'
+            '.path==".github/workflows/sign-macos.yml" and .event=="workflow_dispatch" and .conclusion=="success" and .head_sha=="692263e49d69ab0848e41486779ca74680a561d2" and .head_repository.full_name=="hwzlikewyh/iyw-claw-installer"'
       - uses: actions/download-artifact@v4
         with:
           repository: hwzlikewyh/iyw-claw-installer
@@ -104,7 +104,7 @@ jobs:
           arch_name=arm64
           [[ "$ARCH" != x64 ]] || arch_name=x86_64
           lipo -verify_arch "$arch_name" "${apps[0]}/Contents/MacOS/iyw-claw"
-          requirement='identifier "app.iywclaw" and anchor apple generic and certificate leaf[subject.OU] = "393H57RCN6"'
+          requirement='=identifier "app.iywclaw" and anchor apple generic and certificate leaf[subject.OU] = "393H57RCN6"'
           codesign --verify --deep --strict -R "$requirement" "${apps[0]}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${apps[0]}/Contents/Info.plist")" = "$VERSION"
           hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/verified-dmg" "$base.dmg"
