@@ -15,3 +15,5 @@ Windows/Linux 配置在安装根目录 `config/branding.json`，macOS 配置在 
 本机构建、打包和启动受 `AGENT.md` 禁止。验证使用语法解析、定向 lint 和远端签名 CI。CI 中的 NSIS 安装检查与依赖线上环境绑定的完整安装检查分别报告，未登记候选环境绑定时不宣称完整安装验收通过。
 
 完整安装器配置及三端构建入口见相邻 `iyw-claw-installer/docs/shared-pc-branding.md`。
+
+Linux 向导安装的解包目录通过同文件系统的原子交换更新。更新前验证公共 AppImage 签名。测试和正式 PC 使用同一版本的稳定运行环境绑定。

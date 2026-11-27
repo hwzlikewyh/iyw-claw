@@ -9,13 +9,35 @@ on:
         required: true
         type: string
 jobs:
+  brands:
+    runs-on: ubuntu-22.04
+    outputs:
+      ids: ${{ steps.list.outputs.ids }}
+    steps:
+      - uses: actions/github-script@v7
+        id: list
+        env:
+          SOURCE: ${{ inputs.installer_ref }}
+          BUILD_RUN: ${{ inputs.installer_run_id }}
+        with:
+          github-token: ${{ secrets.INSTALLER_REPO_TOKEN }}
+          script: |
+            const repo = {owner: context.repo.owner, repo: 'iyw-claw-installer'};
+            const run_id = Number(process.env.BUILD_RUN);
+            const {data: run} = await github.rest.actions.getWorkflowRun({...repo, run_id});
+            if (run.path !== '.github/workflows/build.yml' || run.head_sha !== process.env.SOURCE || run.conclusion !== 'success') throw new Error('Expected a successful installer build for this source');
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {...repo, run_id});
+            const ids = artifacts.filter(a => !a.expired).map(a => /^windows-signing-input-([a-z][a-z0-9]{1,31})$/.exec(a.name)?.[1]).filter(Boolean);
+            if (!ids.length || new Set(ids).size !== ids.length) throw new Error('Invalid installer brand matrix');
+            core.setOutput('ids', JSON.stringify(ids));
   sign:
+    needs: brands
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        brand: [iyw, yun]
+        brand: ${{ fromJSON(needs.brands.outputs.ids) }}
     concurrency:
       group: windows-signing-${{ github.repository }}
       queue: max

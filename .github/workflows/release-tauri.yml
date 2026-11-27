@@ -151,6 +151,19 @@ jobs:
           cache-workspace-crates: "false"
           cache-on-failure: "true"
 
+      - name: Restore missing ARM64 V8 archive after Cargo cache restore
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-tauri
+          obj=target/aarch64-unknown-linux-gnu/release/gn_out/obj
+          if [[ ! -s "$obj/librusty_v8.a" ]]; then
+            # v8 以 URL 回执跳过下载，Cargo 缓存可能只恢复回执和构建指纹。
+            rm -f -- "$obj/librusty_v8.sum"
+            cargo clean --release --target aarch64-unknown-linux-gnu -p v8
+          fi
+
       - name: Install Windows x86 assembler
         if: matrix.target == 'i686-pc-windows-msvc'
         uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
@@ -558,9 +571,9 @@ jobs:
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
 
-      - name: Build ad-hoc and upload macOS
+      - name: Build and upload macOS
         if: contains(matrix.target, 'apple-darwin')
-        timeout-minutes: ${{ inputs.parallel_worker && 30 || 100 }}
+        timeout-minutes: ${{ inputs.parallel_worker && 30 || 165 }}
         uses: tauri-apps/tauri-action@v0.6.1
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"

@@ -3,10 +3,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-pub fn release_channel() -> &'static str {
-    if std::env::var("IYW_CLAW_RELEASE_CHANNEL").is_ok_and(|value| value == "beta") { "beta" } else { "stable" }
-}
-
 pub fn require_space(path: &Path, required: u64) -> Result<()> {
     let available = fs2::available_space(path)
         .with_context(|| format!("read available disk space: {}", path.display()))?;

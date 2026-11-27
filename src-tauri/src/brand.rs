@@ -43,7 +43,6 @@ pub fn user_directory_name() -> String {
 }
 
 pub fn prepare_environment() {
-    std::env::set_var("IYW_CLAW_RELEASE_CHANNEL", if release_id().is_empty() { "stable" } else { "beta" });
     if id() == "iyw" {
         clear_inherited_brand();
         return;

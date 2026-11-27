@@ -183,8 +183,6 @@ async fn load_unlocked(
         None => UpdatePreferences::default(),
     };
     let dirty = preferences.ensure_installation_id();
-    #[cfg(feature = "tauri-runtime")]
-    std::env::set_var("IYW_CLAW_RELEASE_CHANNEL", preferences.channel.as_str());
     Ok((preferences, dirty))
 }
 
@@ -222,8 +220,6 @@ pub(super) async fn update_preferences(
     let (mut preferences, _) = load_unlocked(conn).await?;
     apply(&mut preferences)?;
     save_unlocked(conn, &preferences).await?;
-    #[cfg(feature = "tauri-runtime")]
-    std::env::set_var("IYW_CLAW_RELEASE_CHANNEL", preferences.channel.as_str());
     Ok(preferences)
 }
 

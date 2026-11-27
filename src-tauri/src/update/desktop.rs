@@ -73,9 +73,7 @@ pub(super) async fn install_silently(task: &Task, identity: &Identity) -> Result
         }
         return Ok(true);
     }
-    if let Err(error) = update
-        .install(bytes)
-        .map_err(|error| error.to_string())
+    if let Err(error) = install_verified(&update, bytes)
         .and_then(|_| finish_install(task, update.version))
     {
         task.fail(error);
@@ -83,6 +81,15 @@ pub(super) async fn install_silently(task: &Task, identity: &Identity) -> Result
     }
     restart_after_silent_install(task).await?;
     Ok(true)
+}
+
+pub(super) fn install_verified(update: &Update, bytes: Vec<u8>) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if let Some(app) = super::linux_extracted::managed_app_dir().map_err(|error| error.to_string())? {
+        return super::linux_extracted::install(&app, &bytes, update)
+            .map_err(|error| error.to_string());
+    }
+    update.install(bytes).map_err(|error| error.to_string())
 }
 
 async fn restart_after_silent_install(task: &Task) -> Result<(), String> {

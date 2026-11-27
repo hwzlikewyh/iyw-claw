@@ -117,7 +117,7 @@ async fn install_package(
         None
     };
     state::set_installing(&task.handle, &task.emitter());
-    update.install(bytes).map_err(|error| error.to_string())?;
+    desktop::install_verified(&update, bytes)?;
     desktop::finish_install(task, update.version)?;
     if mode != InstallMode::Now && state::try_claim_restart(&task.handle, &task.emitter()) {
         task.app.restart();

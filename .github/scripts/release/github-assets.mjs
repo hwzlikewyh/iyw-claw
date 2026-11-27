@@ -81,7 +81,16 @@ export function requireDraft({ repo, releaseId, tag }) {
 
 export function requireReleaseSource({ repo, releaseId, tag, sourceRef }) {
   const release = requireDraft({ repo, releaseId, tag })
-  const ref = github(`repos/${repo}/git/ref/tags/${tag}`)
+  let ref
+  try {
+    ref = github(`repos/${repo}/git/ref/tags/${tag}`)
+  } catch (error) {
+    if (String(error.stderr).includes("HTTP 404") && release.prerelease &&
+        /^[a-f0-9]{40}$/.test(sourceRef) && release.target_commitish === sourceRef) {
+      return release
+    }
+    throw error
+  }
   const tagObject =
     ref.object.type === "tag"
       ? github(`repos/${repo}/git/tags/${ref.object.sha}`).object

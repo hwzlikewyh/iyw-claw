@@ -115,6 +115,7 @@ jobs:
             $digests += (Get-FileHash -LiteralPath $executable).Hash
             $start = [Diagnostics.ProcessStartInfo]::new($executable, '--installation-brand')
             $start.UseShellExecute=$false; $start.CreateNoWindow=$true; $start.RedirectStandardOutput=$true
+            $start.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)
             $process=[Diagnostics.Process]::Start($start)
             try {
               if (-not $process.WaitForExit(20000)) { $process.Kill(); throw 'Brand startup verification timed out' }

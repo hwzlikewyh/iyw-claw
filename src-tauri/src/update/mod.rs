@@ -13,6 +13,8 @@
 
 #[cfg(feature = "tauri-runtime")]
 pub mod desktop;
+#[cfg(all(feature = "tauri-runtime", target_os = "linux"))]
+mod linux_extracted;
 #[cfg(feature = "tauri-runtime")]
 pub mod manual;
 #[cfg(feature = "tauri-runtime")]
