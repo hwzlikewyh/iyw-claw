@@ -355,6 +355,7 @@ jobs:
       release_id: ${{ inputs.candidate_release_id }}
       signing_run: ${{ inputs.installer_run_id }}
       verify_environment: ${{ inputs.verify_candidate_environment }}
+      target: ${{ inputs.installer_artifact_name }}
     secrets: inherit
 
   online-brands:

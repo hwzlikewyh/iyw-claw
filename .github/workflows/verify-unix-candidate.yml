@@ -7,6 +7,7 @@ on:
       release_id: {required: true, type: string}
       signing_run: {required: false, type: string}
       verify_environment: {default: false, type: boolean}
+      target: {required: false, type: string}
 env:
   VERSION: ${{ inputs.version }}
   SOURCE_REF: ${{ inputs.source_ref }}
@@ -18,10 +19,7 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - {runner: ubuntu-22.04, arch: amd64}
-          - {runner: ubuntu-22.04-arm, arch: arm64}
+      matrix: ${{ fromJSON(inputs.target == 'linux-x86_64' && '{"include":[{"runner":"ubuntu-22.04","arch":"amd64"}]}' || '{"include":[{"runner":"ubuntu-22.04","arch":"amd64"},{"runner":"ubuntu-22.04-arm","arch":"arm64"}]}') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
