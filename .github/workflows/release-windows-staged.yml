@@ -300,8 +300,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node .release-tools/.github/scripts/release/windows-release.mjs finalize
       - name: Upload signed installation verification input
+        id: upload_verification
+        continue-on-error: true
         uses: actions/upload-artifact@v4
-        with:
+        with: &verification_upload
           name: windows-installer-verification-${{ inputs.target }}
           overwrite: true
           path: |
@@ -313,3 +315,7 @@ jobs:
           compression-level: 1
           if-no-files-found: error
           retention-days: 2
+      - name: Retry signed installation verification upload
+        if: steps.upload_verification.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with: *verification_upload
