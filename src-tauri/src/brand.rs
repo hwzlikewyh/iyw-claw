@@ -32,6 +32,7 @@ pub fn promotion_channel() -> &'static str { &current().promotion_channel }
 pub fn describe() -> serde_json::Value {
     serde_json::json!({
         "capability": "IYW_INSTALLED_BRAND_V1", "productKey": PRODUCT,
+        "updateTargeting": "IYW_BRAND_TARGETING_V1",
         "brandId": id(), "displayName": name(), "identifier": identifier(),
         "urlScheme": scheme(), "userDirectory": user_directory_name(), "hasLogo": current().logo.is_some(),
     })

@@ -55,6 +55,10 @@ on:
         description: Reuse the exact archive from an earlier Windows candidate build on the same draft
         required: false
         type: string
+      external_macos_signing:
+        description: macOS is compiled and verified by the installer repository Developer ID workflow
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -318,6 +322,7 @@ jobs:
       frontend_run_id: ${{ inputs.frontend_run_id }}
       installer_run_id: ${{ inputs.installer_run_id_for_candidate }}
       staging_name: ${{ inputs.candidate_staging_name }}
+      external_macos_signing: ${{ inputs.external_macos_signing }}
       windows_only: ${{ inputs.candidate_windows_only }}
     secrets: inherit
 

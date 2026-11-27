@@ -17,6 +17,9 @@ on:
       staging_name:
         required: false
         type: string
+      external_macos_signing:
+        type: boolean
+        default: false
       frontend_run_id:
         required: false
         type: string
@@ -72,7 +75,7 @@ jobs:
       prerelease: true
       frontend_artifact: ${{ inputs.frontend_artifact }}
       frontend_run_id: ${{ inputs.frontend_run_id }}
-      build_matrix: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Linux arm64","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}'
+      build_matrix: ${{ inputs.external_macos_signing && '{"include":[{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Linux arm64","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}' || '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Linux arm64","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}' }}
     secrets: inherit
   windows:
     needs: draft
@@ -99,7 +102,7 @@ jobs:
       verify_environment: false
       verify_branding: true
   verify-macos:
-    if: ${{ !inputs.windows_only }}
+    if: ${{ !inputs.windows_only && !inputs.external_macos_signing }}
     needs: desktop
     uses: ./.github/workflows/release-macos-verification.yml
     with:

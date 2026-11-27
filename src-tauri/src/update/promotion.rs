@@ -83,6 +83,7 @@ async fn fetch_stable(
         ))
         .query(&[
             ("product", crate::brand::PRODUCT),
+            ("brandId", crate::brand::id()),
             ("runtime", "desktop"),
             ("channel", "stable"),
             ("reason", "manual"),

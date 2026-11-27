@@ -134,9 +134,10 @@ pub fn endpoint(preferences: &UpdatePreferences, reason: CheckReason) -> String 
         "{{target}}"
     };
     format!(
-        "{}/app-updates/v1/tauri/check/{target}/{{{{arch}}}}/{{{{current_version}}}}?product={}&runtime=desktop&channel={}&reason={}",
+        "{}/app-updates/v1/tauri/check/{target}/{{{{arch}}}}/{{{{current_version}}}}?product={}&runtime=desktop&brandId={}&channel={}&reason={}",
         configured_base_url(),
         crate::brand::PRODUCT,
+        crate::brand::id(),
         preferences.channel.as_str(),
         reason.as_str()
     )
