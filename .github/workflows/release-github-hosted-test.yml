@@ -17,7 +17,7 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, windows_x86, environment, environment_only, installer_only, unix_candidate]
+        options: [all, windows_x86, environment, environment_only, installer_only, unix_candidate, online_brands]
       installer_run_id:
         description: "Verify the real Windows installer from a prior hosted packaging run"
         required: false
@@ -122,7 +122,7 @@ jobs:
       version: ${{ inputs.version }}
 
   prepare-frontend:
-    if: inputs.platforms != 'environment_only' && inputs.platforms != 'installer_only' && inputs.platforms != 'unix_candidate' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
+    if: inputs.platforms != 'environment_only' && inputs.platforms != 'installer_only' && inputs.platforms != 'unix_candidate' && inputs.platforms != 'online_brands' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
     outputs:
@@ -351,3 +351,9 @@ jobs:
       release_id: ${{ inputs.candidate_release_id }}
       signing_run: ${{ inputs.installer_run_id }}
     secrets: inherit
+
+  online-brands:
+    if: inputs.platforms == 'online_brands'
+    uses: ./.github/workflows/verify-online-brands.yml
+    with:
+      signed_windows_run: ${{ inputs.installer_run_id }}

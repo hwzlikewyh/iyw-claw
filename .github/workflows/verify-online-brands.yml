@@ -1,0 +1,82 @@
+name: Online branded installation acceptance
+on:
+  workflow_call:
+    inputs:
+      signed_windows_run:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-2022, platform: windows, arch: x86_64}
+          - {runner: ubuntu-22.04, platform: linux, arch: x86_64}
+          - {runner: ubuntu-22.04-arm, platform: linux, arch: aarch64}
+          - {runner: macos-15, platform: macos, arch: aarch64}
+          - {runner: macos-15-intel, platform: macos, arch: x86_64}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 100
+    env:
+      PYTHONIOENCODING: utf-8
+      ACCEPTANCE_ARCH: ${{ matrix.arch }}
+      ACCEPTANCE_INPUT: ${{ runner.temp }}/brand-input
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify installer build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED_RUN: ${{ inputs.signed_windows_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/hwzlikewyh/iyw-claw-installer/actions/runs/45967796369 | python -c 'import json,sys; r=json.load(sys.stdin); assert r["conclusion"]=="success" and r["head_sha"]=="44a1352a3cfb6759eb8a4a579cf66d8fd60d8c3b"'
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            [[ "$SIGNED_RUN" =~ ^[0-9]+$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGNED_RUN" | python -c 'import json,sys; r=json.load(sys.stdin); assert r["conclusion"]=="success" and r["path"]==".github/workflows/sign-installer-release.yml"'
+          fi
+      - uses: actions/download-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          pattern: signed-installer-windows-*
+          path: ${{ env.ACCEPTANCE_INPUT }}
+          run-id: ${{ inputs.signed_windows_run }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: runner.os != 'Windows'
+        with:
+          pattern: ${{ runner.os == 'macOS' && 'macos-universal-*' || format('linux-{0}-*', matrix.arch) }}
+          path: ${{ env.ACCEPTANCE_INPUT }}
+          repository: hwzlikewyh/iyw-claw-installer
+          run-id: 45967796369
+          github-token: ${{ github.token }}
+      - name: Install Windows UI automation
+        if: runner.os == 'Windows'
+        run: python -m pip install pywinauto==0.6.9
+      - name: Install Linux runtime and UI automation
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 libarchive13 libsodium23 libcurl4 xvfb xauth xdotool fonts-noto-cjk
+      - name: Install and verify both brands on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s '-screen 0 1440x1000x24' python .github/scripts/release/verify-online-brands.py
+      - name: Install and verify both brands on Windows or macOS
+        if: runner.os != 'Linux'
+        run: python .github/scripts/release/verify-online-brands.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: online-brands-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/brand-installation-result.json
+          if-no-files-found: ignore
+          retention-days: 14
