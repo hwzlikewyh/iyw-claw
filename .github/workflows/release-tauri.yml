@@ -151,17 +151,19 @@ jobs:
           cache-workspace-crates: "false"
           cache-on-failure: "true"
 
-      - name: Restore missing ARM64 V8 archive after Cargo cache restore
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Restore missing Linux V8 archive after Cargo cache restore
+        if: contains(matrix.target, 'linux')
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
         shell: bash
         run: |
           set -euo pipefail
           cd src-tauri
-          obj=target/aarch64-unknown-linux-gnu/release/gn_out/obj
+          obj="target/$BUILD_TARGET/release/gn_out/obj"
           if [[ ! -s "$obj/librusty_v8.a" ]]; then
             # v8 以 URL 回执跳过下载，Cargo 缓存可能只恢复回执和构建指纹。
             rm -f -- "$obj/librusty_v8.sum"
-            cargo clean --release --target aarch64-unknown-linux-gnu -p v8
+            cargo clean --release --target "$BUILD_TARGET" -p v8
           fi
 
       - name: Install Windows x86 assembler

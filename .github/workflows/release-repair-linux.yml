@@ -19,6 +19,10 @@ on:
         description: Original release run containing the matching frontend
         required: true
         type: string
+      candidate:
+        description: Repair a draft candidate from its verified frontend build
+        type: boolean
+        default: false
       target:
         required: true
         default: x86_64-unknown-linux-gnu
@@ -36,15 +40,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  source:
+    runs-on: ubuntu-22.04
+    if: inputs.candidate
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          SOURCE: ${{ inputs.source_ref }}
+          FRONTEND: ${{ inputs.frontend_run_id }}
+          VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            const run_id = Number(process.env.FRONTEND);
+            const {data} = await github.rest.actions.getWorkflowRun({...context.repo,run_id});
+            if (data.head_sha !== process.env.SOURCE || data.path !== '.github/workflows/release-github-hosted-test.yml') throw new Error('Candidate frontend source mismatch');
+            const items = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,{...context.repo,run_id});
+            if (!items.some(a => !a.expired && a.name === 'github-hosted-test-frontend-' + process.env.VERSION)) throw new Error('Candidate frontend unavailable');
   repair:
+    needs: source
+    if: ${{ !cancelled() && (needs.source.result == 'success' || !inputs.candidate) }}
     uses: ./.github/workflows/release-tauri.yml
     with:
-      parallel_worker: true
+      parallel_worker: ${{ !inputs.candidate }}
       release_id: ${{ inputs.release_id }}
       release_tag: v${{ inputs.version }}
       release_body: Existing release with repaired Linux build
       source_ref: ${{ inputs.source_ref }}
-      prerelease: false
+      prerelease: ${{ inputs.candidate }}
+      frontend_artifact: ${{ inputs.candidate && format('github-hosted-test-frontend-{0}', inputs.version) || 'release-frontend-out' }}
       frontend_run_id: ${{ inputs.frontend_run_id }}
       build_matrix: >-
         ${{ inputs.target == 'aarch64-unknown-linux-gnu'
