@@ -274,7 +274,7 @@ jobs:
       GIT_CONFIG_KEY_0: http.version
       GIT_CONFIG_VALUE_0: HTTP/1.1
       GIT_TERMINAL_PROMPT: "0"
-      IYW_CLAW_SIGN_TIMESTAMP_URL: ${{ inputs.staging_name != '' && 'http://timestamp.sectigo.com' || vars.WINDOWS_SIGN_TIMESTAMP_URL }}
+      IYW_CLAW_SIGN_TIMESTAMP_URL: ${{ (inputs.staging_name != '' || inputs.installer_run_id != '') && 'http://timestamp.sectigo.com' || vars.WINDOWS_SIGN_TIMESTAMP_URL }}
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
       IYW_CLAW_SKIP_SIDECAR: "1"
     steps:
