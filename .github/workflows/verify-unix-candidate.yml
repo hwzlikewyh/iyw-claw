@@ -103,7 +103,7 @@ jobs:
           test "${#apps[@]}" = 1
           arch_name=arm64
           [[ "$ARCH" != x64 ]] || arch_name=x86_64
-          lipo -verify_arch "$arch_name" "${apps[0]}/Contents/MacOS/iyw-claw"
+          lipo "${apps[0]}/Contents/MacOS/iyw-claw" -verify_arch "$arch_name"
           requirement='=identifier "app.iywclaw" and anchor apple generic and certificate leaf[subject.OU] = "393H57RCN6"'
           codesign --verify --deep --strict -R "$requirement" "${apps[0]}"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${apps[0]}/Contents/Info.plist")" = "$VERSION"
