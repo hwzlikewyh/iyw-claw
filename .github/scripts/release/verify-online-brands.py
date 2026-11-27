@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -110,7 +111,13 @@ def wait_installed(process, root, executable, data, prior_stages, started):
         errors.extend(p / "installer-error.log" for p in logs if (p / "installer-error.log").exists())
         if errors:
             text = errors[0].read_text(encoding="utf-8-sig", errors="replace")
-            raise RuntimeError("Installer failure: " + text[-1800:].replace(str(HOME), "<home>"))
+            for parent in [errors[0].parent, data / "logs/environment"]:
+                for filename in ("environment-repair.log.stderr", "environment-prepare.log.stderr", "last-error.log"):
+                    error_file = parent / filename
+                    if error_file.is_file():
+                        text += "\n" + filename + "\n" + error_file.read_text(encoding="utf-8", errors="replace")[-2500:]
+            text = re.sub(r"https?://[^\s\"<>]+", "<redacted-url>", text)
+            raise RuntimeError("Installer failure: " + text[-6500:].replace(str(HOME), "<home>"))
         snapshot = data / "inventory/environment-current.json"
         receipt = root / ("installer/direct-current.json" if IS_WINDOWS else "installed-release.json")
         success = bool(logs) and all(not p.exists() for p in stages)

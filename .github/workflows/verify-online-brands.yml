@@ -5,6 +5,9 @@ on:
       signed_windows_run:
         required: true
         type: string
+      target:
+        default: ''
+        type: string
 permissions:
   contents: read
   actions: read
@@ -13,12 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {runner: windows-2022, platform: windows, arch: x86_64}
-          - {runner: ubuntu-22.04, platform: linux, arch: x86_64}
-          - {runner: ubuntu-22.04-arm, platform: linux, arch: aarch64}
-          - {runner: macos-15, platform: macos, arch: aarch64}
-          - {runner: macos-15-intel, platform: macos, arch: x86_64}
+        include: ${{ fromJSON(inputs.target == 'linux-aarch64' && '[{"runner":"ubuntu-22.04-arm","platform":"linux","arch":"aarch64"}]' || '[{"runner":"windows-2022","platform":"windows","arch":"x86_64"},{"runner":"ubuntu-22.04","platform":"linux","arch":"x86_64"},{"runner":"ubuntu-22.04-arm","platform":"linux","arch":"aarch64"},{"runner":"macos-15","platform":"macos","arch":"aarch64"},{"runner":"macos-15-intel","platform":"macos","arch":"x86_64"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 100
     env:

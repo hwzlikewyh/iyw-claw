@@ -357,3 +357,4 @@ jobs:
     uses: ./.github/workflows/verify-online-brands.yml
     with:
       signed_windows_run: ${{ inputs.installer_run_id }}
+      target: ${{ inputs.installer_artifact_name }}
