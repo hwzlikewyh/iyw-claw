@@ -66,7 +66,7 @@ import type { MessageScrollPosition } from "@/components/message/virtualized-mes
 import { ConversationShell } from "@/components/chat/conversation-shell"
 import { SessionForkButton } from "@/components/chat/session-fork-button"
 import { SessionConfigStaleBanner } from "@/components/chat/session-config-stale-banner"
-import { ModelNetworkStatus } from "@/components/chat/model-network-status"
+import { ConversationRequestStatus } from "@/components/chat/conversation-request-status"
 import { BackgroundTasksChip } from "@/components/chat/background-tasks-chip"
 import { FeedbackNotesDisplay } from "@/components/chat/feedback-notes-display"
 import { FeedbackDialog } from "@/components/chat/feedback-dialog"
@@ -3753,7 +3753,7 @@ const ConversationTabView = memo(function ConversationTabView({
               onOpenAgentsSettings={handleOpenAgentsSettings}
               disabled={hasSentMessage || dbConversationId != null}
             />
-            <ModelNetworkStatus contextKey={tabId} />
+            <ConversationRequestStatus contextKey={tabId} />
             <ChatInput
               // composerConnStatus (not connStatus): a chat draft mid-reconnect
               // reads "connecting" until the connection's cwd matches, while

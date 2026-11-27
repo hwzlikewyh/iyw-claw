@@ -1,6 +1,13 @@
 import { maskAgentSdkBrandText } from "@/lib/agent-sdk-presentation"
+import {
+  REQUEST_ERROR_PATTERNS,
+  startsWithRequestError,
+  type DetailedRuntimeErrorKind,
+} from "./agent-runtime-error-details"
 
-export interface AgentRuntimeErrorMessages {
+export interface AgentRuntimeErrorMessages extends Partial<
+  Record<DetailedRuntimeErrorKind, string>
+> {
   insufficientBalance: string
   authenticationFailed: string
   permissionDenied: string
@@ -35,17 +42,7 @@ export function sanitizeAgentRuntimeErrorDetails(message: string): string {
   return maskAgentSdkBrandText(message.replace(RUNTIME_ERROR_URL_RE, ""))
 }
 
-type AgentRuntimeErrorKind =
-  | "insufficientBalance"
-  | "authenticationFailed"
-  | "permissionDenied"
-  | "rateLimited"
-  | "quotaExceeded"
-  | "modelUnavailable"
-  | "requestTimeout"
-  | "networkError"
-  | "serviceUnavailable"
-  | "requestFailed"
+type AgentRuntimeErrorKind = keyof AgentRuntimeErrorMessages
 
 const CATEGORY_PATTERNS: ReadonlyArray<
   readonly [AgentRuntimeErrorKind, readonly RegExp[]]
@@ -66,11 +63,12 @@ const CATEGORY_PATTERNS: ReadonlyArray<
     "authenticationFailed",
     [
       /\bunauthorized\b/i,
+      /invalid_api_key|authentication_error|invalid_token/i,
       /invalid[ _-]+api[ _-]+key/i,
       /authentication (?:failed|required)/i,
       /(?:invalid|expired)[ _-]+(?:access[ _-]+)?token/i,
       /token .{0,30}(?:is )?(?:invalid|expired)/i,
-      /(?:认证失败|密钥无效|令牌已过期)/,
+      /(?:认证失败|密钥无效|令牌已过期|未登录|请先登录)|登录.{0,10}(?:失效|过期)/,
     ],
   ],
   [
@@ -98,7 +96,7 @@ const CATEGORY_PATTERNS: ReadonlyArray<
       /too many requests/i,
       /request limit (?:has been )?exceeded/i,
       /\bthrottl(?:e|ed|ing)\b/i,
-      /请求过于频繁/,
+      /concurrency limit|too many concurrent|请求过于频繁|并发.{0,10}(?:超限|限制)/i,
     ],
   ],
   [
@@ -109,6 +107,7 @@ const CATEGORY_PATTERNS: ReadonlyArray<
     "networkError",
     [
       /network error/i,
+      /\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|error sending request/i,
       /connection (?:reset|refused|closed)/i,
       /(?:dns|name resolution) (?:error|failed|failure)/i,
       /tls handshake (?:error|failed|failure)/i,
@@ -144,6 +143,10 @@ function looksLikeRuntimeError(message: string): boolean {
 
   return (
     startsLikeError.test(message) ||
+    startsWithRequestError(message) ||
+    CATEGORY_PATTERNS.some(([, patterns]) =>
+      patterns.some((pattern) => pattern.exec(message)?.index === 0)
+    ) ||
     hasDiagnosticFields ||
     isJsonErrorPayload(message)
   )
@@ -177,7 +180,9 @@ function extractHttpStatus(message: string): number | null {
 export function classifyAgentRuntimeError(
   message: string
 ): AgentRuntimeErrorKind | null {
-  const normalized = message.trim()
+  const normalized = message
+    .trim()
+    .replace(/^(?:Internal error|ACP protocol error):\s*["']?/i, "")
   // 模型请求有时只返回传输错误，ACP 会再包装一层 Internal error。
   if (
     /^(?:Internal error:\s*["']?)?Connection failed: error sending request(?:["']?$|\s+error_info:.*"httpStatusCode\\?":\s*null\b)/i.test(
@@ -197,7 +202,10 @@ export function classifyAgentRuntimeError(
     return "serviceUnavailable"
   }
 
-  for (const [kind, patterns] of CATEGORY_PATTERNS) {
+  for (const [kind, patterns] of [
+    ...REQUEST_ERROR_PATTERNS,
+    ...CATEGORY_PATTERNS,
+  ]) {
     if (patterns.some((pattern) => pattern.test(normalized))) return kind
   }
 
@@ -205,6 +213,9 @@ export function classifyAgentRuntimeError(
   if (status === 401) return "authenticationFailed"
   if (status === 402) return "serviceUnavailable"
   if (status === 403) return "permissionDenied"
+  if (status === 413) return "requestTooLarge"
+  if (status === 400 || status === 422) return "invalidRequest"
+  if (status === 529) return "modelOverloaded"
   if (status === 408 || status === 504) return "requestTimeout"
   if (status === 429) return "rateLimited"
   if (status !== null && status >= 500) return "serviceUnavailable"
@@ -229,5 +240,5 @@ export function formatAgentRuntimeError(
   if (kind === "quotaExceeded" && message.includes(SPACE_QUOTA_MESSAGE)) {
     return SPACE_QUOTA_MESSAGE
   }
-  return kind ? messages[kind] : null
+  return kind ? (messages[kind] ?? messages.requestFailed) : null
 }

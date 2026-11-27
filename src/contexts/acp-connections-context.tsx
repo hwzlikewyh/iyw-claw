@@ -3006,6 +3006,16 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       networkError: t("backendErrors.networkError"),
       serviceUnavailable: t("backendErrors.serviceUnavailable"),
       requestFailed: t("backendErrors.requestFailed"),
+      workspaceSwitching: t("backendErrors.workspaceSwitching"),
+      contextTooLong: t("backendErrors.contextTooLong"),
+      requestTooLarge: t("backendErrors.requestTooLarge"),
+      contentRejected: t("backendErrors.contentRejected"),
+      modelOverloaded: t("backendErrors.modelOverloaded"),
+      sessionUnavailable: t("backendErrors.sessionUnavailable"),
+      toolProtocolError: t("backendErrors.toolProtocolError"),
+      outputLimitReached: t("backendErrors.outputLimitReached"),
+      modelStreamInterrupted: t("backendErrors.modelStreamInterrupted"),
+      invalidRequest: t("backendErrors.invalidRequest"),
     }),
     [t]
   )

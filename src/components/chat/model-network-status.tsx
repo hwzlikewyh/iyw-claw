@@ -23,6 +23,8 @@ const NETWORK_ERROR_KINDS = new Set([
   "networkError",
   "requestTimeout",
   "serviceUnavailable",
+  "modelOverloaded",
+  "modelStreamInterrupted",
 ])
 const NETWORK_ERROR_KEYS = [
   "backendErrors.networkError",

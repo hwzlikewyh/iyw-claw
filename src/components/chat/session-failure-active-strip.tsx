@@ -97,7 +97,7 @@ export function ActiveFailureStrip({
       <div className="flex flex-wrap items-center gap-2">
         <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
         <span
-          className="min-w-0 basis-40 flex-1 truncate font-medium"
+          className="min-w-0 basis-40 flex-1 break-words font-medium"
           title={details ?? title}
         >
           {title}
