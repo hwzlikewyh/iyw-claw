@@ -72,6 +72,40 @@ def wizard(brand, name):
     return next(p for p in destination.rglob(filename) if p.is_file())
 
 
+def click_windows_primary(window, label, point):
+    import win32con
+    import win32gui
+    from pywinauto.findwindows import ElementNotFoundError
+
+    button = window.child_window(title_re=label, control_type="Button")
+    try:
+        if button.exists(timeout=3):
+            wrapper = button.wrapper_object()
+            action = getattr(wrapper, "iface_legacy_iaccessible", None)
+            if action is not None:
+                action.DoDefaultAction()
+                return
+    except (AttributeError, NotImplementedError, ElementNotFoundError):
+        pass
+
+    # wxWidgets 的自绘按钮有独立 HWND。无交互桌面时，将点击发给该控件。
+    hwnd = window.handle
+    _, _, width, height = win32gui.GetClientRect(hwnd)
+    pos = (round(point[0] * width / 960), round(point[1] * height / 640))
+    screen = win32gui.ClientToScreen(hwnd, pos)
+    control = hwnd
+    while True:
+        pos = win32gui.ScreenToClient(control, screen)
+        child = win32gui.ChildWindowFromPointEx(control, pos, win32con.CWP_SKIPINVISIBLE | win32con.CWP_SKIPDISABLED)
+        if not child or child == control:
+            break
+        control = child
+    assert control != hwnd, "Expected a native wizard button at the primary action"
+    packed = pos[0] | (pos[1] << 16)
+    win32gui.SendMessageTimeout(control, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, packed, win32con.SMTO_ABORTIFHUNG, 5000)
+    win32gui.SendMessageTimeout(control, win32con.WM_LBUTTONUP, 0, packed, win32con.SMTO_ABORTIFHUNG, 5000)
+
+
 def start_install(exe, repeated):
     output = (TEMP / ("wizard-" + exe.name + ".log")).open("w", encoding="utf-8")
     process = subprocess.Popen([str(exe)], stdout=output, stderr=output)
@@ -81,11 +115,11 @@ def start_install(exe, repeated):
         from pywinauto import Application
         app = Application(backend="uia").connect(process=process.pid, timeout=30)
         window = app.top_window()
-        window.set_focus()
-        window.type_keys("{ENTER}", set_foreground=True)
         if not repeated:
-            time.sleep(2)
-            window.type_keys("{ENTER}", set_foreground=True)
+            click_windows_primary(window, "^开始安装", (710, 410))
+            time.sleep(1)
+        click_windows_primary(window, "^检查并更新" if repeated else "^下载并安装", (803, 543))
+        print("Activated Windows installer primary action", exe.name, flush=True)
     elif IS_MAC:
         script = ('tell application "System Events"\n'
                   f'set p to first application process whose unix id is {process.pid}\n'
@@ -108,6 +142,8 @@ def wait_installed(process, root, executable, data, prior_stages, started):
         stages.update(set(Path(tempfile.gettempdir()).glob("yuan-setup-*")) - prior_stages)
         errors = [p for stage in stages for p in stage.glob("installer-error.log")]
         logs = [p for p in (data / "logs/installer").glob("*") if p.stat().st_mtime >= started]
+        if IS_WINDOWS and time.time() - started > 90 and not stages and not logs:
+            raise RuntimeError("Windows wizard did not start an installation transaction")
         errors.extend(p / "installer-error.log" for p in logs if (p / "installer-error.log").exists())
         if errors:
             text = errors[0].read_text(encoding="utf-8-sig", errors="replace")
